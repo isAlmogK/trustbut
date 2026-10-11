@@ -83,6 +83,25 @@ describe('renderMarkdown', () => {
   });
 });
 
+describe('factual receipt wording', () => {
+  const after = { exitCode: 0, durationMs: 1, output: '', cases: [{ id: 'a', file: 't.test.ts', name: 'a', outcome: 'pass' as const }] };
+  const base = { base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings: [], changes: [] };
+
+  it('says weak proofs could not run at base', () => {
+    const md = renderMarkdown(buildReceipt({ ...base, after, proofs: [proof('a', 'proves-change', true), proof('b', 'proves-change')] }));
+    expect(md).toContain("**New/changed tests:** 2 prove the change (1 couldn't run at base) · 0 pass without it");
+  });
+
+  it('labels the test run scope', () => {
+    const full = buildReceipt({ ...base, after, proofs: [] });
+    expect(full.scope).toBe('full');
+    expect(renderMarkdown(full)).toContain('**Tests (clean checkout):** 1 passed');
+    const changed = buildReceipt({ ...base, after, proofs: [], scope: 'changed' });
+    expect(changed.scope).toBe('changed');
+    expect(renderMarkdown(changed)).toContain('**Tests (clean checkout, changed files only):** 1 passed');
+  });
+});
+
 describe('path-word risk matching', () => {
   const reasonsFor = (path: string, kind: ChangedFile['kind'] = 'source') =>
     rankRisks([file(path, kind)], []).flatMap((r) => r.reasons);

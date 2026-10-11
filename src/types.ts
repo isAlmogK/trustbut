@@ -62,11 +62,15 @@ export interface RiskItem {
 
 export type Verdict = 'pass' | 'warn' | 'fail';
 
+/** Which tests the head rerun covered: the whole suite, or only the changed test files (--quick). */
+export type RunScope = 'full' | 'changed';
+
 export interface Receipt {
   version: 1;
   base: string;
   head: string;
   runner: string | null;
+  scope: RunScope;
   verdict: Verdict;
   after?: RunResult;
   before?: RunResult;

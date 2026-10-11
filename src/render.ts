@@ -42,7 +42,8 @@ export function renderMarkdown(r: Receipt): string {
 
   if (r.after) {
     const t = tally(r.after);
-    lines.push(`**Tests (clean checkout):** ${t.pass} passed · ${t.fail + t.error} failed · ${t.skip} skipped`);
+    const where = r.scope === 'changed' ? 'clean checkout, changed files only' : 'clean checkout';
+    lines.push(`**Tests (${where}):** ${t.pass} passed · ${t.fail + t.error} failed · ${t.skip} skipped`);
   } else {
     lines.push('**Tests:** not run');
   }
@@ -50,7 +51,7 @@ export function renderMarkdown(r: Receipt): string {
     const proves = r.proofs.filter((p) => p.verdict === 'proves-change');
     const weak = proves.filter((p) => p.weak).length;
     const loose = r.proofs.filter((p) => p.verdict === 'does-not-constrain').length;
-    lines.push(`**New/changed tests:** ${proves.length} prove the change${weak ? ` (${weak} only because the code didn't exist yet)` : ''} · ${loose} pass without it`);
+    lines.push(`**New/changed tests:** ${proves.length} prove the change${weak ? ` (${weak} couldn't run at base)` : ''} · ${loose} pass without it`);
   }
 
   lines.push('', '### Findings');

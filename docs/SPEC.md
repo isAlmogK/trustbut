@@ -114,7 +114,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
 
 ### 6. Receipt
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
-- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`.
+- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error.
 
 ## Later layers (not in v0.1)
 

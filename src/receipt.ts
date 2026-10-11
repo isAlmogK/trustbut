@@ -1,10 +1,11 @@
 import { rankRisks } from './risk.js';
-import type { ChangedFile, Finding, Receipt, RunResult, TestProof, Verdict } from './types.js';
+import type { ChangedFile, Finding, Receipt, RunResult, RunScope, TestProof, Verdict } from './types.js';
 
 export interface ReceiptInput {
   base: string;
   head: string;
   runner: string | null;
+  scope?: RunScope;
   after?: RunResult;
   before?: RunResult;
   proofs: TestProof[];
@@ -45,6 +46,7 @@ export function buildReceipt(input: ReceiptInput): Receipt {
     base: input.base,
     head: input.head,
     runner: input.runner,
+    scope: input.scope ?? 'full',
     verdict: decideVerdict(findings),
     after: input.after,
     before: input.before,

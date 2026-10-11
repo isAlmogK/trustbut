@@ -122,6 +122,17 @@ describe('trustbut verify (end to end)', () => {
     ]);
   });
 
+  it('--quick reruns only changed test files and says so', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const { receipt, output } = await runVerify({ cwd: dir, quick: true });
+    expect(receipt.scope).toBe('changed');
+    expect(receipt.after?.cases.map((c) => c.name)).toEqual(['adds']);
+    expect(output).toContain('**Tests (clean checkout, changed files only):** 1 passed');
+  });
+
   it('errors clearly when there is nothing to compare', async () => {
     const { dir } = await makeRepo(BASE_FILES);
     await expect(runVerify({ cwd: dir })).rejects.toThrow(/No changes between base and head/);

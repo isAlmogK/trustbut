@@ -3,7 +3,7 @@ import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/prom
 import { dirname, join, sep } from 'node:path';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import type { Runner } from './runners/types.js';
-import type { ChangedFile, Finding, RunResult, TestCaseResult, TestProof } from './types.js';
+import type { ChangedFile, Finding, RunResult, RunScope, TestCaseResult, TestProof } from './types.js';
 
 const DEP_DIRS = ['node_modules', '.venv', 'venv'];
 const LOCKFILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
@@ -18,6 +18,7 @@ export interface ProofInput {
 }
 
 export interface ProofOutput {
+  scope: RunScope;
   after?: RunResult;
   before?: RunResult;
   proofs: TestProof[];
@@ -126,10 +127,11 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
   let baseDir: string | undefined;
   try {
     await linkDeps(repo, headDir);
-    const after = await runner.run({ cwd: headDir, files: quick && testFiles.length ? testFiles : undefined });
+    const scope: RunScope = quick && testFiles.length ? 'changed' : 'full';
+    const after = await runner.run({ cwd: headDir, files: scope === 'changed' ? testFiles : undefined });
     const headFinding = headRunFinding(after);
     if (headFinding) findings.push(headFinding);
-    if (!testFiles.length) return { after, proofs: [], findings };
+    if (!testFiles.length) return { scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir);
@@ -153,7 +155,7 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
         title: 'No test results matched the changed test files; fail-before/pass-after evidence unavailable',
       });
     }
-    return { after, before, proofs: buildProofs(changedTests, before, after), findings };
+    return { scope, after, before, proofs: buildProofs(changedTests, before, after), findings };
   } finally {
     // Nested so a failure cleaning up head cannot skip cleaning up base.
     try {

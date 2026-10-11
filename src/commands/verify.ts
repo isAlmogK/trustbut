@@ -57,7 +57,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   }
 
   const runner = opts.runner ? getRunner(opts.runner) : await detectRunner(repo);
-  let proof: ProofOutput = { proofs: [], findings: [] };
+  let proof: ProofOutput = { scope: 'full', proofs: [], findings: [] };
   if (runner) {
     proof = await proveTests({ repo, base, head, changes, runner, quick: opts.quick });
   } else {
@@ -68,6 +68,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
     base,
     head,
     runner: runner?.name ?? null,
+    scope: proof.scope,
     after: proof.after,
     before: proof.before,
     proofs: proof.proofs,
