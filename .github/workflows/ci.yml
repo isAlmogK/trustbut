@@ -18,8 +18,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
       - run: npm test
       - run: npm run build
       - name: Receipt for this PR (dogfood)
         if: github.event_name == 'pull_request'
-        run: node dist/cli.js verify --base origin/${{ github.base_ref }} | tee receipt.md >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node dist/cli.js verify --base "origin/${BASE_REF}" | tee -a "$GITHUB_STEP_SUMMARY"
