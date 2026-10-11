@@ -74,3 +74,60 @@ describe('checkEscapes', () => {
     ]);
   });
 });
+
+describe('checkTestIntegrity regressions', () => {
+  it('does not treat ordinary .fit( calls as focused tests', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'test/model.test.ts',
+        added: [
+          { line: 3, text: '    model.fit(X, y)' },
+          { line: 4, text: '  fitAddon.fit();' },
+        ],
+      }),
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it('still fails on jasmine-style fit and fdescribe at statement start', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'test/focus.test.ts',
+        added: [
+          { line: 5, text: "  fit('x', () => {" },
+          { line: 9, text: "fdescribe('y', () => {" },
+        ],
+      }),
+    ]);
+    expect(findings).toMatchObject([
+      { id: 'test-focused', severity: 'fail', line: 5 },
+      { id: 'test-focused', severity: 'fail', line: 9 },
+    ]);
+  });
+
+  it('counts removed unittest assertions', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'tests/test_math.py',
+        removed: ['        self.assertEqual(add(1, 2), 3)', '        self.assertEqual(add(0, 0), 0)'],
+      }),
+    ]);
+    expect(findings).toMatchObject([{ id: 'assertions-removed', severity: 'warn', title: '2 assertions removed' }]);
+  });
+
+  it('detects added unittest skips', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'tests/test_math.py',
+        added: [
+          { line: 4, text: '@unittest.skip("flaky")' },
+          { line: 8, text: '        self.skipTest("later")' },
+        ],
+      }),
+    ]);
+    expect(findings).toMatchObject([
+      { id: 'test-skipped', severity: 'warn', file: 'tests/test_math.py', line: 4 },
+      { id: 'test-skipped', severity: 'warn', file: 'tests/test_math.py', line: 8 },
+    ]);
+  });
+});

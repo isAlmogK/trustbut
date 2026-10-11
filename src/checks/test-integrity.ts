@@ -2,9 +2,9 @@ import type { ChangedFile, Finding } from '../types.js';
 
 const TEST_DEF = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|(?:async\s+)?def\s+test_\w*)/;
 const SKIP =
-  /\b(?:it|test|describe)\.(?:skip|todo)\b|\bx(?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|skipif|xfail)\b|\bpytest\.skip\s*\(/;
-const FOCUS = /\b(?:it|test|describe)\.only\b|\bf(?:it|describe)\s*\(/;
-const ASSERT = /\bexpect\s*\(|\bassert\b|\.should\b/;
+  /\b(?:it|test|describe)\.(?:skip|todo)\b|\bx(?:it|test|describe)\s*\(|@pytest\.mark\.(?:skip|skipif|xfail)\b|\bpytest\.skip\s*\(|@unittest\.(?:skip|skipIf|skipUnless|expectedFailure)\b|\bself\.skipTest\s*\(/;
+const FOCUS = /\b(?:it|test|describe)\.only\b|^\s*f(?:it|describe)\s*\(/;
+const ASSERT = /\bexpect\s*\(|\bassert\b|\.should\b|\bself\.assert\w*\(|\bassert[A-Z]\w*\(/;
 
 const count = (lines: string[], re: RegExp) => lines.filter((l) => re.test(l)).length;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
