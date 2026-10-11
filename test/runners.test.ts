@@ -1,7 +1,7 @@
 import { execaSync } from 'execa';
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { detectRunner } from '../src/runners/detect.js';
 import { parseJUnit } from '../src/runners/junit.js';
@@ -106,9 +106,42 @@ describe.skipIf(!hasPytest)('pytest runner', () => {
 
 describe('pytest adapter without pytest installed', () => {
   const saved = process.env.TRUSTBUT_PYTHON;
+  const savedPath = process.env.PYTHONPATH;
   afterEach(() => {
     if (saved === undefined) delete process.env.TRUSTBUT_PYTHON;
     else process.env.TRUSTBUT_PYTHON = saved;
+    if (savedPath === undefined) delete process.env.PYTHONPATH;
+    else process.env.PYTHONPATH = savedPath;
+  });
+
+  /** A fake python that records its arguments and PYTHONPATH, then exits 5 (no tests). */
+  async function recordingPython(dir: string): Promise<string> {
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\nprintf '%s' "$PYTHONPATH" > "${dir}/pythonpath"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    return fake;
+  }
+
+  it('pins --rootdir and puts the checkout (and src/) first on PYTHONPATH', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    await mkdir(join(cwd, 'src'));
+    process.env.TRUSTBUT_PYTHON = await recordingPython(tools);
+    process.env.PYTHONPATH = '/user/site';
+    await pytest.run({ cwd, files: ['tests/test_a.py'] });
+    const args = (await readFile(join(tools, 'args'), 'utf8')).trim().split('\n');
+    expect(args).toEqual(expect.arrayContaining(['--rootdir', cwd, 'tests/test_a.py']));
+    expect(args[args.indexOf('--rootdir') + 1]).toBe(cwd);
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
+  });
+
+  it('uses just the checkout on PYTHONPATH without src/ or an inherited PYTHONPATH', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    process.env.TRUSTBUT_PYTHON = await recordingPython(tools);
+    delete process.env.PYTHONPATH;
+    await pytest.run({ cwd });
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe(cwd);
   });
 
   it('surfaces start-up errors in output', async () => {

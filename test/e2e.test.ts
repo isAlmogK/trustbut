@@ -1,8 +1,10 @@
-import { execa } from 'execa';
+import { execa, execaSync } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../src/commands/verify.js';
 import { buildProgram } from '../src/program.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
+
+const hasPytest = execaSync('python3', ['-m', 'pytest', '--version'], { reject: false }).exitCode === 0;
 
 const BASE_FILES = {
   '.gitignore': 'node_modules\n',
@@ -168,4 +170,27 @@ describe('trustbut verify (end to end)', () => {
       process.exitCode = prev;
     }
   });
+});
+
+describe.skipIf(!hasPytest)('trustbut verify with pytest (end to end)', () => {
+  it('PASS: src-layout package fix proven by a pytest test, reported by repo path', async () => {
+    const { dir } = await makeRepo({
+      'pyproject.toml': '[tool.pytest.ini_options]\n',
+      'src/calc/__init__.py': 'def add(a, b):\n    return a - b\n',
+      'tests/test_old.py': 'def test_truth():\n    assert True\n',
+    });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'src/calc/__init__.py': 'def add(a, b):\n    return a + b\n',
+      'tests/test_add.py': 'from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n',
+    });
+    await commitAll(dir, 'fix add');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.runner).toBe('pytest');
+    expect(receipt.after?.exitCode).toBe(0);
+    expect(receipt.proofs.map((p) => [p.file, p.name, p.before, p.verdict])).toEqual([
+      ['tests/test_add.py', 'test_add', 'fail', 'proves-change'],
+    ]);
+    expect(receipt.verdict).toBe('pass');
+  }, 120_000);
 });
