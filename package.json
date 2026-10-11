@@ -2,6 +2,28 @@
   "name": "trustbut",
   "version": "0.0.1",
   "description": "Verifiable receipts for code written by AI coding agents",
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "opencode",
+    "code-review",
+    "testing",
+    "verification",
+    "vitest",
+    "pytest",
+    "cli"
+  ],
+  "homepage": "https://github.com/isAlmogK/trustbut#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isAlmogK/trustbut.git"
+  },
+  "bugs": {
+    "url": "https://github.com/isAlmogK/trustbut/issues"
+  },
   "type": "module",
   "bin": {
     "trustbut": "dist/cli.js"
@@ -17,7 +39,8 @@
     "build": "tsup src/cli.ts --format esm --target node22 --clean",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "commander": "^15.0.0",
