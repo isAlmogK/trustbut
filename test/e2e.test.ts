@@ -90,6 +90,36 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.proofs.map((p) => p.name)).not.toContain('truth');
   });
 
+  it('copies changed fixtures and snapshots into the base checkout', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/fixtures/v.json': '{ "v": 2 }\n',
+      'test/fixture.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { readFileSync } from 'node:fs';",
+        "it('reads fixture', () => expect(JSON.parse(readFileSync(new URL('./fixtures/v.json', import.meta.url), 'utf8')).v).toBe(2));",
+        '',
+      ].join('\n'),
+      'test/snap.test.js': "import { it, expect } from 'vitest';\nit('snap', () => expect({ a: 1 }).toMatchSnapshot());\n",
+      'test/__snapshots__/snap.test.js.snap': [
+        '// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html',
+        '',
+        'exports[`snap 1`] = `',
+        '{',
+        '  "a": 1,',
+        '}',
+        '`;',
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.after?.exitCode).toBe(0);
+    expect(receipt.proofs.map((p) => [p.name, p.before, p.verdict])).toEqual([
+      ['reads fixture', 'pass', 'does-not-constrain'],
+      ['snap', 'pass', 'does-not-constrain'],
+    ]);
+  });
+
   it('errors clearly when there is nothing to compare', async () => {
     const { dir } = await makeRepo(BASE_FILES);
     await expect(runVerify({ cwd: dir })).rejects.toThrow(/No changes between base and head/);

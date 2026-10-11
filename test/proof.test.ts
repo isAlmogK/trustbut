@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { execa } from 'execa';
+import { mkdtemp, readdir, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
 import { buildProofs, caseInFile, proveTests } from '../src/proof.js';
@@ -143,6 +146,22 @@ describe('proveTests evidence findings', () => {
     expect(result.findings).toEqual([
       { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
     ]);
+  });
+});
+
+describe('proveTests copying test data into base', () => {
+  it('never writes outside the base checkout through a symlinked directory', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'outside-'));
+    const { dir } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await symlink(outside, join(dir, 'fixtures'), 'dir');
+    const linked = await commitAll(dir, 'link fixtures');
+    await rm(join(dir, 'fixtures'));
+    await writeFiles(dir, { 'fixtures/x.json': '{}\n', 'test/a.test.js': "it('a', () => {});\n" });
+    const head = await commitAll(dir, 'real fixtures');
+    const changes = parseChanges(await diffText(dir, linked, head));
+    expect(changes.map((c) => c.path)).toContain('fixtures/x.json');
+    await proveTests({ repo: dir, base: linked, head, changes, runner: stubRunner(run([tc('test/a.test.js', 'a', 'pass')])) });
+    expect(await readdir(outside)).toEqual([]);
   });
 });
 

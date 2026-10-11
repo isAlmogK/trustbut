@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, symlink, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join, sep } from 'node:path';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import type { Runner } from './runners/types.js';
 import type { ChangedFile, Finding, RunResult, TestCaseResult, TestProof } from './types.js';
@@ -73,6 +73,24 @@ function headRunFinding(after: RunResult): Finding | undefined {
   return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: `exit code ${after.exitCode}` };
 }
 
+// Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
+const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?)\//;
+
+/** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
+async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
+  const target = join(dir, path);
+  await mkdir(dirname(target), { recursive: true });
+  const root = await realpath(dir);
+  const parent = await realpath(dirname(target));
+  if (parent !== root && !parent.startsWith(root + sep)) return;
+  try {
+    if ((await lstat(target)).isSymbolicLink()) await unlink(target);
+  } catch {
+    // not present at base
+  }
+  await writeFile(target, await showFileBuffer(repo, head, path));
+}
+
 // Files whose name says they define tests (helpers under test/ do not produce results of their own).
 const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$/;
 
@@ -115,11 +133,10 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir);
-    for (const path of testFiles) {
-      const target = join(baseDir, path);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, await showFileBuffer(repo, head, path));
-    }
+    const toCopy = changes
+      .filter((c) => c.status !== 'deleted' && (c.kind === 'test' || c.kind === 'snapshot' || TEST_DATA_DIR.test(c.path)))
+      .map((c) => c.path);
+    for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
     const before = await runner.run({ cwd: baseDir, files: testFiles });
     if (before.exitCode !== 0 && before.cases.length === 0) {
       findings.push({
