@@ -20,4 +20,5 @@ trustbut is a local CLI that produces a deterministic evidence report ("receipt"
 - Keep files focused: one check per file in `src/checks/`, one runner per file in `src/runners/`.
 - Findings describe facts ("test passes without the change"), never intent ("agent cheated").
 - Git compatibility: don't rely on `git init -b` or other flags newer than git 2.17.
+- Before reporting a task done, run `npm run receipt` and include the receipt; a FAIL caused by your change blocks the task.
 - Commit after each plan task with a conventional message (`feat:`, `fix:`, `test:`, `docs:`).

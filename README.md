@@ -11,6 +11,8 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](https://nodejs.org)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/ROADMAP.md)
 
+🧾 *Verified by trustbut: every pull request to this repo carries its own trustbut receipt.*
+
 [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
@@ -289,7 +291,10 @@ npm ci
 npm test           # unit and end-to-end tests (real git repos, real test runs)
 npm run typecheck
 npm run build
+npm run receipt   # trustbut's receipt for your branch; run before opening a PR
 ```
+
+Every pull request gets a trustbut receipt posted as a comment (and in the CI job summary). Run `npm run receipt` locally first so there are no surprises.
 
 trustbut is built with AI coding agents and verified by itself: every pull request gets its own trustbut receipt in CI. The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
 
