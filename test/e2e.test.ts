@@ -154,7 +154,7 @@ describe('trustbut verify (end to end)', () => {
 
   it('rejects an unknown runner', async () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
-    await expect(runVerify({ cwd: dir, runner: 'nope' })).rejects.toThrow(/Unknown runner: nope/);
+    await expect(runVerify({ cwd: dir, runner: 'nope' })).rejects.toThrow(/Unknown runner: nope\. Supported: .*\bcommand\b/);
   });
 
   it('uses the merge-base for an explicit --base on a diverged branch', async () => {

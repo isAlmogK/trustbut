@@ -245,10 +245,14 @@ describe('proveTests in a package root', () => {
   });
 
   it('passes root-relative files to caseInFile when the runner has no hook', async () => {
-    const { dir, base, head, changes } = await monorepo();
-    const runner = stubRunner(run([tc('test/a.test.js', 'TestA', 'pass')]), run([tc('test/a.test.js', 'TestA', 'fail')], 1));
-    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg', quick: true });
-    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['pkg/test/a.test.js', 'proves-change']]);
+    const { dir, base } = await makeRepo({ 'pkg/calc.py': 'x = 1\n' });
+    await writeFiles(dir, { 'pkg/calc.py': 'x = 2\n', 'pkg/tests/test_a.py': 'def test_a():\n    pass\n' });
+    const head = await commitAll(dir, 'change');
+    const changes = parseChanges(await diffText(dir, base, head));
+    // pytest reports module names relative to its rootdir (the package root), not the repo.
+    const runner = stubRunner(run([tc('tests.test_a', 'test_a', 'pass')]), run([tc('tests.test_a', 'test_a', 'fail')], 1));
+    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg' });
+    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['pkg/tests/test_a.py', 'proves-change']]);
   });
 
   it('errors when the package root does not exist at head', async () => {
