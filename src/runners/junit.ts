@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { languageOf } from '../languages/index.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
 
 const parser = new XMLParser({
@@ -6,8 +7,6 @@ const parser = new XMLParser({
   attributeNamePrefix: '',
   isArray: (name) => name === 'testsuite' || name === 'testcase',
 });
-
-const LOOKS_LIKE_PATH = /\.[cm]?[jt]sx?$|\.py$/;
 
 interface JUnitCase {
   name?: string | number;
@@ -33,7 +32,7 @@ export function parseJUnit(xml: string): TestCaseResult[] {
       const outcome: TestOutcome =
         tc.failure !== undefined ? 'fail' : tc.error !== undefined ? 'error' : tc.skipped !== undefined ? 'skip' : 'pass';
       const suiteName = suite.name ?? '';
-      const file = LOOKS_LIKE_PATH.test(suiteName) ? suiteName : (tc.file ?? tc.classname ?? '');
+      const file = languageOf(suiteName) !== undefined ? suiteName : (tc.file ?? tc.classname ?? '');
       const name = String(tc.name ?? '');
       out.push({ id: `${file}::${name}`, file, name, outcome });
     }

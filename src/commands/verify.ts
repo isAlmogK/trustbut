@@ -5,14 +5,14 @@ import { diffText, isDirty, mergeBase, repoRoot, resolveRef } from '../git.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
-import { detectRunner, getRunner } from '../runners/detect.js';
+import { detectRunner, getRunner } from '../runners/registry.js';
 import type { Finding, Receipt } from '../types.js';
 
 export interface VerifyOptions {
   cwd?: string;
   base?: string;
   head?: string;
-  runner?: 'vitest' | 'pytest';
+  runner?: string;
   quick?: boolean;
   strict?: boolean;
   json?: boolean;
@@ -40,9 +40,7 @@ async function resolveBase(repo: string, head: string, explicit?: string): Promi
 }
 
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
-  if (opts.runner !== undefined && opts.runner !== 'vitest' && opts.runner !== 'pytest') {
-    throw new Error(`Unknown runner: ${String(opts.runner)}. Supported: vitest, pytest`);
-  }
+  const forced = opts.runner !== undefined ? getRunner(opts.runner) : undefined;
   const repo = await repoRoot(opts.cwd ?? process.cwd());
   const headRef = opts.head ?? 'HEAD';
   const head = await resolveRef(repo, headRef);
@@ -56,7 +54,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
     findings.push({ id: 'uncommitted-changes', severity: 'info', title: 'Uncommitted changes are not included in this receipt' });
   }
 
-  const runner = opts.runner ? getRunner(opts.runner) : await detectRunner(repo);
+  const runner = forced ?? (await detectRunner(repo));
   let proof: ProofOutput = { scope: 'full', proofs: [], findings: [] };
   if (runner) {
     proof = await proveTests({ repo, base, head, changes, runner, quick: opts.quick });

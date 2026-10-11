@@ -1,31 +1,34 @@
+// Helpers for runner `detect()` functions.
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { pytest } from './pytest.js';
-import type { Runner } from './types.js';
-import { vitest } from './vitest.js';
 
-export function getRunner(name: 'vitest' | 'pytest'): Runner {
-  return name === 'vitest' ? vitest : pytest;
+export interface PackageJson {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  scripts?: Record<string, string>;
+  [key: string]: unknown;
 }
 
-export async function detectRunner(cwd: string): Promise<Runner | null> {
-  const pkgPath = join(cwd, 'package.json');
-  if (existsSync(pkgPath)) {
-    let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
-    try {
-      pkg = JSON.parse(await readFile(pkgPath, 'utf8'));
-    } catch (err) {
-      throw new Error(`Could not read package.json: ${(err as Error).message}`);
-    }
-    if (pkg?.dependencies?.vitest || pkg?.devDependencies?.vitest) return vitest;
+/** The parsed package.json in `root`, or undefined when there is none. Throws a clear error if it is malformed. */
+export async function readPackageJson(root: string): Promise<PackageJson | undefined> {
+  const path = join(root, 'package.json');
+  if (!existsSync(path)) return undefined;
+  try {
+    const pkg = JSON.parse(await readFile(path, 'utf8')) as unknown;
+    return pkg && typeof pkg === 'object' ? (pkg as PackageJson) : {};
+  } catch (err) {
+    throw new Error(`Could not read package.json: ${(err as Error).message}`);
   }
-  const vitestConfigs = ['config', 'workspace'].flatMap((kind) =>
-    ['ts', 'js', 'mjs', 'cjs', 'mts', 'cts'].map((ext) => `vitest.${kind}.${ext}`),
-  );
-  if (vitestConfigs.some((f) => existsSync(join(cwd, f)))) return vitest;
-  if (['pytest.ini', 'conftest.py', 'tox.ini'].some((f) => existsSync(join(cwd, f)))) return pytest;
-  const pyproject = join(cwd, 'pyproject.toml');
-  if (existsSync(pyproject) && (await readFile(pyproject, 'utf8')).includes('[tool.pytest')) return pytest;
-  return null;
+}
+
+export const hasDep = (pkg: PackageJson | undefined, name: string): boolean =>
+  !!(pkg?.dependencies?.[name] || pkg?.devDependencies?.[name]);
+
+export const anyExists = (root: string, files: string[]): boolean => files.some((f) => existsSync(join(root, f)));
+
+/** Whether `root/file` exists and contains `text`. */
+export async function fileContains(root: string, file: string, text: string): Promise<boolean> {
+  const path = join(root, file);
+  return existsSync(path) && (await readFile(path, 'utf8')).includes(text);
 }

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { execa } from 'execa';
+import { anyExists, fileContains } from './detect.js';
 import { childEnv, runOutput } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { Runner } from './types.js';
@@ -23,18 +24,21 @@ function pythonPath(cwd: string, inherited: string | undefined): string {
 
 export const pytest: Runner = {
   name: 'pytest',
-  async run({ cwd, files }) {
+  async detect(root) {
+    return anyExists(root, ['pytest.ini', 'conftest.py', 'tox.ini']) || (await fileContains(root, 'pyproject.toml', '[tool.pytest')) ? 10 : 0;
+  },
+  async run({ cwd, files, args = [], env: extraEnv, timeoutMs }) {
     const dir = await mkdtemp(join(tmpdir(), 'trustbut-junit-'));
     const out = join(dir, 'junit.xml');
     const start = Date.now();
     try {
-      const env = childEnv();
+      const env = childEnv(extraEnv);
       env.PYTHONPATH = pythonPath(cwd, env.PYTHONPATH);
       // --rootdir keeps test ids identical between the head and base checkouts.
       const res = await execa(
         pythonFor(cwd),
-        ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--rootdir', cwd, `--junitxml=${out}`, ...(files ?? [])],
-        { cwd, reject: false, all: true, extendEnv: false, env },
+        ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--rootdir', cwd, `--junitxml=${out}`, ...args, ...(files ?? [])],
+        { cwd, reject: false, all: true, extendEnv: false, env, timeout: timeoutMs },
       );
       const xml = existsSync(out) ? await readFile(out, 'utf8') : '';
       // pytest exits 5 when no tests are collected; treat as success (vitest uses --passWithNoTests).

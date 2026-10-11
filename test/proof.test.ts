@@ -98,7 +98,7 @@ describe('buildProofs on modified test files', () => {
 /** A runner stub: the first call is the head run, the second the base run. */
 function stubRunner(head: RunResult, base?: RunResult): Runner {
   let calls = 0;
-  return { name: 'vitest', run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
+  return { name: 'vitest', detect: async () => 0, run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
 }
 
 async function repoWithNewTest() {

@@ -1,6 +1,16 @@
-import { Command, Option } from 'commander';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
+import { getRunner } from './runners/registry.js';
 import { VERSION } from './version.js';
+
+/** Validates --runner against the runner registry; commander reports the error and cli.ts exits 2. */
+function parseRunner(name: string): string {
+  try {
+    return getRunner(name).name;
+  } catch (err) {
+    throw new InvalidArgumentError((err as Error).message);
+  }
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -17,7 +27,7 @@ export function buildProgram(): Command {
     .description('Produce a receipt for the changes between base and head')
     .option('-b, --base <ref>', 'base ref (compared from its merge-base with head; default: main/master)')
     .option('--head <ref>', 'head ref', 'HEAD')
-    .addOption(new Option('--runner <name>', 'force a test runner').choices(['vitest', 'pytest']))
+    .addOption(new Option('--runner <name>', 'force a test runner').argParser(parseRunner))
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
     .option('--json', 'print the receipt as JSON')

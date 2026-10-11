@@ -19,7 +19,7 @@ describe('cli', () => {
   it('subcommands inherit exitOverride, so usage errors reach the caller', async () => {
     const program = buildProgram();
     program.commands.forEach((c) => c.configureOutput({ writeErr: () => {} }));
-    await expect(program.parseAsync(['node', 'trustbut', 'verify', '--runner', 'jest'])).rejects.toMatchObject({
+    await expect(program.parseAsync(['node', 'trustbut', 'verify', '--runner', 'nope'])).rejects.toMatchObject({
       code: 'commander.invalidArgument',
     });
   });
@@ -27,9 +27,9 @@ describe('cli', () => {
 
 describe('cli process exit codes', () => {
   it('exits 2 on a usage error', async () => {
-    const r = await cli('verify', '--runner', 'jest');
+    const r = await cli('verify', '--runner', 'nope');
     expect(r.exitCode).toBe(2);
-    expect(r.stderr).toMatch(/jest/);
+    expect(r.stderr).toMatch(/Unknown runner: nope/);
   }, 60_000);
 
   it('exits 2 on an unknown option', async () => {

@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { detectRunner } from '../src/runners/detect.js';
+import { RUNNERS, detectRunner, getRunner } from '../src/runners/registry.js';
 import { parseJUnit } from '../src/runners/junit.js';
 import { pytest } from '../src/runners/pytest.js';
 import { vitest } from '../src/runners/vitest.js';
@@ -54,6 +54,42 @@ describe('detectRunner', () => {
 
     const none = await mkdtemp(join(tmpdir(), 'ar-detect-'));
     expect(await detectRunner(none)).toBeNull();
+  });
+});
+
+describe('runner registry', () => {
+  it('registers vitest, pytest and the generic command runner', () => {
+    expect(RUNNERS.map((r) => r.name)).toEqual(['vitest', 'pytest', 'command']);
+  });
+
+  it('looks runners up by name and lists the supported ones for an unknown name', () => {
+    expect(getRunner('pytest')).toBe(pytest);
+    expect(() => getRunner('nope')).toThrow('Unknown runner: nope. Supported: vitest, pytest, command');
+  });
+
+  it('scores detection: 10 for a vitest dependency or config, 10 for pytest config, 0 otherwise', async () => {
+    const js = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(js, 'package.json'), JSON.stringify({ dependencies: { vitest: '^3' } }));
+    expect(await vitest.detect(js)).toBe(10);
+    expect(await pytest.detect(js)).toBe(0);
+
+    for (const f of ['pytest.ini', 'conftest.py', 'tox.ini']) {
+      const py = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+      await writeFile(join(py, f), '');
+      expect(await pytest.detect(py)).toBe(10);
+      expect(await vitest.detect(py)).toBe(0);
+    }
+    const noPytest = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(noPytest, 'pyproject.toml'), '[tool.black]\n');
+    expect(await pytest.detect(noPytest)).toBe(0);
+    expect(await getRunner('command').detect(noPytest)).toBe(0);
+  });
+
+  it('prefers the first registered runner on a tie', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ devDependencies: { vitest: '^3' } }));
+    await writeFile(join(dir, 'pytest.ini'), '[pytest]\n');
+    expect((await detectRunner(dir))?.name).toBe('vitest');
   });
 });
 
@@ -133,6 +169,32 @@ describe('pytest adapter without pytest installed', () => {
     expect(args).toEqual(expect.arrayContaining(['--rootdir', cwd, 'tests/test_a.py']));
     expect(args[args.indexOf('--rootdir') + 1]).toBe(cwd);
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
+  });
+
+  it('appends config args before the files and passes config env', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(tools, 'fake-python');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${tools}/args"\nprintf '%s' "$EXTRA" > "${tools}/extra"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    await pytest.run({ cwd, files: ['tests/test_a.py'], args: ['-x', '--tb=short'], env: { EXTRA: 'yes' } });
+    const args = (await readFile(join(tools, 'args'), 'utf8')).trim().split('\n');
+    expect(args.slice(-3)).toEqual(['-x', '--tb=short', 'tests/test_a.py']);
+    expect(await readFile(join(tools, 'extra'), 'utf8')).toBe('yes');
+  });
+
+  it('stops a run that exceeds the timeout', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, '#!/bin/sh\nexec sleep 30\n');
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    const start = Date.now();
+    const result = await pytest.run({ cwd: dir, timeoutMs: 300 });
+    expect(Date.now() - start).toBeLessThan(10_000);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toMatch(/timed out/i);
   });
 
   it('uses just the checkout on PYTHONPATH without src/ or an inherited PYTHONPATH', async () => {
