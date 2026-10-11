@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
-import { childEnv, tail } from './env.js';
+import { childEnv, runOutput } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { Runner } from './types.js';
 
@@ -28,7 +28,9 @@ export const pytest: Runner = {
         { cwd, reject: false, all: true, extendEnv: false, env: childEnv() },
       );
       const xml = existsSync(out) ? await readFile(out, 'utf8') : '';
-      return { exitCode: res.exitCode ?? 1, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: tail(res.all) };
+      // pytest exits 5 when no tests are collected; treat as success (vitest uses --passWithNoTests).
+      const exitCode = res.exitCode === 5 ? 0 : (res.exitCode ?? 1);
+      return { exitCode, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

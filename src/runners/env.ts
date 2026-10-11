@@ -11,3 +11,10 @@ export function childEnv(): Record<string, string> {
 }
 
 export const tail = (s: string | undefined, max = 4000) => (s ?? '').slice(-max);
+
+// Combined output, plus the execa error text when the process never produced an exit code
+// (failed spawn, e.g. ENOENT), so "runner can't start" is distinguishable from "tests failed".
+export function runOutput(res: { all?: string; failed: boolean; exitCode?: number; shortMessage?: string }): string {
+  const startupError = res.failed && !res.exitCode ? res.shortMessage : undefined;
+  return tail([res.all, startupError].filter(Boolean).join('\n'));
+}

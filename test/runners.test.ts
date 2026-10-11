@@ -1,8 +1,8 @@
 import { execaSync } from 'execa';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { detectRunner } from '../src/runners/detect.js';
 import { parseJUnit } from '../src/runners/junit.js';
 import { pytest } from '../src/runners/pytest.js';
@@ -86,5 +86,33 @@ describe.skipIf(!hasPytest)('pytest runner', () => {
       ['test_ok', 'pass'],
       ['test_bad', 'fail'],
     ]);
+  });
+});
+
+describe('pytest adapter without pytest installed', () => {
+  const saved = process.env.TRUSTBUT_PYTHON;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TRUSTBUT_PYTHON;
+    else process.env.TRUSTBUT_PYTHON = saved;
+  });
+
+  it('surfaces start-up errors in output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    process.env.TRUSTBUT_PYTHON = join(dir, 'no-such-python');
+    const result = await pytest.run({ cwd: dir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.cases).toEqual([]);
+    expect(result.output).toMatch(/ENOENT|no-such-python/);
+  });
+
+  it('normalizes exit code 5 (no tests collected) to 0', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, '#!/bin/sh\nexit 5\n');
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    const result = await pytest.run({ cwd: dir });
+    expect(result.exitCode).toBe(0);
+    expect(result.cases).toEqual([]);
   });
 });
