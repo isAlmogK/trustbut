@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { addWorktree, removeWorktree, showFile } from './git.js';
+import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import type { Runner } from './runners/types.js';
 import type { ChangedFile, Finding, RunResult, TestCaseResult, TestProof } from './types.js';
 
@@ -85,16 +85,20 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
     for (const path of testFiles) {
       const target = join(baseDir, path);
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, await showFile(repo, head, path));
+      await writeFile(target, await showFileBuffer(repo, head, path));
     }
     const before = await runner.run({ cwd: baseDir, files: testFiles });
     return { after, before, proofs: buildProofs(testFiles, before, after), findings };
   } finally {
-    await unlinkDeps(headDir);
-    await removeWorktree(repo, headDir);
-    if (baseDir) {
-      await unlinkDeps(baseDir);
-      await removeWorktree(repo, baseDir);
+    // Nested so a failure cleaning up head cannot skip cleaning up base.
+    try {
+      await unlinkDeps(headDir);
+      await removeWorktree(repo, headDir);
+    } finally {
+      if (baseDir) {
+        await unlinkDeps(baseDir);
+        await removeWorktree(repo, baseDir);
+      }
     }
   }
 }
