@@ -1,21 +1,11 @@
-import { langOf, splitLine } from '../lex.js';
+import { js } from '../languages/js.js';
+import { languageOf } from '../languages/index.js';
+import { splitLine } from '../lex.js';
 import type { ChangedFile, Finding } from '../types.js';
 
-// All patterns run against the code part of a line (string contents and comments removed).
-const TEST_DEF = /^\s*(?:(?:it|test)(?:\.\w+)*\s*\(|(?:async\s+)?def\s+test_\w*)/;
-const SKIP = new RegExp(
-  [
-    /^\s*(?:it|test|describe|suite)(?:\.\w+)*\.(?:skip|todo)\b/.source,
-    /^\s*x(?:it|test|describe)\s*\(/.source,
-    /^\s*@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.(?:skip|skipIf|skipUnless|expectedFailure))\b/.source,
-    /\bself\.skipTest\s*\(/.source,
-    /\bpytest\.skip\s*\(/.source,
-  ].join('|'),
-);
-const FOCUS = /^\s*(?:(?:it|test|describe|suite)(?:\.\w+)*\.only\b|f(?:it|describe)\s*\()/;
-const ASSERT = /\bexpect\s*\(|\bassert\b|\.should\b|\bself\.assert\w*\(|\bassert[A-Z]\w*\(/;
+const matchesAny = (res: RegExp[] | undefined, text: string) => !!res?.some((re) => re.test(text));
 
-const count = (lines: string[], re: RegExp) => lines.filter((l) => re.test(l)).length;
+const count = (lines: string[], res: RegExp[] | undefined) => lines.filter((l) => matchesAny(res, l)).length;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function checkTestIntegrity(files: ChangedFile[]): Finding[] {
@@ -30,26 +20,28 @@ export function checkTestIntegrity(files: ChangedFile[]): Finding[] {
     }
     if (f.kind !== 'test') continue;
 
-    const lang = langOf(f.path);
+    // Test files of languages not in the registry yet keep the JS rules they always had.
+    const lang = languageOf(f.path) ?? js;
+    const { focus, skip, testDef, assert } = lang.rules;
     const code = (line: string) => splitLine(line, lang).code;
     const removedSet = new Set(f.removed.map((l) => l.trim()));
     for (const a of f.added) {
       if (removedSet.has(a.text.trim())) continue;
       const c = code(a.text);
-      if (FOCUS.test(c)) {
+      if (matchesAny(focus, c)) {
         findings.push({ id: 'test-focused', severity: 'fail', title: 'Test focused (other tests will not run)', file: f.path, line: a.line, detail: a.text.trim() });
-      } else if (SKIP.test(c)) {
+      } else if (matchesAny(skip, c)) {
         findings.push({ id: 'test-skipped', severity: 'warn', title: 'Test skipped', file: f.path, line: a.line, detail: a.text.trim() });
       }
     }
 
     const addedCode = f.added.map((a) => code(a.text));
     const removedCode = f.removed.map(code);
-    const removedTests = count(removedCode, TEST_DEF) - count(addedCode, TEST_DEF);
+    const removedTests = count(removedCode, testDef) - count(addedCode, testDef);
     if (removedTests > 0) {
       findings.push({ id: 'tests-removed', severity: 'warn', title: `${plural(removedTests, 'test')} removed`, file: f.path });
     }
-    const removedAsserts = count(removedCode, ASSERT) - count(addedCode, ASSERT);
+    const removedAsserts = count(removedCode, assert) - count(addedCode, assert);
     if (removedAsserts > 0) {
       findings.push({ id: 'assertions-removed', severity: 'warn', title: `${plural(removedAsserts, 'assertion')} removed`, file: f.path });
     }

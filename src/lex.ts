@@ -1,24 +1,15 @@
-// A per-line lexer for static checks. It does not see surrounding lines, so it cannot know
-// whether a line sits inside a multi-line string or block comment; it handles the common cases.
+// A per-line lexer for static checks, driven by a language's comment and string syntax. It does
+// not see surrounding lines, so it cannot know whether a line sits inside a multi-line string or
+// block comment; it handles the common cases.
 
-export type Lang = 'js' | 'py';
+import { languageById } from './languages/index.js';
+import type { Language } from './languages/types.js';
 
 export interface SplitLine {
-  /** The line with the contents of string, template and regex literals removed (delimiters kept), comments removed. */
+  /** The line with the contents of string (and regex) literals removed (delimiters kept), comments removed. */
   code: string;
   /** Comment text on the line, including its marker. Several comments are joined with a space. */
   comment: string;
-}
-
-const JS_FILE = /\.[cm]?[jt]sx?$/;
-
-export const isJsFile = (path: string): boolean => JS_FILE.test(path);
-export const isPyFile = (path: string): boolean => path.endsWith('.py');
-/** Lexing rules for a file: Python for .py, C-style for everything else. */
-export const langOf = (path: string): Lang => (isPyFile(path) ? 'py' : 'js');
-
-export function splitLine(text: string, lang: Lang): SplitLine {
-  return lang === 'py' ? splitPy(text) : splitJs(text);
 }
 
 /** Index just past the closing `quote` starting the search at `from`, or the line length if unterminated. */
@@ -58,40 +49,42 @@ function skipRegex(text: string, from: number): number {
   return -1;
 }
 
-// Continuation lines of a block comment (`* text`, `*/`).
+// Continuation lines of a C-style block comment (`* text`, `*/`).
 const BLOCK_CONTINUATION = /^\*(?:\s|\/|$)/;
 
-function splitJs(text: string): SplitLine {
+/** Splits one line into code and comments using the syntax of `language` (a Language or its id). */
+export function splitLine(text: string, language: Language | string): SplitLine {
+  const lang = typeof language === 'string' ? languageById(language) : language;
+  const { line: lineMarkers, block } = lang.comments;
   const trimmed = text.trimStart();
-  if (BLOCK_CONTINUATION.test(trimmed)) return { code: '', comment: trimmed };
+  if (block?.[0] === '/*' && BLOCK_CONTINUATION.test(trimmed)) return { code: '', comment: trimmed };
 
   let code = '';
   const comments: string[] = [];
   let i = 0;
   while (i < text.length) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (ch === '/' && next === '/') {
+    if (lineMarkers.some((m) => text.startsWith(m, i))) {
       comments.push(text.slice(i));
       break;
     }
-    if (ch === '/' && next === '*') {
-      const end = text.indexOf('*/', i + 2);
+    if (block && text.startsWith(block[0], i)) {
+      const end = text.indexOf(block[1], i + block[0].length);
       if (end < 0) {
         comments.push(text.slice(i));
         break;
       }
-      comments.push(text.slice(i, end + 2));
+      comments.push(text.slice(i, end + block[1].length));
       code += ' ';
-      i = end + 2;
+      i = end + block[1].length;
       continue;
     }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      code += ch + ch;
-      i = skipQuoted(text, i + 1, ch);
+    const quote = lang.strings.find((q) => text.startsWith(q, i));
+    if (quote) {
+      code += quote + quote;
+      i = skipQuoted(text, i + quote.length, quote);
       continue;
     }
-    if (ch === '/' && regexAllowed(code)) {
+    if (lang.regexLiterals && text[i] === '/' && regexAllowed(code)) {
       const end = skipRegex(text, i);
       if (end > 0) {
         code += `//${text.slice(i, end).match(/[a-z]*$/i)?.[0] ?? ''}`;
@@ -99,26 +92,8 @@ function splitJs(text: string): SplitLine {
         continue;
       }
     }
-    code += ch;
+    code += text[i];
     i += 1;
   }
   return { code, comment: comments.join(' ') };
-}
-
-function splitPy(text: string): SplitLine {
-  let code = '';
-  let i = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    if (ch === '#') return { code, comment: text.slice(i) };
-    if (ch === '"' || ch === "'") {
-      const quote = text.startsWith(ch.repeat(3), i) ? ch.repeat(3) : ch;
-      code += quote + quote;
-      i = skipQuoted(text, i + quote.length, quote);
-      continue;
-    }
-    code += ch;
-    i += 1;
-  }
-  return { code, comment: '' };
 }
