@@ -62,6 +62,25 @@ describe('parseChanges', () => {
     expect(files[1].added.map((a) => a.line)).toEqual([1, 2]);
   });
 
+  it('ignores "No newline at end of file" markers', () => {
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      'index 1111111..2222222 100644',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1,2 +1,2 @@',
+      ' keep',
+      '-old last',
+      '\\ No newline at end of file',
+      '+added last',
+      '\\ No newline at end of file',
+      '',
+    ].join('\n');
+    const [file] = parseChanges(diff);
+    expect(file.added).toEqual([{ line: 2, text: 'added last' }]);
+    expect(file.removed).toEqual(['old last']);
+  });
+
   it('parses deleted files', () => {
     const diff = [
       'diff --git a/test/old.test.ts b/test/old.test.ts',

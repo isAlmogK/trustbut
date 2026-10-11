@@ -18,6 +18,8 @@ export function parseChanges(diff: string): ChangedFile[] {
     const removed: string[] = [];
     for (const chunk of f.chunks) {
       for (const change of chunk.changes) {
+        // parse-diff reports "\ No newline at end of file" as a change of the previous type; it is not content.
+        if (change.content.startsWith('\\')) continue;
         if (change.type === 'add') added.push({ line: change.ln, text: change.content.slice(1) });
         else if (change.type === 'del') removed.push(change.content.slice(1));
       }
