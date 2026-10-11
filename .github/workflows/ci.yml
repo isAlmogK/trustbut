@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Receipt for this PR (dogfood)
+        if: github.event_name == 'pull_request'
+        run: node dist/cli.js verify --base origin/${{ github.base_ref }} | tee receipt.md >> "$GITHUB_STEP_SUMMARY"
