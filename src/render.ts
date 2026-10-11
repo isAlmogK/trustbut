@@ -2,6 +2,27 @@ import type { Finding, Receipt, RunResult } from './types.js';
 
 const ICON = { fail: '✖', warn: '⚠', info: 'ℹ' } as const;
 
+// Characters that would start Markdown syntax, HTML, entities, or @mentions in plain text.
+const MD_SPECIAL = /[\\`*_[\]<>|#&~@]/g;
+
+function oneLine(s: string): string {
+  return s.replace(/\r\n|\r|\n/g, ' ');
+}
+
+/** Plain user text: single line, Markdown punctuation and @mentions escaped. */
+function text(s: string): string {
+  return oneLine(s).replace(MD_SPECIAL, '\\$&');
+}
+
+/** Inline code span whose fence is longer than any backtick run inside the content. */
+function code(s: string): string {
+  const flat = oneLine(s);
+  const longest = (flat.match(/`+/g) ?? []).reduce((m, run) => Math.max(m, run.length), 0);
+  if (longest === 0) return `\`${flat}\``;
+  const fence = '`'.repeat(longest + 1);
+  return `${fence} ${flat} ${fence}`;
+}
+
 function tally(run: RunResult) {
   const t = { pass: 0, fail: 0, error: 0, skip: 0 };
   for (const c of run.cases) t[c.outcome] += 1;
@@ -9,15 +30,15 @@ function tally(run: RunResult) {
 }
 
 function findingLine(f: Finding): string {
-  const where = f.file ? ` · \`${f.file}${f.line ? `:${f.line}` : ''}\`` : '';
-  const detail = f.detail ? `: ${f.detail}` : '';
-  return `- ${ICON[f.severity]} **${f.title}**${where}${detail}`;
+  const where = f.file ? ` · ${code(`${f.file}${f.line ? `:${f.line}` : ''}`)}` : '';
+  const detail = f.detail ? `: ${text(f.detail)}` : '';
+  return `- ${ICON[f.severity]} **${text(f.title)}**${where}${detail}`;
 }
 
 export function renderMarkdown(r: Receipt): string {
   const lines: string[] = [];
   lines.push(`## 🧾 Receipt: ${r.verdict.toUpperCase()}`, '');
-  lines.push(`\`${r.base.slice(0, 7)}\` → \`${r.head.slice(0, 7)}\`${r.runner ? ` · runner: ${r.runner}` : ''}`, '');
+  lines.push(`${code(r.base.slice(0, 7))} → ${code(r.head.slice(0, 7))}${r.runner ? ` · runner: ${text(r.runner)}` : ''}`, '');
 
   if (r.after) {
     const t = tally(r.after);
@@ -38,7 +59,7 @@ export function renderMarkdown(r: Receipt): string {
 
   if (r.risks.length) {
     lines.push('', '### Review these first');
-    r.risks.slice(0, 5).forEach((risk, i) => lines.push(`${i + 1}. \`${risk.file}\`: ${risk.reasons.join(', ')}`));
+    r.risks.slice(0, 5).forEach((risk, i) => lines.push(`${i + 1}. ${code(risk.file)}: ${risk.reasons.join(', ')}`));
   }
   return `${lines.join('\n')}\n`;
 }

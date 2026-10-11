@@ -82,3 +82,49 @@ describe('renderMarkdown', () => {
     expect(md).toContain('1. `src/auth/session.ts`: auth/permissions, has findings');
   });
 });
+
+describe('path-word risk matching', () => {
+  const reasonsFor = (path: string, kind: ChangedFile['kind'] = 'source') =>
+    rankRisks([file(path, kind)], []).flatMap((r) => r.reasons);
+
+  it('does not match substrings inside unrelated words', () => {
+    for (const p of ['src/author.ts', 'lib/oracle.ts', 'src/secretary.ts', 'ui/credentials-form.tsx', '.env.example']) {
+      expect(reasonsFor(p), p).toEqual([]);
+    }
+  });
+
+  it('matches whole words, camelCase words and secret basenames', () => {
+    expect(reasonsFor('src/auth/login.ts')).toEqual(['auth/permissions']);
+    expect(reasonsFor('config/secrets.yml')).toEqual(['secrets/env']);
+    expect(reasonsFor('.env.local')).toEqual(['secrets/env']);
+    expect(reasonsFor('src/userSession.ts')).toEqual(['auth/permissions']);
+  });
+});
+
+describe('markdown escaping', () => {
+  it('keeps user text on one line with Markdown and mentions escaped', () => {
+    const receipt = buildReceipt({
+      base: 'a'.repeat(40),
+      head: 'b'.repeat(40),
+      runner: null,
+      proofs: [{ ...proof('x', 'does-not-constrain'), name: 'a | b *c* @team\nnext' }],
+      findings: [],
+      changes: [],
+    });
+    const md = renderMarkdown(receipt);
+    expect(md).toContain('- ⚠ **Test passes without the change** · `t.test.ts`: a \\| b \\*c\\* \\@team next');
+    expect(md.split('\n')).not.toContain('next');
+  });
+
+  it('renders a path containing a backtick inside a longer code span', () => {
+    const receipt = buildReceipt({
+      base: 'a'.repeat(40),
+      head: 'b'.repeat(40),
+      runner: null,
+      proofs: [],
+      findings: [{ id: 'x', severity: 'warn', title: 't', file: 'src/a`b.ts' }],
+      changes: [],
+    });
+    expect(renderMarkdown(receipt)).toContain('- ⚠ **t** · `` src/a`b.ts ``');
+  });
+});

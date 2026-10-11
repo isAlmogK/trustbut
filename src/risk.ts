@@ -1,13 +1,44 @@
 import type { ChangedFile, Finding, RiskItem } from './types.js';
 
-const RULES: [RegExp, number, string][] = [
-  [/auth|login|session|permission|acl|rbac|oauth|jwt|password/i, 3, 'auth/permissions'],
-  [/(^|\/)migrations?\//i, 3, 'database migration'],
-  [/(^|\/)\.github\/workflows\/|\.gitlab-ci\.yml$|(^|\/)Jenkinsfile$/, 3, 'CI pipeline'],
-  [/(^|\/)(\.env[^/]*|secrets?[^/]*|credentials?[^/]*)$/i, 3, 'secrets/env'],
-  [/(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock)$/, 2, 'dependencies'],
-  [/(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml)$|\.tf$|(^|\/)(infra|terraform|k8s|helm)\//, 2, 'infrastructure'],
-  [/(^|\/)(\.claude|\.codex|\.gemini|\.cursor)\/|(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/, 2, 'agent config'],
+// Whole path words (lowercased) that signal auth/permission code.
+const AUTH_WORDS = new Set([
+  'auth', 'authn', 'authz', 'authentication', 'authorization', 'login', 'session', 'sessions',
+  'permission', 'permissions', 'acl', 'acls', 'rbac', 'oauth', 'jwt', 'password', 'passwords',
+]);
+
+// Basename-only secret files. `.env.example`, `.env.sample`, `.env.template`, `.env.dist` are not secrets.
+const SECRET_BASENAME = /^(\.env(?!\.(example|sample|template|dist)$)(\..*)?|secrets?(\..*)?|credentials?(\..*)?)$/i;
+
+/** Splits a path into lowercase words on separators and camelCase boundaries. */
+function pathWords(path: string): string[] {
+  return path
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
+
+interface Rule {
+  weight: number;
+  why: string;
+  hits: (path: string) => boolean;
+}
+
+const RULES: Rule[] = [
+  { weight: 3, why: 'auth/permissions', hits: (p) => pathWords(p).some((w) => AUTH_WORDS.has(w)) },
+  { weight: 3, why: 'database migration', hits: (p) => /(^|\/)migrations?\//i.test(p) },
+  { weight: 3, why: 'CI pipeline', hits: (p) => /(^|\/)\.github\/workflows\/|\.gitlab-ci\.yml$|(^|\/)Jenkinsfile$/.test(p) },
+  { weight: 3, why: 'secrets/env', hits: (p) => SECRET_BASENAME.test(basename(p)) },
+  {
+    weight: 2,
+    why: 'dependencies',
+    hits: (p) => /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock)$/.test(p),
+  },
+  { weight: 2, why: 'infrastructure', hits: (p) => /(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml)$|\.tf$|(^|\/)(infra|terraform|k8s|helm)\//.test(p) },
+  { weight: 2, why: 'agent config', hits: (p) => /(^|\/)(\.claude|\.codex|\.gemini|\.cursor)\/|(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/.test(p) },
 ];
 
 export function rankRisks(changes: ChangedFile[], findings: Finding[]): RiskItem[] {
@@ -16,10 +47,10 @@ export function rankRisks(changes: ChangedFile[], findings: Finding[]): RiskItem
       let score = 0;
       const reasons: string[] = [];
       if (c.kind !== 'test') {
-        for (const [re, weight, why] of RULES) {
-          if (re.test(c.path)) {
-            score += weight;
-            reasons.push(why);
+        for (const rule of RULES) {
+          if (rule.hits(c.path)) {
+            score += rule.weight;
+            reasons.push(rule.why);
           }
         }
       }
@@ -35,5 +66,6 @@ export function rankRisks(changes: ChangedFile[], findings: Finding[]): RiskItem
       return { file: c.path, score, reasons };
     })
     .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
+    // Code-unit comparison: deterministic and independent of the host locale.
+    .sort((a, b) => b.score - a.score || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 }
