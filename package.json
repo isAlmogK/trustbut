@@ -1,0 +1,58 @@
+{
+  "name": "trustbut",
+  "version": "0.0.1",
+  "description": "Verifiable receipts for code written by AI coding agents",
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "opencode",
+    "code-review",
+    "testing",
+    "verification",
+    "vitest",
+    "pytest",
+    "cli"
+  ],
+  "homepage": "https://github.com/isAlmogK/trustbut#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isAlmogK/trustbut.git"
+  },
+  "bugs": {
+    "url": "https://github.com/isAlmogK/trustbut/issues"
+  },
+  "type": "module",
+  "bin": {
+    "trustbut": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --target node22 --clean",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "execa": "^10.1.0",
+    "fast-xml-parser": "^5.11.2",
+    "parse-diff": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

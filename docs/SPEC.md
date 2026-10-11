@@ -94,7 +94,7 @@ Review these first
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `pytest.skip()`) | WARN | |
 | Test definitions removed (net) | WARN | Could be a legitimate refactor, so a human should look |
 | Assertions removed (net) | WARN | |
-| Snapshot rewritten | WARN | |
+| Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
 | Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores) | WARN | |
 | Source changed, no tests changed | WARN | |
@@ -114,7 +114,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
 
 ### 6. Receipt
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
-- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`.
+- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error.
 
 ## Later layers (not in v0.1)
 

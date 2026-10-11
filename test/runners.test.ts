@@ -1,0 +1,166 @@
+import { execaSync } from 'execa';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { detectRunner } from '../src/runners/detect.js';
+import { parseJUnit } from '../src/runners/junit.js';
+import { pytest } from '../src/runners/pytest.js';
+import { vitest } from '../src/runners/vitest.js';
+import { linkNodeModules, makeRepo } from './helpers/repo.js';
+
+const hasPytest = execaSync('python3', ['-m', 'pytest', '--version'], { reject: false }).exitCode === 0;
+
+describe('parseJUnit', () => {
+  it('parses vitest-style output', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3">
+  <testsuite name="test/sum.test.ts" tests="3">
+    <testcase classname="test/sum.test.ts" name="adds" time="0.001"></testcase>
+    <testcase classname="test/sum.test.ts" name="math &gt; subtracts" time="0.001">
+      <failure message="expected 1 to be 2" type="AssertionError">trace</failure>
+    </testcase>
+    <testcase classname="test/sum.test.ts" name="later" time="0"><skipped/></testcase>
+  </testsuite>
+</testsuites>`;
+    expect(parseJUnit(xml)).toEqual([
+      { id: 'test/sum.test.ts::adds', file: 'test/sum.test.ts', name: 'adds', outcome: 'pass' },
+      { id: 'test/sum.test.ts::math > subtracts', file: 'test/sum.test.ts', name: 'math > subtracts', outcome: 'fail' },
+      { id: 'test/sum.test.ts::later', file: 'test/sum.test.ts', name: 'later', outcome: 'skip' },
+    ]);
+  });
+
+  it('parses pytest-style output', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" tests="2">
+<testcase classname="tests.test_sum" name="test_adds" time="0.001" />
+<testcase classname="tests.test_sum" name="test_err" time="0.001"><error message="boom">x</error></testcase>
+</testsuite></testsuites>`;
+    expect(parseJUnit(xml).map((c) => [c.id, c.outcome])).toEqual([
+      ['tests.test_sum::test_adds', 'pass'],
+      ['tests.test_sum::test_err', 'error'],
+    ]);
+  });
+});
+
+describe('detectRunner', () => {
+  it('detects vitest, pytest, or nothing', async () => {
+    const js = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(js, 'package.json'), JSON.stringify({ devDependencies: { vitest: '^3' } }));
+    expect((await detectRunner(js))?.name).toBe('vitest');
+
+    const py = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(py, 'pyproject.toml'), '[tool.pytest.ini_options]\naddopts = "-q"\n');
+    expect((await detectRunner(py))?.name).toBe('pytest');
+
+    const none = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    expect(await detectRunner(none)).toBeNull();
+  });
+});
+
+describe('detectRunner robustness', () => {
+  it('detects vitest from a config file without a dependency', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), '{}');
+    await writeFile(join(dir, 'vitest.config.mts'), 'export default {};');
+    expect((await detectRunner(dir))?.name).toBe('vitest');
+  });
+
+  it('gives a friendly error for a malformed package.json', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), '{ nope');
+    await expect(detectRunner(dir)).rejects.toThrow(/Could not read package\.json: /);
+  });
+});
+
+describe('vitest runner', () => {
+  it('runs selected files and reports per-test outcomes', async () => {
+    const { dir } = await makeRepo({
+      '.gitignore': 'node_modules\n',
+      'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' } }),
+      'test/a.test.js': "import { it, expect } from 'vitest';\nit('passes', () => expect(1).toBe(1));\nit('fails', () => expect(1).toBe(2));\n",
+      'test/b.test.js': "import { it } from 'vitest';\nit('other', () => {});\n",
+    });
+    await linkNodeModules(dir);
+    const result = await vitest.run({ cwd: dir, files: ['test/a.test.js'] });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.cases.map((c) => [c.name, c.outcome])).toEqual([
+      ['passes', 'pass'],
+      ['fails', 'fail'],
+    ]);
+  });
+});
+
+describe.skipIf(!hasPytest)('pytest runner', () => {
+  it('runs selected files and reports per-test outcomes', async () => {
+    const { dir } = await makeRepo({
+      'pytest.ini': '[pytest]\n',
+      'tests/test_a.py': 'def test_ok():\n    assert 1 == 1\n\ndef test_bad():\n    assert 1 == 2\n',
+    });
+    const result = await pytest.run({ cwd: dir, files: ['tests/test_a.py'] });
+    expect(result.cases.map((c) => [c.name, c.outcome])).toEqual([
+      ['test_ok', 'pass'],
+      ['test_bad', 'fail'],
+    ]);
+  });
+});
+
+describe('pytest adapter without pytest installed', () => {
+  const saved = process.env.TRUSTBUT_PYTHON;
+  const savedPath = process.env.PYTHONPATH;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TRUSTBUT_PYTHON;
+    else process.env.TRUSTBUT_PYTHON = saved;
+    if (savedPath === undefined) delete process.env.PYTHONPATH;
+    else process.env.PYTHONPATH = savedPath;
+  });
+
+  /** A fake python that records its arguments and PYTHONPATH, then exits 5 (no tests). */
+  async function recordingPython(dir: string): Promise<string> {
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args"\nprintf '%s' "$PYTHONPATH" > "${dir}/pythonpath"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    return fake;
+  }
+
+  it('pins --rootdir and puts the checkout (and src/) first on PYTHONPATH', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    await mkdir(join(cwd, 'src'));
+    process.env.TRUSTBUT_PYTHON = await recordingPython(tools);
+    process.env.PYTHONPATH = '/user/site';
+    await pytest.run({ cwd, files: ['tests/test_a.py'] });
+    const args = (await readFile(join(tools, 'args'), 'utf8')).trim().split('\n');
+    expect(args).toEqual(expect.arrayContaining(['--rootdir', cwd, 'tests/test_a.py']));
+    expect(args[args.indexOf('--rootdir') + 1]).toBe(cwd);
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
+  });
+
+  it('uses just the checkout on PYTHONPATH without src/ or an inherited PYTHONPATH', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    process.env.TRUSTBUT_PYTHON = await recordingPython(tools);
+    delete process.env.PYTHONPATH;
+    await pytest.run({ cwd });
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe(cwd);
+  });
+
+  it('surfaces start-up errors in output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    process.env.TRUSTBUT_PYTHON = join(dir, 'no-such-python');
+    const result = await pytest.run({ cwd: dir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.cases).toEqual([]);
+    expect(result.output).toMatch(/ENOENT|no-such-python/);
+  });
+
+  it('normalizes exit code 5 (no tests collected) to 0', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, '#!/bin/sh\nexit 5\n');
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    const result = await pytest.run({ cwd: dir });
+    expect(result.exitCode).toBe(0);
+    expect(result.cases).toEqual([]);
+  });
+});
