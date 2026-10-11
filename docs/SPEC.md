@@ -81,11 +81,11 @@ Review these first
 
 ### 1. Git layer
 - Resolves `base` (default: merge-base of `HEAD` with `origin/main`, `main`, `origin/master` or `master`) and `head` (default `HEAD`).
-- Creates **throwaway `git worktree`s**, so the user's checkout is never touched. Dependencies (`node_modules`, `.venv`) are symlinked from the main checkout instead of reinstalled.
+- Creates **throwaway `git worktree`s**, so the user's checkout is never touched. Dependencies (`node_modules`, `.venv`, `venv`) are symlinked from the main checkout instead of reinstalled, both at the repo root and inside the package root (see Configuration).
 
 ### 2. Diff parser
 - Parses the unified diff into `ChangedFile { path, status, kind, added[{line,text}], removed[] }`.
-- Classifies each file by path: test, snapshot, test-config, source, other.
+- Classifies each file by path: test, snapshot, test-config, source, other. Source and test files are recognised through the **language registry** (`src/languages/`): each `Language` declares its file extensions, a test-file pattern, its comment and string syntax (which drives the per-line lexer the static checks run on), and its check rules (focus, skip, test definitions, assertions, escapes). v0.1 registers `js` (`.js .jsx .ts .tsx .mjs .cjs .mts .cts`) and `py`. Adding a language means adding one file and listing it in `src/languages/index.ts`.
 
 ### 3. Static checks (pattern-based, on the diff)
 | Check | Severity | Signal |
@@ -107,7 +107,38 @@ Review these first
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
-- Runners in v0.1: **Vitest** and **pytest**, through JUnit XML, which is the universal interchange format. Jest, Go and Cargo follow as adapters.
+- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered: **vitest** (dependency or `vitest.config.*`/`vitest.workspace.*` → 10), **pytest** (`pytest.ini`, `conftest.py`, `tox.ini` or `[tool.pytest` in `pyproject.toml` → 10) and the generic **command** runner (never detected; chosen through config). `--runner <name>` accepts any registered name; an unknown name exits 2 and lists the supported ones. Adding a runner means adding one file and listing it in the registry.
+- **Matching results to changed test files.** By default a result belongs to a changed test file when its reported file equals the path, is a path suffix of it, or (pytest) is its dotted module name. Runners whose results don't carry file paths (Go, JVM) implement `casesInFile(c, file, readHead)`: `file` is the changed test file relative to the package root, and `readHead(path)` returns the head contents of a changed test file (relative to the package root; `''` if unreadable), read from the head worktree and cached, e.g. to find which `func TestX` a Go file defines. Receipts always report repo-relative paths.
+
+### Configuration (`.trustbut.json`)
+
+Optional. Read from the repo root **as committed at head** (`git cat-file blob <head>:.trustbut.json`); if head has none, from the working-tree file; `--config <path>` (relative to the current directory) replaces both. Unknown keys and wrong types are errors (exit 2) that list the allowed keys.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `root` | string | `"."` | Package folder relative to the repo root. Runner detection looks there, the runner runs in `<worktree>/<root>`, only changed test files under it are rerun and they are passed relative to it, and `node_modules`/`.venv`/`venv` are linked from `<repo>/<root>` too. `--root <dir>` overrides it. Must stay inside the repo. |
+| `runner` | string | detected | Force a registered runner. `--runner` overrides it. |
+| `command` | string | — | Generic runner: shell command run with `sh -c` in the root. `{files}` is replaced with the shell-quoted test files (nothing for a full run). Setting `command` without `runner` selects the `command` runner. |
+| `junit` | string | — | Generic runner: JUnit XML file the command writes, relative to the root (deleted before each run). Without it, stdout is parsed when it starts with `<?xml` or `<testsuite`. Exit code semantics are the same as for other runners. |
+| `setup` | string | — | Shell command started in the background in the root of **each** worktree before its test run (e.g. a database emulator). It runs in its own process group, which is always killed after the run (SIGTERM, then SIGKILL after 3 s), also on errors and when trustbut is interrupted. If it exits non-zero before tests start, the run stops with exit 2; if it exits 0, tests start immediately. It gets `env`. |
+| `setupWaitSec` | number ≥ 0 | `5` | How long to wait for `setup` before starting the tests. With `setupReadyPattern` this is the maximum wait, so raise it for slow services. |
+| `setupReadyPattern` | regex string | — | Tests start as soon as `setup` prints a matching line (stdout or stderr). |
+| `env` | object of strings | — | Extra environment for every test run and for `setup`. |
+| `args` | string[] | — | Extra arguments appended to the runner's command, before the test files. |
+| `timeoutSec` | number > 0 | `900` | Time limit per test run. |
+
+Example (Go service with a Firestore emulator in a subfolder):
+
+```json
+{
+  "root": "services/api",
+  "args": ["-p", "1"],
+  "setup": "firebase emulators:start --only firestore",
+  "setupReadyPattern": "All emulators ready",
+  "setupWaitSec": 60,
+  "env": { "FIRESTORE_EMULATOR_HOST": "127.0.0.1:8080" }
+}
+```
 
 ### 5. Risk ranking
 Path rules add weight for: auth or permissions, migrations, CI pipelines, dependencies and lockfiles, secrets and env, infrastructure, and agent config (`.claude/`, `AGENTS.md`, hooks). Files with findings and very large changes get extra weight. The output is an ordered "review these first" list.
@@ -133,9 +164,9 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
 All surfaces consume the receipt JSON (`trustbut verify --json`, `version: 1`), so the engine stays the single source of truth.
 
 ## Security model
-- The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`.
+- The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`. The same holds for `.trustbut.json`, which is read from the head commit: its `command` and `setup` run as shell commands, just as a changed `package.json` test script would.
 - In CI the Action runs on `pull_request` (not `pull_request_target`) with a read-only token. Posting the comment happens in a separate `workflow_run` job that never executes PR code.
 - Transcripts stay local, and the receipt never includes transcript text unless asked (`--include-transcript`).
 
 ## Non-goals (v0.1)
-GUI, hosted service, accounts, LLM-written review comments, capturing transcripts (Entire and git-ai already do that), monorepo-aware runner selection (`--cwd` comes in v0.2).
+GUI, hosted service, accounts, LLM-written review comments, capturing transcripts (Entire and git-ai already do that), automatic monorepo package discovery (set `root` or `--root` per package).
