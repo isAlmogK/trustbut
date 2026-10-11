@@ -40,8 +40,9 @@ describe('trustbut verify (end to end)', () => {
       'src/sum.js': 'export const sum = (a, b) => a + b;\n',
       'test/sum.test.js': sumTest("it('zero', () => expect(sum(0, 0)).toBe(0));"),
     });
-    const { receipt } = await runVerify({ cwd: dir });
+    const { receipt, exitCode } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
+    expect(exitCode).toBe(0);
     expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
   });
 

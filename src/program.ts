@@ -7,7 +7,10 @@ export function buildProgram(): Command {
   program
     .name('trustbut')
     .description('Verifiable receipts for code written by AI coding agents')
-    .version(VERSION);
+    .version(VERSION)
+    // Throw instead of exiting so cli.ts can map usage errors to exit code 2. Set before
+    // .command() so subcommands inherit it.
+    .exitOverride();
 
   program
     .command('verify')
