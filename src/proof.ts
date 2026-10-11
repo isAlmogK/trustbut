@@ -163,7 +163,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     if (!existsSync(headRoot)) throw new Error(`Package root "${root}" does not exist at head`);
     await linkDeps(repo, headDir, root);
     const scope: RunScope = quick && testFiles.length ? 'changed' : 'full';
-    const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, files: scope === 'changed' ? testFiles : undefined }, setup);
+    const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
     const headFinding = headRunFinding(after);
     if (headFinding) findings.push(headFinding);
     if (!testFiles.length) return { scope, after, proofs: [], findings };
@@ -174,7 +174,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
       .filter((c) => c.status !== 'deleted' && (c.kind === 'test' || c.kind === 'snapshot' || TEST_DATA_DIR.test(c.path)))
       .map((c) => c.path);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
-    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), files: testFiles }, setup);
+    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
     if (before.exitCode !== 0 && before.cases.length === 0) {
       findings.push({
         id: 'base-run-failed',

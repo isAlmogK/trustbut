@@ -3,6 +3,8 @@ import type { RunResult, TestCaseResult } from '../types.js';
 export interface RunOptions {
   /** The package root inside the worktree. */
   cwd: string;
+  /** Top of the worktree that contains `cwd` (= `cwd` when the package root is the repo root). */
+  worktree?: string;
   /** Test files relative to `cwd`; undefined = full suite. */
   files?: string[];
   /** Extra args from config, appended to the runner's command (before the files). */
@@ -19,6 +21,7 @@ export interface RunOptions {
 /** Head contents of a changed test file, by path relative to the package root ('' if unreadable). */
 export type ReadHead = (file: string) => string;
 
+/** Runners start their tool with `runInGroup` (src/process.ts) so a timeout stops the whole process tree. */
 export interface Runner {
   /** 'vitest' | 'pytest' | 'jest' | 'node-test' | 'mocha' | 'go' | 'cargo' | 'maven' | 'gradle' | 'dotnet' | 'rspec' | 'phpunit' | 'dart' | 'flutter' | 'swift' | 'command' */
   name: string;

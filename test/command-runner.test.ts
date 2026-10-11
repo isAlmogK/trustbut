@@ -65,6 +65,35 @@ describe('command runner', () => {
     expect(result.output).toContain('hello');
   });
 
+  it('kills the whole process tree on timeout, not just the shell', async () => {
+    const dir = await dirWithScript('exit 0');
+    const start = Date.now();
+    const result = await command.run({ cwd: dir, command: 'sleep 31 & echo $! > child.pid; sleep 30; true', timeoutMs: 500 });
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(450);
+    expect(elapsed).toBeLessThan(4_000);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toMatch(/timed out after 500 ms/);
+    const child = Number(await readFile(join(dir, 'child.pid'), 'utf8'));
+    let dead = false;
+    for (let i = 0; i < 60 && !dead; i += 1) {
+      try {
+        process.kill(child, 0);
+        await new Promise((r) => setTimeout(r, 50));
+      } catch {
+        dead = true;
+      }
+    }
+    expect(dead).toBe(true);
+  });
+
+  it('cleans up processes left behind by a command that finished', async () => {
+    const dir = await dirWithScript('exit 0');
+    const start = Date.now();
+    await command.run({ cwd: dir, command: '(sleep 30 > /dev/null 2>&1 &) ; echo $$ > sh.pid', timeoutMs: 20_000 });
+    expect(Date.now() - start).toBeLessThan(5_000);
+  });
+
   it('replaces {files} with quoted files (or nothing), appends args, and passes env', async () => {
     const dir = await dirWithScript(`printf '%s\\n' "$@" > args.txt\nprintf '%s' "$GREETING" > env.txt`);
     await command.run({

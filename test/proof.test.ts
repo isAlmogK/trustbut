@@ -235,6 +235,7 @@ describe('proveTests in a package root', () => {
       repo: dir, base, head, changes, runner, root: 'pkg',
       runOptions: { args: ['-v'], env: { A: 'b' }, timeoutMs: 1234 },
     });
+    expect(calls.every((c) => c.worktree !== undefined && c.cwd === join(c.worktree, 'pkg'))).toBe(true);
     expect(calls.map((c) => [c.cwd.endsWith('/pkg'), c.files, c.args, c.env, c.timeoutMs])).toEqual([
       [true, undefined, ['-v'], { A: 'b' }, 1234],
       [true, ['test/a.test.js'], ['-v'], { A: 'b' }, 1234],
