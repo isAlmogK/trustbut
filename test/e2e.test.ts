@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execa, execaSync } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../src/commands/verify.js';
@@ -204,4 +208,128 @@ describe.skipIf(!hasPytest)('trustbut verify with pytest (end to end)', () => {
     ]);
     expect(receipt.verdict).toBe('pass');
   }, 120_000);
+});
+
+describe('trustbut verify with a package root', () => {
+  const APP = {
+    'package.json': JSON.stringify({ name: 'app', private: true, type: 'module', devDependencies: { vitest: '*' } }),
+    'src/sum.js': 'export const sum = (a, b) => a - b;\n',
+    'test/old.test.js': "import { it, expect } from 'vitest';\nit('truth', () => expect(1).toBe(1));\n",
+  };
+  const prefixed = (prefix: string, files: Record<string, string>) =>
+    Object.fromEntries(Object.entries(files).map(([k, v]) => [`${prefix}${k}`, v]));
+
+  async function monorepo(extra: Record<string, string> = {}) {
+    const { dir } = await makeRepo({ '.gitignore': 'node_modules\n', 'README.md': '# mono\n', ...prefixed('packages/app/', APP), ...extra });
+    // Dependencies installed only inside the package, as in a workspace without hoisting.
+    await symlink(fileURLToPath(new URL('../node_modules', import.meta.url)), join(dir, 'packages/app/node_modules'), 'dir');
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'packages/app/src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'packages/app/test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    await commitAll(dir, 'fix sum');
+    return dir;
+  }
+
+  it('PASS: proves a fix in packages/app configured through .trustbut.json', async () => {
+    const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'packages/app' }) });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.runner).toBe('vitest');
+    expect(receipt.after?.exitCode).toBe(0);
+    expect(receipt.proofs.map((p) => [p.file, p.name, p.before, p.verdict])).toEqual([
+      ['packages/app/test/sum.test.js', 'adds', 'fail', 'proves-change'],
+    ]);
+    expect(receipt.verdict).toBe('pass');
+  }, 120_000);
+
+  it('--root overrides the config root', async () => {
+    const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'elsewhere' }) });
+    const { receipt } = await runVerify({ cwd: dir, root: 'packages/app/' });
+    expect(receipt.proofs.map((p) => [p.file, p.verdict])).toEqual([['packages/app/test/sum.test.js', 'proves-change']]);
+  }, 120_000);
+});
+
+describe('trustbut verify with the generic command runner', () => {
+  // A toy test runner: each test file names the value it expects in src/value.txt.
+  const RUN_SH = [
+    'files="$*"',
+    '[ -n "$files" ] || files=$(ls tests/test_*.py)',
+    '[ -f setup-ran ] || { echo "setup did not run" >&2; exit 2; }',
+    'status=0',
+    '{',
+    '  echo \'<?xml version="1.0"?><testsuites><testsuite name="toy">\'',
+    '  for f in $files; do',
+    '    want=$(sed -n \'s/.*EXPECT=//p\' "$f")',
+    '    if [ "$(cat src/value.txt)" = "$want" ]; then echo "<testcase name=\\"value\\" file=\\"$f\\"/>";',
+    '    else echo "<testcase name=\\"value\\" file=\\"$f\\"><failure/></testcase>"; status=1; fi',
+    '  done',
+    '  echo "</testsuite></testsuites>"',
+    '} > out/junit.xml',
+    'exit $status',
+    '',
+  ].join('\n');
+
+  it('PASS: proves a change through JUnit XML written by a shell script, with a setup that is killed afterwards', async () => {
+    const marks = await mkdtemp(join(tmpdir(), 'ar-marks-'));
+    const { dir } = await makeRepo({
+      'run.sh': RUN_SH,
+      'out/.keep': '',
+      'src/value.txt': 'old\n',
+      'tests/test_existing.py': '# EXPECT=old-or-new\n',
+      '.trustbut.json': JSON.stringify({
+        command: 'sh run.sh {files}',
+        junit: 'out/junit.xml',
+        setup: 'echo $$ >> "$MARKS/pids"; touch setup-ran; echo listening; exec sleep 300',
+        setupReadyPattern: 'listening',
+        setupWaitSec: 30,
+        env: { MARKS: marks },
+      }),
+    });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/value.txt': 'new\n', 'tests/test_existing.py': '# EXPECT=new\n', 'tests/test_value.py': '# EXPECT=new\n' });
+    await commitAll(dir, 'change value');
+
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.runner).toBe('command');
+    expect(receipt.after?.exitCode).toBe(0);
+    expect(receipt.proofs.map((p) => [p.file, p.before, p.verdict])).toEqual([
+      ['tests/test_existing.py', 'fail', 'proves-change'],
+      ['tests/test_value.py', 'fail', 'proves-change'],
+    ]);
+    const pids = (await readFile(join(marks, 'pids'), 'utf8')).trim().split('\n').map(Number);
+    expect(pids).toHaveLength(2);
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(pids.filter(alive)).toEqual([]);
+  }, 120_000);
+
+  it('errors when runner is "command" without a command', async () => {
+    const dir = await scenario({ '.trustbut.json': JSON.stringify({ runner: 'command' }) });
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(/needs a "command"/);
+  });
+});
+
+describe('trustbut verify config errors', () => {
+  it('rejects unknown keys in .trustbut.json', async () => {
+    const dir = await scenario({ '.trustbut.json': JSON.stringify({ rooot: 'x' }) });
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(/Unknown keys in \.trustbut\.json: rooot\. Allowed keys: root, runner/);
+  });
+
+  it('rejects an unknown runner from config', async () => {
+    const dir = await scenario({ '.trustbut.json': JSON.stringify({ runner: 'nope' }) });
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(/Unknown runner: nope/);
+  });
+
+  it('reads --config relative to cwd', async () => {
+    const dir = await scenario({ 'README.md': '# hi\n' });
+    await writeFiles(dir, { 'cfg/bad.json': JSON.stringify({ timeoutSec: -1 }) });
+    await expect(runVerify({ cwd: dir, config: 'cfg/bad.json' })).rejects.toThrow(/"timeoutSec" must be a positive number/);
+  });
 });

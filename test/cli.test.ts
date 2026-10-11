@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
@@ -32,6 +35,15 @@ describe('cli process exit codes', () => {
     expect(r.stderr).toMatch(/Unknown runner: nope/);
   }, 60_000);
 
+  it('exits 2 on an invalid config file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-cli-'));
+    await writeFile(join(dir, 'bad.json'), JSON.stringify({ nope: 1 }));
+    const r = await cli('verify', '--config', join(dir, 'bad.json'));
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain('Unknown keys in');
+    expect(r.stderr).toContain('Allowed keys: root, runner, command');
+  }, 60_000);
+
   it('exits 2 on an unknown option', async () => {
     const r = await cli('verify', '--nope');
     expect(r.exitCode).toBe(2);
@@ -47,5 +59,7 @@ describe('cli process exit codes', () => {
     const sub = await cli('verify', '--help');
     expect(sub.exitCode).toBe(0);
     expect(sub.stdout).toContain('--strict');
+    expect(sub.stdout).toContain('--config <path>');
+    expect(sub.stdout).toContain('--root <dir>');
   }, 60_000);
 });

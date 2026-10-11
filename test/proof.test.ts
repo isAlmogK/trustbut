@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { execa } from 'execa';
-import { mkdtemp, readdir, rm, symlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
 import { buildProofs, caseInFile, proveTests } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
-import type { Runner } from '../src/runners/types.js';
+import type { RunOptions, Runner } from '../src/runners/types.js';
 import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
 import { commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 
@@ -199,4 +200,113 @@ describe('proveTests (vitest fixture)', () => {
     const wt = await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir });
     expect(wt.stdout.split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
   }, 120_000);
+});
+
+describe('proveTests in a package root', () => {
+  async function monorepo() {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n', 'other/x.js': '1;\n' });
+    await writeFiles(dir, {
+      'pkg/src/a.js': 'export const a = 2;\n',
+      'pkg/test/a.test.js': "// TestA lives here\nit('TestA', () => {});\n",
+      'other/test/b.test.js': "it('b', () => {});\n",
+    });
+    const head = await commitAll(dir, 'change');
+    return { dir, base, head, changes: parseChanges(await diffText(dir, base, head)) };
+  }
+
+  it('runs in <worktree>/<root> with root-relative files and config options; reports repo paths', async () => {
+    const { dir, base, head, changes } = await monorepo();
+    const calls: RunOptions[] = [];
+    const seen: [string, string][] = [];
+    const runner: Runner = {
+      name: 'stub',
+      detect: async () => 0,
+      run: async (opts) => {
+        calls.push(opts);
+        // Ids that do not carry a file path, as Go or JVM runners report them.
+        return run([{ id: 'pkg::TestA', file: 'pkg', name: 'TestA', outcome: calls.length === 1 ? 'pass' : 'fail' }], calls.length === 1 ? 0 : 1);
+      },
+      casesInFile: (c, file, readHead) => {
+        seen.push([file, readHead(file).split('\n')[0]]);
+        return readHead(file).includes(`it('${c.name}'`);
+      },
+    };
+    const result = await proveTests({
+      repo: dir, base, head, changes, runner, root: 'pkg',
+      runOptions: { args: ['-v'], env: { A: 'b' }, timeoutMs: 1234 },
+    });
+    expect(calls.map((c) => [c.cwd.endsWith('/pkg'), c.files, c.args, c.env, c.timeoutMs])).toEqual([
+      [true, undefined, ['-v'], { A: 'b' }, 1234],
+      [true, ['test/a.test.js'], ['-v'], { A: 'b' }, 1234],
+    ]);
+    expect(seen).toContainEqual(['test/a.test.js', '// TestA lives here']);
+    expect(result.proofs.map((p) => [p.file, p.name, p.verdict])).toEqual([['pkg/test/a.test.js', 'TestA', 'proves-change']]);
+    expect(result.findings).toEqual([]);
+  });
+
+  it('passes root-relative files to caseInFile when the runner has no hook', async () => {
+    const { dir, base, head, changes } = await monorepo();
+    const runner = stubRunner(run([tc('test/a.test.js', 'TestA', 'pass')]), run([tc('test/a.test.js', 'TestA', 'fail')], 1));
+    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg', quick: true });
+    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['pkg/test/a.test.js', 'proves-change']]);
+  });
+
+  it('errors when the package root does not exist at head', async () => {
+    const { dir, base, head, changes } = await monorepo();
+    await expect(proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([])), root: 'nope' })).rejects.toThrow(
+      'Package root "nope" does not exist at head',
+    );
+    const wt = await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir });
+    expect(wt.stdout.split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
+  });
+});
+
+describe('proveTests setup command', () => {
+  const pidsIn = async (file: string) => (await readFile(file, 'utf8')).trim().split('\n').map(Number);
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('starts setup in each package root before its run and kills it afterwards', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const marks = await mkdtemp(join(tmpdir(), 'ar-marks-'));
+    const sawSetup: boolean[] = [];
+    let calls = 0;
+    const runner: Runner = {
+      name: 'stub',
+      detect: async () => 0,
+      run: async ({ cwd }) => {
+        sawSetup.push(existsSync(join(cwd, 'setup-ran')));
+        return calls++ === 0 ? run([tc('test/a.test.js', 'a', 'pass')]) : run([tc('test/a.test.js', 'a', 'fail')], 1);
+      },
+    };
+    await proveTests({
+      repo: dir, base, head, changes, runner,
+      runOptions: { env: { MARKS: marks } },
+      setup: { command: 'echo $$ >> "$MARKS/pids"; touch setup-ran; echo up; exec sleep 300', waitMs: 20_000, readyPattern: '^up$' },
+    });
+    expect(sawSetup).toEqual([true, true]);
+    const pids = await pidsIn(join(marks, 'pids'));
+    expect(pids).toHaveLength(2);
+    expect(pids.filter(alive)).toEqual([]);
+  });
+
+  it('kills setup when the run throws', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const marks = await mkdtemp(join(tmpdir(), 'ar-marks-'));
+    const runner: Runner = { name: 'stub', detect: async () => 0, run: async () => { throw new Error('runner exploded'); } };
+    await expect(
+      proveTests({
+        repo: dir, base, head, changes, runner,
+        runOptions: { env: { MARKS: marks } },
+        setup: { command: 'echo $$ >> "$MARKS/pids"; exec sleep 300', waitMs: 200 },
+      }),
+    ).rejects.toThrow('runner exploded');
+    expect((await pidsIn(join(marks, 'pids'))).filter(alive)).toEqual([]);
+  });
 });

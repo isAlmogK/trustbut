@@ -28,6 +28,8 @@ export function buildProgram(): Command {
     .option('-b, --base <ref>', 'base ref (compared from its merge-base with head; default: main/master)')
     .option('--head <ref>', 'head ref', 'HEAD')
     .addOption(new Option('--runner <name>', 'force a test runner').argParser(parseRunner))
+    .option('--config <path>', 'config file to use instead of .trustbut.json at head')
+    .option('--root <dir>', 'package folder to run the tests in, relative to the repo root (overrides config root)')
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
     .option('--json', 'print the receipt as JSON')
