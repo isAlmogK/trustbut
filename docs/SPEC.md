@@ -94,7 +94,7 @@ Review these first
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `pytest.skip()`) | WARN | |
 | Test definitions removed (net) | WARN | Could be a legitimate refactor, so a human should look |
 | Assertions removed (net) | WARN | |
-| Snapshot rewritten | WARN | |
+| Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
 | Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores) | WARN | |
 | Source changed, no tests changed | WARN | |
