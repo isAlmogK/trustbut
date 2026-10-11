@@ -25,23 +25,56 @@ export interface ProofOutput {
 }
 
 export function caseInFile(c: TestCaseResult, file: string): boolean {
-  if (c.file === file || c.file.endsWith(`/${file}`)) return true;
+  if (!c.file) return false;
+  // Runner path equal to, below, or (runner rooted in a subdirectory) a suffix of the repo path.
+  if (c.file === file || c.file.endsWith(`/${file}`) || file.endsWith(`/${c.file}`)) return true;
   const mod = file.replace(/\.py$/, '').split('/').join('.');
   return c.file === mod || c.file.startsWith(`${mod}.`);
 }
 
-export function buildProofs(testFiles: string[], before: RunResult, after: RunResult): TestProof[] {
-  const beforeById = new Map(before.cases.map((c) => [c.id, c.outcome]));
-  return after.cases
-    .filter((c) => testFiles.some((f) => caseInFile(c, f)))
-    .map((c) => {
-      const prior = beforeById.get(c.id) ?? 'missing';
-      const verdict: TestProof['verdict'] =
-        c.outcome === 'skip' ? 'skipped' : c.outcome !== 'pass' ? 'failing' : prior === 'pass' ? 'does-not-constrain' : 'proves-change';
-      const weak = verdict === 'proves-change' && (prior === 'missing' || prior === 'error');
-      return { id: c.id, file: c.file, name: c.name, before: prior, after: c.outcome, verdict, weak };
-    });
+/** The test's own name: vitest's last ` > ` segment, without pytest `[params]`. */
+function leafName(name: string): string {
+  return (name.split(' > ').pop() ?? name).replace(/\[.*\]$/, '');
 }
+
+/**
+ * Pairs each head result in a changed test file with its base result. In a modified (not added)
+ * file, a case that passed at base, still passes at head, and whose name is on no added line is
+ * an untouched existing test, so it is not evidence about this change and is left out.
+ */
+export function buildProofs(testFiles: ChangedFile[], before: RunResult, after: RunResult): TestProof[] {
+  const beforeById = new Map(before.cases.map((c) => [c.id, c.outcome]));
+  const proofs: TestProof[] = [];
+  for (const c of after.cases) {
+    const file = testFiles.find((f) => caseInFile(c, f.path));
+    if (!file) continue;
+    const prior = beforeById.get(c.id) ?? 'missing';
+    if (file.status !== 'added' && prior === 'pass' && (c.outcome === 'pass' || c.outcome === 'skip')) {
+      const leaf = leafName(c.name);
+      if (!leaf || !file.added.some((a) => a.text.includes(leaf))) continue;
+    }
+    const verdict: TestProof['verdict'] =
+      c.outcome === 'skip' ? 'skipped' : c.outcome !== 'pass' ? 'failing' : prior === 'pass' ? 'does-not-constrain' : 'proves-change';
+    const weak = verdict === 'proves-change' && (prior === 'missing' || prior === 'error');
+    proofs.push({ id: c.id, file: file.path, name: c.name, before: prior, after: c.outcome, verdict, weak });
+  }
+  return proofs;
+}
+
+const lastLine = (output: string): string =>
+  output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? '';
+
+function headRunFinding(after: RunResult): Finding | undefined {
+  if (after.exitCode === 0) return undefined;
+  if (after.cases.length === 0) {
+    const detail = lastLine(after.output);
+    return { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', ...(detail ? { detail } : {}) };
+  }
+  return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: `exit code ${after.exitCode}` };
+}
+
+// Files whose name says they define tests (helpers under test/ do not produce results of their own).
+const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$/;
 
 async function linkDeps(repo: string, dir: string): Promise<void> {
   for (const name of DEP_DIRS) {
@@ -64,7 +97,8 @@ async function unlinkDeps(dir: string): Promise<void> {
 }
 
 export async function proveTests({ repo, base, head, changes, runner, quick }: ProofInput): Promise<ProofOutput> {
-  const testFiles = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted').map((c) => c.path);
+  const changedTests = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted');
+  const testFiles = changedTests.map((c) => c.path);
   const findings: Finding[] = [];
   if (changes.some((c) => LOCKFILE.test(c.path))) {
     findings.push({ id: 'deps-changed', severity: 'info', title: 'Dependencies changed; both runs use the currently installed dependencies' });
@@ -75,9 +109,8 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
   try {
     await linkDeps(repo, headDir);
     const after = await runner.run({ cwd: headDir, files: quick && testFiles.length ? testFiles : undefined });
-    if (after.exitCode !== 0) {
-      findings.push({ id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: `exit code ${after.exitCode}` });
-    }
+    const headFinding = headRunFinding(after);
+    if (headFinding) findings.push(headFinding);
     if (!testFiles.length) return { after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
@@ -88,7 +121,22 @@ export async function proveTests({ repo, base, head, changes, runner, quick }: P
       await writeFile(target, await showFileBuffer(repo, head, path));
     }
     const before = await runner.run({ cwd: baseDir, files: testFiles });
-    return { after, before, proofs: buildProofs(testFiles, before, after), findings };
+    if (before.exitCode !== 0 && before.cases.length === 0) {
+      findings.push({
+        id: 'base-run-failed',
+        severity: 'warn',
+        title: `Changed tests could not run at base; fail-before evidence unavailable (exit ${before.exitCode})`,
+      });
+    }
+    const namedTests = testFiles.filter((f) => TEST_FILE_NAME.test(f));
+    if (namedTests.length && after.cases.length && !after.cases.some((c) => namedTests.some((f) => caseInFile(c, f)))) {
+      findings.push({
+        id: 'proofs-unmatched',
+        severity: 'warn',
+        title: 'No test results matched the changed test files; fail-before/pass-after evidence unavailable',
+      });
+    }
+    return { after, before, proofs: buildProofs(changedTests, before, after), findings };
   } finally {
     // Nested so a failure cleaning up head cannot skip cleaning up base.
     try {

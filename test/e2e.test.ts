@@ -75,6 +75,21 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.findings.map((f) => f.id)).toEqual(expect.arrayContaining(['suite-failing', 'test-failing']));
   });
 
+  it('WARN only for the new test when an existing test file gains one test', async () => {
+    const dir = await scenario({
+      'test/old.test.js': [
+        "import { it, expect } from 'vitest';",
+        "it('truth', () => expect(1).toBe(1));",
+        "it('also true', () => expect(2).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    const loose = receipt.findings.filter((f) => f.id === 'test-passes-without-change');
+    expect(loose.map((f) => [f.file, f.detail])).toEqual([['test/old.test.js', 'also true']]);
+    expect(receipt.proofs.map((p) => p.name)).not.toContain('truth');
+  });
+
   it('errors clearly when there is nothing to compare', async () => {
     const { dir } = await makeRepo(BASE_FILES);
     await expect(runVerify({ cwd: dir })).rejects.toThrow(/No changes between base and head/);

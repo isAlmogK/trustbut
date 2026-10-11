@@ -4,13 +4,17 @@ import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
 import { buildProofs, caseInFile, proveTests } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
-import type { RunResult, TestCaseResult } from '../src/types.js';
+import type { Runner } from '../src/runners/types.js';
+import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
 import { commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 
 const tc = (file: string, name: string, outcome: TestCaseResult['outcome']): TestCaseResult => ({
   id: `${file}::${name}`, file, name, outcome,
 });
-const run = (cases: TestCaseResult[], exitCode = 0): RunResult => ({ exitCode, cases, durationMs: 1, output: '' });
+const run = (cases: TestCaseResult[], exitCode = 0, output = ''): RunResult => ({ exitCode, cases, durationMs: 1, output });
+const changed = (path: string, status: ChangedFile['status'] = 'added', added: string[] = []): ChangedFile => ({
+  path, status, kind: 'test', added: added.map((text, i) => ({ line: i + 1, text })), removed: [],
+});
 
 describe('caseInFile', () => {
   it('matches path-style and python module-style files', () => {
@@ -18,6 +22,11 @@ describe('caseInFile', () => {
     expect(caseInFile(tc('tests.test_a', 'x', 'pass'), 'tests/test_a.py')).toBe(true);
     expect(caseInFile(tc('tests.test_a.TestX', 'x', 'pass'), 'tests/test_a.py')).toBe(true);
     expect(caseInFile(tc('test/b.test.ts', 'x', 'pass'), 'test/a.test.ts')).toBe(false);
+  });
+
+  it('matches a runner path relative to a subdirectory of the repo', () => {
+    expect(caseInFile(tc('test/a.test.ts', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(true);
+    expect(caseInFile(tc('', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(false);
   });
 });
 
@@ -33,12 +42,106 @@ describe('buildProofs', () => {
       tc(f, 'later', 'skip'),
       tc('test/untouched.test.ts', 'other', 'pass'),
     ]);
-    expect(buildProofs([f], before, after).map((p) => [p.name, p.verdict, p.weak])).toEqual([
+    expect(buildProofs([changed(f)], before, after).map((p) => [p.name, p.verdict, p.weak])).toEqual([
       ['proves', 'proves-change', false],
       ['loose', 'does-not-constrain', false],
       ['broken', 'failing', false],
       ['new-import', 'proves-change', true],
       ['later', 'skipped', false],
+    ]);
+  });
+});
+
+describe('buildProofs on modified test files', () => {
+  it('skips untouched cases that already passed at base; keeps edited, fixed and failing ones', () => {
+    const f = 'test/a.test.ts';
+    const file = changed(f, 'modified', ["  it('edited', () => {", "    it('nested', () => {", '  expect(sum(1, 2)).toBe(3);']);
+    const before = run([
+      tc(f, 'untouched', 'pass'),
+      tc(f, 'edited', 'pass'),
+      tc(f, 'fixed', 'fail'),
+      tc(f, 'regressed', 'pass'),
+      tc(f, 'group > nested', 'pass'),
+      tc(f, 'group > other', 'pass'),
+    ]);
+    const after = run([
+      tc(f, 'untouched', 'pass'),
+      tc(f, 'edited', 'pass'),
+      tc(f, 'fixed', 'pass'),
+      tc(f, 'regressed', 'fail'),
+      tc(f, 'group > nested', 'pass'),
+      tc(f, 'group > other', 'pass'),
+      tc(f, 'brand new', 'pass'),
+    ]);
+    expect(buildProofs([file], before, after).map((p) => [p.name, p.verdict])).toEqual([
+      ['edited', 'does-not-constrain'],
+      ['fixed', 'proves-change'],
+      ['regressed', 'failing'],
+      ['group > nested', 'does-not-constrain'],
+      ['brand new', 'proves-change'],
+    ]);
+  });
+
+  it('strips pytest parameters from the leaf name and reports the repo path of the file', () => {
+    const file = changed('tests/test_a.py', 'renamed', ['def test_p(x):']);
+    const before = run([tc('tests.test_a', 'test_p[1-2]', 'pass'), tc('tests.test_a', 'test_q', 'pass')]);
+    const after = run([tc('tests.test_a', 'test_p[1-2]', 'pass'), tc('tests.test_a', 'test_q', 'pass')]);
+    expect(buildProofs([file], before, after)).toEqual([
+      { id: 'tests.test_a::test_p[1-2]', file: 'tests/test_a.py', name: 'test_p[1-2]', before: 'pass', after: 'pass', verdict: 'does-not-constrain', weak: false },
+    ]);
+  });
+});
+
+/** A runner stub: the first call is the head run, the second the base run. */
+function stubRunner(head: RunResult, base?: RunResult): Runner {
+  let calls = 0;
+  return { name: 'vitest', run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
+}
+
+async function repoWithNewTest() {
+  const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+  await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('a', () => {});\n" });
+  const head = await commitAll(dir, 'change');
+  return { dir, base, head, changes: parseChanges(await diffText(dir, base, head)) };
+}
+
+describe('proveTests evidence findings', () => {
+  it('warns when the changed tests could not run at base', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const runner = stubRunner(run([tc('test/a.test.js', 'a', 'pass')]), run([], 1, 'boom'));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(result.findings).toEqual([
+      { id: 'base-run-failed', severity: 'warn', title: 'Changed tests could not run at base; fail-before evidence unavailable (exit 1)' },
+    ]);
+  });
+
+  it('warns when no test result matches the changed test files', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const runner = stubRunner(run([tc('elsewhere/b.test.js', 'b', 'pass')]), run([tc('elsewhere/b.test.js', 'b', 'pass')]));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(result.proofs).toEqual([]);
+    expect(result.findings.map((f) => [f.id, f.severity])).toEqual([['proofs-unmatched', 'warn']]);
+  });
+
+  it('explains a runner that failed without reporting results', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const output = "npm error could not determine executable to run\nError: Cannot find module 'vitest'\n\n";
+    const runner = stubRunner(run([], 1, output), run([], 1, output));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(result.findings[0]).toEqual({
+      id: 'suite-failing',
+      severity: 'fail',
+      title: 'Test runner failed without reporting any test results',
+      detail: "Error: Cannot find module 'vitest'",
+    });
+  });
+
+  it('keeps the plain suite-failing finding when tests ran and failed', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const runner = stubRunner(run([tc('test/a.test.js', 'a', 'fail')], 1), run([tc('test/a.test.js', 'a', 'fail')], 1));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(result.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
     ]);
   });
 });
