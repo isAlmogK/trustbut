@@ -57,6 +57,21 @@ describe('detectRunner', () => {
   });
 });
 
+describe('detectRunner robustness', () => {
+  it('detects vitest from a config file without a dependency', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), '{}');
+    await writeFile(join(dir, 'vitest.config.mts'), 'export default {};');
+    expect((await detectRunner(dir))?.name).toBe('vitest');
+  });
+
+  it('gives a friendly error for a malformed package.json', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), '{ nope');
+    await expect(detectRunner(dir)).rejects.toThrow(/Could not read package\.json: /);
+  });
+});
+
 describe('vitest runner', () => {
   it('runs selected files and reports per-test outcomes', async () => {
     const { dir } = await makeRepo({

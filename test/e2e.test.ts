@@ -1,3 +1,4 @@
+import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../src/commands/verify.js';
 import { buildProgram } from '../src/program.js';
@@ -86,5 +87,39 @@ describe('trustbut verify (end to end)', () => {
 
   it('registers the verify command', () => {
     expect(buildProgram().commands.map((c) => c.name())).toContain('verify');
+  });
+
+  it('rejects an unknown runner', async () => {
+    const dir = await scenario({ 'README.md': '# hi\n' });
+    await expect(runVerify({ cwd: dir, runner: 'jest' as never })).rejects.toThrow(/Unknown runner: jest/);
+  });
+
+  it('uses the merge-base for an explicit --base on a diverged branch', async () => {
+    const { dir, base: branchPoint } = await makeRepo(BASE_FILES);
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'README.md': '# hi\n' });
+    await commitAll(dir, 'agent change');
+    await execa('git', ['checkout', '-q', 'main'], { cwd: dir });
+    await writeFiles(dir, { 'later.js': 'export const later = 1;\n' });
+    await commitAll(dir, 'main advances');
+    await execa('git', ['checkout', '-q', 'agent-change'], { cwd: dir });
+    const { receipt, output } = await runVerify({ cwd: dir, base: 'main', json: true });
+    expect(receipt.base).toBe(branchPoint);
+    expect(output).not.toContain('later.js');
+  });
+
+  it('CLI exits 2 with a message on a bad base', async () => {
+    const dir = await scenario({ 'README.md': '# hi\n' });
+    const cwd = process.cwd();
+    const prev = process.exitCode;
+    process.chdir(dir);
+    try {
+      await buildProgram().parseAsync(['node', 'trustbut', 'verify', '--base', 'does-not-exist']);
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.chdir(cwd);
+      process.exitCode = prev;
+    }
   });
 });

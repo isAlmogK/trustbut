@@ -30,7 +30,7 @@ async function resolveBase(repo: string, head: string, explicit?: string): Promi
   if (explicit) {
     const sha = await resolveRef(repo, explicit);
     if (!sha) throw new Error(`Unknown base ref: ${explicit}`);
-    return sha;
+    return mergeBase(repo, sha, head);
   }
   for (const ref of DEFAULT_BASES) {
     const sha = await resolveRef(repo, ref);
@@ -40,6 +40,9 @@ async function resolveBase(repo: string, head: string, explicit?: string): Promi
 }
 
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
+  if (opts.runner !== undefined && opts.runner !== 'vitest' && opts.runner !== 'pytest') {
+    throw new Error(`Unknown runner: ${String(opts.runner)}. Supported: vitest, pytest`);
+  }
   const repo = await repoRoot(opts.cwd ?? process.cwd());
   const headRef = opts.head ?? 'HEAD';
   const head = await resolveRef(repo, headRef);
