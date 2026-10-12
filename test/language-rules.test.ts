@@ -77,6 +77,51 @@ describe('Rust rules', () => {
   });
 });
 
+describe('Java rules', () => {
+  const t = 'src/test/java/a/CalcTest.java';
+  it('flags @Disabled/@Ignore, not mentions in strings or comments', () => {
+    expect(focusSkip(t, ['  @Disabled("flaky")', '  @Ignore', '  @DisabledOnOs(OS.WINDOWS)', '  String s = "@Disabled";', '  // @Ignore for now', '  @DisplayName("not @Disabled")', `  char c = '"'; int x = 1;`])).toEqual([
+      [1, 'test-skipped'],
+      [2, 'test-skipped'],
+      [3, 'test-skipped'],
+    ]);
+  });
+  it('counts removed tests and assertions', () => {
+    expect(removedCounts(t, ['  @Test', '  @ParameterizedTest', '  @RepeatedTest(3)', '  @Test void adds() {', '  @TestInstance(PER_CLASS)', '  @BeforeEach'])).toEqual(['4 tests removed']);
+    expect(removedCounts(t, ['    assertEquals(1, x);', '    assertThat(x).isEqualTo(1);', '    Assertions.assertTrue(x);', '    verify(mock).run();', '    assert x > 0;', '    String m = "assertEquals(1, x)";', '    // verify(mock)'])).toEqual(['5 assertions removed']);
+  });
+  it('flags warning suppressions and lint markers in source', () => {
+    expect(escapes('src/main/java/a/Calc.java', ['@SuppressWarnings("unchecked")', 'int x = 1; // NOPMD', '// CHECKSTYLE:OFF', '@SuppressFBWarnings("EI_EXPOSE_REP")', 'String s = "@SuppressWarnings(x)";', '/* @SuppressWarnings("x") */'])).toEqual([
+      [1, 'warnings suppressed'],
+      [2, 'lint rule disabled'],
+      [3, 'lint rule disabled'],
+      [4, 'warnings suppressed'],
+    ]);
+  });
+});
+
+describe('Kotlin rules', () => {
+  const t = 'src/test/kotlin/a/CalcTest.kt';
+  it('flags @Disabled/@Ignore, not mentions in strings or comments', () => {
+    expect(focusSkip(t, ['  @Disabled', '  @Ignore("later")', '  val s = "@Ignore"', '  // @Disabled', '  val r = """@Disabled"""'])).toEqual([
+      [1, 'test-skipped'],
+      [2, 'test-skipped'],
+    ]);
+  });
+  it('counts removed tests and assertions', () => {
+    expect(removedCounts(t, ['  @Test', '  @Test fun adds() {', '  @ParameterizedTest', '  @TestInstance(Lifecycle.PER_CLASS)'])).toEqual(['3 tests removed']);
+    expect(removedCounts(t, ['    assertEquals(1, x)', '    verify { mock.run() }', '    x shouldBe 1', '    assertThat(x).isTrue()', '    val m = """assertEquals(1, x)"""'])).toEqual(['4 assertions removed']);
+  });
+  it('flags @Suppress and lint markers in source', () => {
+    expect(escapes('src/main/kotlin/a/Calc.kt', ['@Suppress("UNCHECKED_CAST")', '@file:Suppress("unused")', '@SuppressLint("NewApi")', 'import a.* // ktlint-disable no-wildcard-imports', 'val s = "@Suppress(x)"', 'val y = x!!'])).toEqual([
+      [1, 'warnings suppressed'],
+      [2, 'warnings suppressed'],
+      [3, 'lint rule disabled'],
+      [4, 'lint rule disabled'],
+    ]);
+  });
+});
+
 describe('C# rules', () => {
   const t = 'Calc.Tests/CalcTests.cs';
   it('flags skipped and ignored tests, not mentions in strings, verbatim strings or comments', () => {
@@ -93,6 +138,72 @@ describe('C# rules', () => {
       [3, 'nullable checks disabled'],
       [4, 'lint rule disabled'],
       [5, 'coverage exclusion'],
+    ]);
+  });
+});
+
+describe('Ruby rules', () => {
+  const t = 'spec/models/user_spec.rb';
+  it('fails on focused examples, not on fit calls, strings or comments', () => {
+    expect(focusSkip(t, ["  fit 'works' do", '  fdescribe User do', "  fcontext 'when x' do", "  it 'x', :focus do", '  describe User, focus: true do', '  model.fit(data)', `  msg = "fit 'x' do"`, "  # fit 'later'"])).toEqual([1, 2, 3, 4, 5].map((l) => [l, 'test-focused']));
+  });
+  it('flags skips and pending, not variables named pending or strings', () => {
+    expect(focusSkip(t, ["  xit 'works' do", '  xdescribe User do', "  skip 'not yet'", "  pending 'later'", "  it 'x', skip: 'flaky' do", '    skip', '  pending = orders.select(&:pending?)', '  items.skip_while { |x| x }', `  str = "skip 'x'"`, "  # pending 'later'", '  expect(order.pending?).to be true'])).toEqual([1, 2, 3, 4, 5, 6].map((l) => [l, 'test-skipped']));
+  });
+  it('counts removed tests and assertions (RSpec and Minitest)', () => {
+    expect(removedCounts(t, ["  it 'adds' do", '  it { is_expected.to be_valid }', '  specify do', "  test 'adds' do", '  def test_adds', '  items.each { it.save }', '  it.save', "  describe 'x' do", "  context 'y' do"])).toEqual(['5 tests removed', '1 assertion removed']);
+    expect(removedCounts('test/models/user_test.rb', ['    expect(x).to eq(1)', '    expect { run }.to raise_error(E)', '    is_expected.to be_valid', '    assert_equal 1, x', '    refute x.nil?', '    x.should eq 1', '    expected = 1', '    msg = "expect(x)"'])).toEqual(['6 assertions removed']);
+  });
+  it('flags rubocop and nocov markers in source', () => {
+    expect(escapes('app/models/user.rb', ['  def x # rubocop:disable Metrics/MethodLength', '# rubocop:todo Style/Foo', '# :nocov:', 's = "# rubocop:disable"', '# we never disable rubocop'])).toEqual([
+      [1, 'lint rule disabled'],
+      [2, 'lint rule disabled'],
+      [3, 'coverage exclusion'],
+    ]);
+  });
+});
+
+describe('PHP rules', () => {
+  const t = 'tests/Unit/CalcTest.php';
+  it('flags skipped and incomplete tests, not strings or comments', () => {
+    expect(focusSkip(t, ["        $this->markTestSkipped('x');", '        $this->markTestIncomplete();', "test('adds')->skip();", "it('x', fn () => 1)->todo();", "        $s = 'markTestSkipped(';", '        // $this->markTestSkipped()', '        # ->skip()'])).toEqual([1, 2, 3, 4].map((l) => [l, 'test-skipped']));
+  });
+  it('counts removed tests (methods, attributes, @test docblocks, Pest) and assertions', () => {
+    expect(removedCounts(t, ['    public function testAdds(): void', '    #[Test]', '    /** @test */', '     * @test', "test('adds', function () {", "it('works', function () {", "    #[DataProvider('cases')]", '    public function setUp(): void', '    /** @testdox Adds */', '    $x = "function testFoo()";'])).toEqual(['6 tests removed']);
+    expect(removedCounts(t, ['        $this->assertSame(1, $x);', '        self::assertTrue($x);', '        static::assertCount(2, $a);', '        $this->expectException(E::class);', '    expect($x)->toBe(1);', '        Assert::assertEquals(1, $x);', "        $m = '$this->assertSame(1, $x)';", '        // self::assertTrue($x)'])).toEqual(['6 assertions removed']);
+  });
+  it('flags phpstan/psalm/phpcs/coverage markers and the @ operator in source', () => {
+    expect(escapes('src/Calc.php', ['        // @phpstan-ignore-next-line', '    /** @psalm-suppress MixedAssignment */', '        $x = foo(); // phpcs:ignore', '# phpcs:disable', '    /** @codeCoverageIgnore */', '        $c = @file_get_contents($p);', '        $s = "@phpstan-ignore";', '    #[Pure]', "        $email = 'a@b.c';", '     * @param int $x'])).toEqual([
+      [1, 'type check suppressed'],
+      [2, 'type check suppressed'],
+      [3, 'lint rule disabled'],
+      [4, 'lint rule disabled'],
+      [5, 'coverage exclusion'],
+      [6, 'errors suppressed'],
+    ]);
+  });
+});
+
+describe('Dart rules', () => {
+  const t = 'test/calc_test.dart';
+  it('fails on solo tests and flags skips, not strings or comments', () => {
+    expect(focusSkip(t, ["  test('x', () {}, solo: true);", "  test('x', () {}, skip: true);", "  test('y', () {}, skip: 'flaky');", '  testWidgets(\'z\', (t) async {}, skip: isCI);', "@Skip('not on CI')", "  test('x', () {}, skip: false);", "  final s = 'solo: true';", '  final r = "skip: true";', '  // skip: true'])).toEqual([
+      [1, 'test-focused'],
+      [2, 'test-skipped'],
+      [3, 'test-skipped'],
+      [4, 'test-skipped'],
+      [5, 'test-skipped'],
+    ]);
+  });
+  it('counts removed tests (not groups) and assertions', () => {
+    expect(removedCounts(t, ["  test('adds', () {", "  testWidgets('renders', (tester) async {", '  blocTest<CounterCubit, int>(', "  group('calc', () {", '  setUp(() {'])).toEqual(['3 tests removed']);
+    expect(removedCounts(t, ['    expect(x, 1);', '    await expectLater(f, completes);', '    verify(mock.run()).called(1);', "    final m = r'expect(x, 1)';"])).toEqual(['3 assertions removed']);
+  });
+  it('flags analyzer ignores and coverage markers in source', () => {
+    expect(escapes('lib/calc.dart', ['  print(x); // ignore: avoid_print', '// ignore_for_file: type=lint', '  // coverage:ignore-line', "  final s = '// ignore: x';", '  // we ignore errors here'])).toEqual([
+      [1, 'lint rule disabled'],
+      [2, 'lint rule disabled'],
+      [3, 'coverage exclusion'],
     ]);
   });
 });
