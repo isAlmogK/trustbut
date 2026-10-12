@@ -32,7 +32,7 @@ Two facts shape the whole process:
 Order matters because of the 48 h window. Do these in sequence, all in one sitting:
 
 1. **Have the bump PR merged first**: `npm run release:bump 0.3.1`, changelog entry, PR merged to `main` (section 3 steps 1-3). Nothing else should be pending.
-2. Create the GitHub environment `npm`: repo Settings, Environments, New environment `npm`. Optionally add a required reviewer and restrict deployment to tags `v*`.
+2. Create or configure the GitHub environment `npm`: repo Settings, Environments (the first `release.yml` run, for v0.3.0, auto-creates it if it doesn't exist yet, so by now it usually does). Optionally add a required reviewer and restrict deployment to tags `v*`. Note that required reviewers hold a run until approved: if you added them before the v0.3.0 Release, that run waits for approval before the `v0` tag is created.
 3. Create the npm trusted publisher (the 48 h clock starts here): npmjs.com, package `trustbut`, Settings, Trusted Publisher, GitHub Actions:
    - Owner `isAlmogK`, repository `trustbut`, workflow filename `release.yml`, environment `npm`.
    - **Allowed actions: tick "npm publish".** New configs are staging-only by default (since 2026-09-03); without the tick the workflow's `npm publish` is refused. (Alternative: leave staging-only, change the workflow to `npm stage publish`, and approve each release with 2FA on npmjs.com.)

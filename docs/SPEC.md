@@ -8,10 +8,10 @@ Your agent said it's done and the tests pass. **Here's what's actually true.**
 
 ## How users install and use it
 
-- **Zero install:** `npx trustbut verify` in any repo after an agent finishes. Global: `npm i -g trustbut`. Later: a standalone binary through `brew install trustbut` so Python users don't need Node.
+- **Zero install:** `npx trustbut verify` in any repo after an agent finishes (until the first npm release: `npx github:isAlmogK/trustbut verify`). Global: `npm i -g trustbut`. Later: a standalone binary through `brew install trustbut` so Python users don't need Node.
 - **Manual (v0.1):** run `trustbut verify` when the agent says "done".
-- **Inside the agent (v0.3):** `trustbut init` installs a turn-end hook for Claude Code, Codex or Gemini CLI. The agent can't finish on a FAIL receipt.
-- **On every PR (v0.3):** `uses: trustbut/action@v1` posts the receipt as a PR comment.
+- **Inside the agent (v0.3):** `trustbut init claude|codex|gemini|opencode` installs a turn-end hook (Claude Code also ships as a plugin). The agent can't finish on a FAIL receipt (OpenCode gets the receipt as a follow-up prompt instead).
+- **On every PR (v0.3):** `uses: isAlmogK/trustbut@v0` posts the receipt as a sticky PR comment and in the job summary.
 
 ## Problem
 
@@ -24,7 +24,7 @@ Coding agents (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) now wr
 
 ## Product
 
-A **local-first CLI** (plus a GitHub Action and agent plugins later) that takes a base and a head commit and produces a **receipt**: a short, deterministic evidence report that a human can read in 30 seconds.
+A **local-first CLI** (plus a GitHub Action and agent hooks) that takes a base and a head commit and produces a **receipt**: a short, deterministic evidence report that a human can read in 30 seconds.
 
 ```
 $ npx trustbut verify
@@ -196,10 +196,11 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
 
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
 - **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error. `trustbut hook` follows the agent's protocol instead (see below).
+- **Receipt files:** `--receipt-json <path>` and `--receipt-md <path>` also write the JSON (pretty-printed) and the Markdown receipt to a file, in addition to what is printed (with `--json`, stdout is the JSON and `--receipt-md` still gets the Markdown). Paths are relative to the current directory, parent folders are created, and a file that can't be written is reported on stderr (`trustbut: couldn't write receipt to <path>: <reason>`) and makes the exit code **2** (the receipt is still printed). The Action uses them to read the verdict and post the comment.
 
 ### 7. Agent hooks (`trustbut hook <agent>`)
 
-`trustbut init claude|codex|gemini|opencode [--dry-run] [--user]` installs the hook. It copies the hardened runner (`integrations/claude-code/scripts/run.mjs`, shipped in the npm package) to `<agent dir>/hooks/trustbut-run.mjs` with a `trustbut-run.json` holding the version, and merges one entry into the agent's config without touching other hooks: Claude `.claude/settings.json` `hooks.Stop` (exec form, `${CLAUDE_PROJECT_DIR}`), Codex `.codex/hooks.json` `Stop`, Gemini `.gemini/settings.json` `hooks.AfterAgent` (name `trustbut-verify`, `timeout` 600000 ms), OpenCode `.opencode/plugins/trustbut.js` (V1 plugin API: on `session.idle` it runs the runner as `hook opencode` and sends a FAIL back with `client.session.prompt`, at most 3 times in a row; V2 is a follow-up). `--user` writes the user-level equivalents with absolute runner paths (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/opencode`). A rerun updates our entry in place and changes nothing else; `--dry-run` prints the diff and writes nothing; an unparsable config is refused with exit 2. `trustbut hook opencode` answers with exit 1 and the feedback on stdout for a FAIL, else exit 0 with nothing on stdout. Project files go at the git root, while agents read project settings from the directory they are launched in, so launch from the root. A settings file with comments (JSONC) is refused with exit 2 and the snippet to add by hand; writes are atomic and keep the file's indent. The OpenCode plugin finds its runner next to itself (`../hooks`), skips the idle after a user abort, and passes `stop_hook_active` so `hook.maxRetries` governs. `TRUSTBUT_VERSION_PROBE_MS` caps the runner's PATH version probe (default 10 s). The runner's budget starts at 570 s (`TRUSTBUT_HOOK_BUDGET_SEC` overrides).
+`trustbut init <claude|codex|gemini|opencode> [--dry-run] [--user]` installs the hook. It copies the hardened runner (`integrations/claude-code/scripts/run.mjs`, shipped in the npm package) to `<agent dir>/hooks/trustbut-run.mjs` with a `trustbut-run.json` holding the version, and merges one entry into the agent's config without touching other hooks: Claude `.claude/settings.json` `hooks.Stop` (exec form, `${CLAUDE_PROJECT_DIR}`), Codex `.codex/hooks.json` `Stop`, Gemini `.gemini/settings.json` `hooks.AfterAgent` (name `trustbut-verify`, `timeout` 600000 ms), OpenCode `.opencode/plugins/trustbut.js` (V1 plugin API: on `session.idle` it runs the runner as `hook opencode` and sends a FAIL back with `client.session.prompt`, at most 3 times in a row; V2 is a follow-up). `--user` writes the user-level equivalents with absolute runner paths (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/opencode`). A rerun updates our entry in place and changes nothing else; `--dry-run` prints the diff and writes nothing; an unparsable config is refused with exit 2. `trustbut hook opencode` answers with exit 1 and the feedback on stdout for a FAIL, else exit 0 with nothing on stdout. Project files go at the git root, while agents read project settings from the directory they are launched in, so launch from the root. A settings file with comments (JSONC) is refused with exit 2 and the snippet to add by hand; writes are atomic and keep the file's indent. The OpenCode plugin finds its runner next to itself (`../hooks`), skips the idle after a user abort, and passes `stop_hook_active` so `hook.maxRetries` governs. `TRUSTBUT_VERSION_PROBE_MS` caps the runner's PATH version probe (default 10 s). The runner's budget starts at 570 s (`TRUSTBUT_HOOK_BUDGET_SEC` overrides).
 
 `trustbut hook claude|codex|gemini` is the command an agent's turn-end hook runs (Claude Code `Stop`, Codex CLI ≥ 0.124 `Stop`, Gemini CLI ≥ 0.35 `AfterAgent`). It reads the hook input (JSON) on stdin, runs the same pipeline as `trustbut verify --working --base <hook base>` in-process (`--quick` too in the default mode: only new/changed test files are rerun at head, and the whole suite when no test file changed), and answers in that agent's protocol, so a FAIL keeps the agent working instead of letting it say "done".
 
@@ -216,15 +217,58 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
 - **Feedback to the agent (FAIL):** plain Markdown of at most 6,000 characters (Codex and Gemini cut hook output at about 2,500 tokens): the verdict, the tests line, each FAIL finding with `file:line` (a failing changed test is listed once, under failing tests), failing tests (up to 10) with the runner's failure message when it reports one (`TestCaseResult.message`, up to 300 characters: JUnit `<failure>`/`<error>` `message`, else the first line of its text; Jest's first `failureMessages` entry), on `suite-failing` the last 20 lines (at most 1,500 characters) of the head run's output in a fenced block, warnings (up to 10, one line each), "Fix these and finish again; run `<recheck>` to check." and the receipt path. `<recheck>` matches the hook: `trustbut verify --working`, plus `--quick` in quick mode and `--base <ref>` when the hook's base isn't the one `verify` would pick. Lines are flattened and clipped at 400 characters; when the whole text is still too long, items are dropped from the end (the output block as a whole) with "… N more lines not shown; see the full receipt", keeping the instruction and the path.
 - **Message to the user (`systemMessage`):** one line. FAIL: counts, e.g. `trustbut FAIL: 2 failing tests, 1 test passes without the change — sent back to the agent (attempt 1/3)`. WARN: up to 3 finding titles and the receipt path. PASS: tests passed and how many new/changed tests prove the change. Errors: `trustbut couldn't verify: <first line of the error>`.
 
-| Outcome | `claude` (Stop) | `codex` (Stop) | `gemini` (AfterAgent) |
-|---|---|---|---|
-| FAIL, within `maxRetries` | exit 0, stdout `{"decision":"block","reason":<feedback>,"systemMessage":"trustbut FAIL: …"}` | exit 2, feedback on stderr, empty stdout | exit 2, feedback on stderr, **empty stdout** |
-| FAIL at the limit, PASS, WARN | exit 0, stdout `{"systemMessage":"…"}` | same | same |
-| Error, timeout or interrupt | exit 0, stdout `{"systemMessage":"trustbut couldn't verify: …"}` | same | same |
-| Skip, unchanged PASS/WARN | exit 0, no output | same | same |
-| Unchanged FAIL on a new turn | exit 0, stdout `{"systemMessage":"trustbut FAIL (unchanged since last check) — receipt: …"}` | same | same |
+| Outcome | `claude` (Stop) | `codex` (Stop) | `gemini` (AfterAgent) | `opencode` (plugin) |
+|---|---|---|---|---|
+| FAIL, within `maxRetries` | exit 0, stdout `{"decision":"block","reason":<feedback>,"systemMessage":"trustbut FAIL: …"}` | exit 2, feedback on stderr, empty stdout | exit 2, feedback on stderr, **empty stdout** | exit 1, feedback on stdout, message on stderr; the plugin sends the feedback as a follow-up prompt |
+| FAIL at the limit, PASS, WARN | exit 0, stdout `{"systemMessage":"…"}` | same | same | exit 0, empty stdout, message on stderr |
+| Error, timeout or interrupt | exit 0, stdout `{"systemMessage":"trustbut couldn't verify: …"}` | same | same | exit 0, empty stdout, message on stderr |
+| Skip, unchanged PASS/WARN | exit 0, no output | same | same | same |
+| Unchanged FAIL on a new turn | exit 0, stdout `{"systemMessage":"trustbut FAIL (unchanged since last check) — receipt: …"}` | same | same | exit 0, empty stdout, message on stderr |
 
-Exit 2 means "block" to all three agents, so `trustbut hook` uses it only for a FAIL on Codex and Gemini. Its own usage errors (an unknown agent name, an unknown option) exit **1**, which all three treat as a non-blocking hook error, not trustbut's usual 2.
+(The `trustbut-run.mjs` runner that `init` and the Claude plugin install adds one case in front: when it can't find or start trustbut, it exits 0 with `trustbut couldn't verify: <reason>. Install with: npm i -g trustbut`, as a `systemMessage` on stdout for `claude` and on stderr for the other agents.)
+
+Exit 2 means "block" to Claude Code, Codex and Gemini CLI, so `trustbut hook` uses it only for a FAIL on Codex and Gemini. Its own usage errors (an unknown agent name, an unknown option) exit **1**, which those three treat as a non-blocking hook error, not trustbut's usual 2.
+
+**Environment variables** (all optional):
+
+| Variable | Read by | Meaning |
+|---|---|---|
+| `TRUSTBUT_SKIP` | `trustbut hook` | `1` or `true`: allow every stop without verifying and print nothing |
+| `TRUSTBUT_HOOK_TIMEOUT_SEC` | `trustbut hook` | A positive number of seconds that caps `hook.timeoutSec` when smaller (never raises it). The runner sets it to what is left of its own budget; the timeout message then names this variable |
+| `TRUSTBUT_HOOK_BUDGET_SEC` | the runner (`trustbut-run.mjs`) | Starting point of the runner's time budget, default `570` (the agents' 600 s hook timeout minus a margin); the budget handed to trustbut is this minus the runner's own start-up time, at least 30 s. Set it lower for an agent with a shorter hook timeout |
+| `TRUSTBUT_VERSION_PROBE_MS` | the runner | How long the `trustbut --version` probe of the `trustbut` on PATH may take, default `10000` |
+| `TRUSTBUT_BIN` | the runner | Path of the trustbut executable to run, instead of looking on PATH and falling back to `npx --yes --quiet trustbut@<runner version>` |
+| `TRUSTBUT_NO_TOOLCHAIN_E2E` | trustbut's own test suite | `1` skips the real-toolchain end-to-end tests (Go, Cargo, Maven, …). This repo's `.trustbut.json` sets it through `env` so its own receipt doesn't need those toolchains; the CI matrix runs them (with `TRUSTBUT_REQUIRE=<tools>` making a missing tool a failure instead of a skip) |
+
+### 8. GitHub Action (`isAlmogK/trustbut@v0`)
+
+A composite action (`action.yml` at the repo root) that runs `trustbut verify --base origin/<base> --receipt-json … --receipt-md …` on the pull request, appends the Markdown receipt to the job summary, posts or updates one **sticky comment**, and fails the job on a FAIL (or on WARN with `strict`). `@v0` is a moving tag that exists after the first release workflow has run; before that, pin `@v0.3.0` or use `@main`.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `base` | PR base branch, else the repo default branch | Base branch to compare against; compared as `origin/<base>` |
+| `strict` | `false` | Exit 1 on WARN as well as FAIL |
+| `config` | none | Path to a trustbut config file (`--config`) |
+| `root` | none | Package folder to run tests in (`--root`) |
+| `working-directory` | `.` | Directory to run trustbut from |
+| `version` | the version matching the action's ref | npm version of trustbut to run (`npx trustbut@<version>`), or `local` to build and run the action's own checkout |
+| `node-version` | none | Force a Node version; by default Node 22 is installed only if the runner has no Node ≥ 22 |
+| `comment` | `true` | Post or update the sticky PR comment |
+| `comment-key` | `default` | Tells several comments on one PR apart (monorepo packages); part of the hidden marker |
+| `github-token` | `${{ github.token }}` | Token for the comment (needs `pull-requests: write`) |
+| `comment-author` | `github-actions[bot]` | Login whose comment is updated in place; set it when `github-token` is a PAT or GitHub App token |
+
+| Output | Meaning |
+|---|---|
+| `verdict` | `pass`, `warn`, `fail` or `error` |
+| `exit-code` | trustbut's exit code (`0`, `1` for FAIL or strict WARN, `2` for an error) |
+| `receipt-path` | Path of the Markdown receipt (set when one was written) |
+| `comment-url` | URL of the sticky comment (empty if none was posted) |
+
+- The comment is found by a hidden marker (`<!-- trustbut-receipt:<key> -->`) at its start **and** its author, so a human can't plant a marker the action then overwrites. Bodies over 60,000 bytes are truncated with a pointer to the job summary.
+- Fork PRs: the token is read-only, so no comment is posted (a notice says so) and the receipt is in the job summary only. A comment that can't be posted (missing `pull-requests: write`, Dependabot) is a warning, never a failure.
+- The action warns when used under `pull_request_target`; use `pull_request`. It needs the full history for the merge-base: use `fetch-depth: 0` (a shallow clone is unshallowed with a notice).
+- The last step fails the job with trustbut's exit code, so the comment and summary are written even on a FAIL.
 
 ## Later layers (not in v0.1)
 
@@ -235,7 +279,7 @@ Exit 2 means "block" to all three agents, so `trustbut hook` uses it only for a 
 | v0.3 | **Transcript adapters** | Reads local session logs: Claude Code `~/.claude/projects/**.jsonl`, Codex `~/.codex/sessions/**.jsonl`, then Gemini CLI and OpenCode; later Entire checkpoints, git-ai notes and Agent Trace |
 | v0.3 | **Claim check** | Finds the agent's final claims ("tests pass", "build succeeds") and checks them against the commands it actually ran and their exit codes |
 | v0.3 | **Hunk↔intent map** | Links each diff hunk to the Edit/Write tool call that produced it; flags hunks no tool call explains and files outside the stated task; shown visually in `trustbut ui` |
-| v0.4 | **PR + IDE surfaces** | GitHub Action posting the receipt as a PR comment; VS Code extension on VS Code Marketplace and Open VSX (covers Cursor, Windsurf, Antigravity) with findings inline on code lines; Codex, Gemini CLI and OpenCode hooks |
+| v0.4 | **PR + IDE surfaces** | VS Code extension on VS Code Marketplace and Open VSX (covers Cursor, Windsurf, Antigravity) with findings inline on code lines (the GitHub Action and the Claude Code, Codex, Gemini CLI and OpenCode hooks shipped in v0.3) |
 | v0.5 | **Mutation on changed lines** | Stryker (JS/TS) and mutmut (Python) on changed lines only: do the tests actually catch broken versions of the new code? |
 | v0.6 | **`compare`** | Scores N agents' attempts at the same task by evidence, as a side-by-side scoreboard in `trustbut ui`; the bridge into the plan → delegate → review → iterate control plane |
 | later | **Desktop app** | Tauri wrapper around `trustbut ui`, only once `compare` has users |
@@ -244,7 +288,7 @@ All surfaces consume the receipt JSON (`trustbut verify --json`, `version: 1`), 
 
 ## Security model
 - The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`. The same holds for `.trustbut.json`, which is read from the head commit: its `command` and `setup` run as shell commands, just as a changed `package.json` test script would.
-- In CI the Action runs on `pull_request` (not `pull_request_target`) with a read-only token. Posting the comment happens in a separate `workflow_run` job that never executes PR code.
+- In CI the Action runs on `pull_request` (not `pull_request_target`; it warns if it is). The comment step needs `pull-requests: write`, which GitHub withholds from fork PRs, so those get the job summary only; no job holding a write token ever runs a fork's code.
 - Transcripts stay local, and the receipt never includes transcript text unless asked (`--include-transcript`).
 
 ## Non-goals (v0.1)
