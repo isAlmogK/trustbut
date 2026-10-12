@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, statSync, symlinkSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execa } from 'execa';
@@ -220,6 +220,40 @@ describe('init --user', () => {
     expect(existsSync(join(home, '.config/opencode/plugins/trustbut.js'))).toBe(true);
     expect(read(home, '.config/opencode/plugins/trustbut.js')).toContain("new URL('../hooks/trustbut-run.mjs', import.meta.url)");
     expect(existsSync(join(home, '.config/opencode/hooks/trustbut-run.mjs'))).toBe(true);
+  });
+});
+
+describe('init: symlinks and permissions', () => {
+  it('--user: a symlinked 0600 settings file stays a symlink, its target is updated and keeps mode 0600', async () => {
+    write(home, 'dotfiles/claude-settings.json', '{\n  "model": "x"\n}\n');
+    const target = join(home, 'dotfiles/claude-settings.json');
+    chmodSync(target, 0o600);
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    symlinkSync(target, join(home, '.claude/settings.json'));
+    await init('claude', { user: true });
+    expect(lstatSync(join(home, '.claude/settings.json')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(home, '.claude/settings.json'))).toBe(target);
+    const config = JSON.parse(read(home, 'dotfiles/claude-settings.json'));
+    expect(config.model).toBe('x');
+    expect(config.hooks.Stop[0].hooks[0].args[1]).toBe('claude');
+    expect(statSync(target).mode & 0o777).toBe(0o600);
+    expect(tree(home).filter((f) => f.includes('.tmp'))).toEqual([]);
+  });
+
+  it('a relative symlink is followed too', async () => {
+    write(dir, 'shared/codex-hooks.json', '{}\n');
+    mkdirSync(join(dir, '.codex'), { recursive: true });
+    symlinkSync('../shared/codex-hooks.json', join(dir, '.codex/hooks.json'));
+    await init('codex');
+    expect(lstatSync(join(dir, '.codex/hooks.json')).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(read(dir, 'shared/codex-hooks.json')).hooks.Stop).toHaveLength(1);
+  });
+
+  it.each([['0600', 0o600], ['0640', 0o640], ['0664', 0o664]])('keeps the mode %s of an existing config', async (_, mode) => {
+    write(dir, '.gemini/settings.json', '{}\n');
+    chmodSync(join(dir, '.gemini/settings.json'), mode);
+    await init('gemini');
+    expect(statSync(join(dir, '.gemini/settings.json')).mode & 0o777).toBe(mode);
   });
 });
 

@@ -1,7 +1,8 @@
 // `trustbut init <agent>`: installs the turn-end hook for an agent, merging into its existing config.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { execa } from 'execa';
 import { planClaude } from './claude.js';
 import { planCodex } from './codex.js';
@@ -43,6 +44,48 @@ function diff(before: string, after: string): string[] {
   return [...a.slice(start, endA).map((l) => `-${l}`), ...b.slice(start, endB).map((l) => `+${l}`)];
 }
 
+/** The file a write to `path` should replace: a symlink's target (followed to the end), else `path` itself. */
+function writeTarget(path: string): string {
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return path;
+  } catch {
+    return path; // doesn't exist yet
+  }
+  try {
+    return realpathSync(path);
+  } catch {
+    // A dangling link: create the file it points to, keeping the link.
+    let target = path;
+    for (let i = 0; i < 40; i++) {
+      try {
+        if (!lstatSync(target).isSymbolicLink()) break;
+      } catch {
+        break;
+      }
+      target = resolve(dirname(target), readlinkSync(target));
+    }
+    return target;
+  }
+}
+
+/**
+ * Replaces the file atomically (temp file in the same directory, then rename) without breaking a symlink
+ * (its target is replaced) or widening permissions (an existing file keeps its mode; a new one gets the default).
+ */
+function writeAtomic(path: string, content: string | Buffer): void {
+  const target = writeTarget(path);
+  mkdirSync(dirname(target), { recursive: true });
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : undefined;
+  const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    writeFileSync(tmp, content, { mode: mode ?? 0o666, flag: 'wx' });
+    if (mode !== undefined) chmodSync(tmp, mode); // exact, whatever the umask
+    renameSync(tmp, target);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
 /** Writes (unless dry-run) and returns the text to print. Throws InitError before writing anything if a config can't be parsed. */
 export async function runInit(opts: InitOptions): Promise<string> {
   const cwd = opts.cwd ?? process.cwd();
@@ -66,12 +109,7 @@ export async function runInit(opts: InitOptions): Promise<string> {
     else lines.push(`  (${after.length} bytes, copy of trustbut's hook runner)`);
   }
   if (!opts.dryRun) {
-    for (const file of pending) {
-      mkdirSync(dirname(file.path), { recursive: true });
-      const tmp = `${file.path}.${process.pid}.tmp`;
-      writeFileSync(tmp, file.content);
-      renameSync(tmp, file.path);
-    }
+    for (const file of pending) writeAtomic(file.path, file.content);
   }
   if (pending.length === 0) lines.push('Nothing to change: already set up.');
   else if (opts.dryRun) lines.push('Dry run: nothing was written.');
