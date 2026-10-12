@@ -94,7 +94,7 @@ npx trustbut verify
 ```
 
 > [!NOTE]
-> trustbut 0.3.0 is being published to npm. Until the first npm release lands, run it straight from GitHub instead (the build happens automatically): `npx github:isAlmogK/trustbut verify`.
+> trustbut 0.3.0 is being published to npm. Until 0.3.0 is on npm, run it straight from GitHub instead (the build happens automatically): `npx github:isAlmogK/trustbut verify`.
 
 **Install globally:**
 
@@ -187,7 +187,7 @@ trustbut can run itself at the end of every agent turn, so a FAIL receipt never 
 **What happens**
 
 1. When the agent finishes a turn, trustbut quickly verifies its work: your uncommitted changes plus the commits on your branch. By default it reruns only the new and changed test files (the whole suite when none changed).
-2. **FAIL:** the agent gets the receipt (failing tests with their messages, focused tests, and so on) and keeps fixing. This repeats up to **3 times in a row**, then the agent is allowed to stop and you see the FAIL.
+2. **FAIL:** the agent gets the receipt (failing tests with their messages, focused tests, and so on) and keeps fixing. This repeats up to `hook.maxRetries` times in a row (default 3), then the agent is allowed to stop and you see the FAIL.
 3. **WARN or PASS:** you get a one-line note and the agent finishes.
 4. trustbut never blocks on its own errors: a timeout, a crash or a missing tool lets the agent finish with a "couldn't verify" note.
 5. A tree already verified as PASS or WARN isn't rerun, and an unchanged FAIL is reported, not sent back again, on a new turn.
@@ -421,7 +421,7 @@ A ranked list of the files that deserve your attention: auth and permissions, da
 The trustbut GitHub Action adds a receipt to your pull requests: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
 
 > [!NOTE]
-> `@v0` resolves after the first release. Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists). Before anything is published, `isAlmogK/trustbut@main` works only with `version: local`, which builds the action's own checkout.
+> `@v0` resolves after the first release (until 0.3.0 is on npm and the `v0.3.0` Release exists). Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists). Before anything is published, `isAlmogK/trustbut@main` works only with `version: local`, which builds the action's own checkout.
 
 ```yaml
 # .github/workflows/trustbut.yml
@@ -550,7 +550,7 @@ npm run receipt   # trustbut's receipt for your branch; run before opening a PR
 
 Every pull request gets a trustbut receipt in the CI job summary, and pull requests from this repository also get it as a sticky comment (fork PRs get the job summary only, since GitHub gives them a read-only token). Run `npm run receipt` locally first so there are no surprises.
 
-trustbut is built with AI coding agents and verified by itself: every pull request gets its own trustbut receipt in CI. The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
+trustbut is built with AI coding agents and verified by itself: every pull request gets a trustbut receipt in CI (a sticky comment for branches in this repo; the job summary for forks). The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
 
 ## License
 

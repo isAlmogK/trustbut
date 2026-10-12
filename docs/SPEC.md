@@ -242,7 +242,7 @@ Exit 2 means "block" to Claude Code, Codex and Gemini CLI, so `trustbut hook` us
 
 ### 8. GitHub Action (`isAlmogK/trustbut@v0`)
 
-A composite action (`action.yml` at the repo root) that runs `trustbut verify --base origin/<base> --receipt-json … --receipt-md …` on the pull request, appends the Markdown receipt to the job summary, posts or updates one **sticky comment**, and fails the job on a FAIL (or on WARN with `strict`). `@v0` is a moving tag that exists after the first release workflow has run; before that, pin `@v0.3.0` or use `@main`.
+A composite action (`action.yml` at the repo root) that runs `trustbut verify --base origin/<base> --receipt-json … --receipt-md …` on the pull request, appends the Markdown receipt to the job summary, posts or updates one **sticky comment**, and fails the job on a FAIL (or on WARN with `strict`). `@v0` is a moving tag that exists after the first release workflow has run; before that, pin `@v0.3.0` or use `@main` with `version: local` (before the npm release the action can only run its own checkout).
 
 | Input | Default | Meaning |
 |---|---|---|
