@@ -108,7 +108,7 @@ describe('comment.mjs', () => {
     expect(Buffer.byteLength(body)).toBeLessThan(65_000);
     expect(body.startsWith(markerFor('k'))).toBe(true);
     expect(body).not.toContain('�');
-    expect(body.split('\n').filter((l) => l.startsWith('```')).length % 2).toBe(0);
+    expect(body.split('\n').filter((l: string) => l.startsWith('```')).length % 2).toBe(0);
     expect(body).toContain('full receipt is in the job summary');
   });
 
