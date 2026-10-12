@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "jest": "^30.5.2",
     "tsup": "^8.5.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
