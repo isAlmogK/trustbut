@@ -194,6 +194,12 @@ trustbut can run itself at the end of every agent turn, so a FAIL receipt never 
 
 After each completed check, the full Markdown receipt is at `.git/trustbut/last-receipt.md` (per worktree; inside `.git`, so it is never committed).
 
+Things to know:
+
+- The hooks run on macOS and Linux (POSIX) for now; Windows isn't supported yet.
+- Use either the Claude Code plugin or `trustbut init claude`, not both: with both, every turn is checked twice.
+- The hook runs your tests outside the agent's sandbox; see [Is it safe to run?](#faq).
+
 ### Claude Code
 
 Install the plugin from this repository's marketplace:
@@ -203,7 +209,9 @@ Install the plugin from this repository's marketplace:
 /plugin install trustbut@trustbut
 ```
 
-Or write the hook into your project without the plugin: `trustbut init claude`. The plugin uses the `trustbut` on your PATH when it is recent enough, and otherwise runs `npx trustbut@<version>`.
+Or write the hook into your project without the plugin: `trustbut init claude` (use one or the other, not both). The plugin uses the `trustbut` on your PATH when it is recent enough, and otherwise runs `npx trustbut@<version>`. Both run the hook in exec form (`args`), which needs a recent Claude Code (2.1 or later).
+
+When trustbut sends a FAIL back, Claude Code labels it "Stop hook error occurred". This is expected: it is how Claude Code shows a blocking Stop hook, and the receipt is still delivered to the agent.
 
 ### Codex
 
@@ -441,7 +449,7 @@ jobs:
       - uses: isAlmogK/trustbut@v0
 ```
 
-The action installs Node 22 if the runner has none or one older than 22. Add your own language's `setup-*` step and dependency install before it, and a `.trustbut.json` in the repo if your tests need setup.
+The action installs Node 22 if the runner has none or one older than 22; that Node stays on the PATH for later steps in the job. Add your own language's `setup-*` step and dependency install before it, and a `.trustbut.json` in the repo if your tests need setup.
 
 **Inputs** (all optional)
 
@@ -518,6 +526,8 @@ The base run only executes the new and changed test files, not the whole suite. 
 <summary><b>Is it safe to run?</b></summary>
 
 trustbut runs your repository's tests, which means running your code, the same trust as running `npm test` or `pytest`. It does this in temporary worktrees and never modifies your checkout. In CI, use `pull_request` (not `pull_request_target`), as in the example above.
+
+With an agent hook, keep in mind that the check runs **outside the agent's sandbox**: at the end of each turn your tests, including ones the agent just wrote, and the `command`/`setup` in `.trustbut.json` run with your permissions and network access. Where that matters (an untrusted repo, an agent you run sandboxed), turn the hook off with `"hook": { "enabled": false }` in `.trustbut.json` or `TRUSTBUT_SKIP=1`, and run `trustbut verify` yourself in a sandbox.
 </details>
 
 <details>

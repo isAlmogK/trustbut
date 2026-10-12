@@ -1,6 +1,6 @@
 # trustbut — Spec
 
-> **Name:** trustbut. **Command:** `npx trustbut verify`. **Tagline:** "Trust, but verify, for AI coding agents." The report it prints is a *receipt*. npm `trustbut` and GitHub org `trustbut` were both free on 2026-10-11; register them, plus a domain (check `trustbut.dev`), before announcing.
+> **Name:** trustbut. **Command:** `npx trustbut verify`. **Tagline:** "Trust, but verify, for AI coding agents." The report it prints is a *receipt*.
 
 ## One line
 
@@ -270,24 +270,13 @@ A composite action (`action.yml` at the repo root) that runs `trustbut verify --
 - The action warns when used under `pull_request_target`; use `pull_request`. It needs the full history for the merge-base: use `fetch-depth: 0` (a shallow clone is unshallowed with a notice).
 - The last step fails the job with trustbut's exit code, so the comment and summary are written even on a FAIL.
 
-## Later layers (not in v0.1)
+## Later layers
 
-| Version | Layer | What it adds |
-|---|---|---|
-| v0.2 | **Claude Code mod with a panel** | Hooks the end of each agent turn, runs `trustbut verify --json`, shows the receipt in a side panel (terminal, desktop, VS Code, mobile) with a status-line badge and a "Send to agent" button; can block "done" on FAIL. Installed with `/plugin install trustbut`, so no manual npm step |
-| v0.2 | **`trustbut ui` (local web UI)** | Local server and browser page: receipt beside the diff with flagged lines highlighted, plus history of saved receipts (`--save` writes `.trustbut/receipts/<sha>.json`). Private, works for every agent |
-| v0.3 | **Transcript adapters** | Reads local session logs: Claude Code `~/.claude/projects/**.jsonl`, Codex `~/.codex/sessions/**.jsonl`, then Gemini CLI and OpenCode; later Entire checkpoints, git-ai notes and Agent Trace |
-| v0.3 | **Claim check** | Finds the agent's final claims ("tests pass", "build succeeds") and checks them against the commands it actually ran and their exit codes |
-| v0.3 | **Hunk↔intent map** | Links each diff hunk to the Edit/Write tool call that produced it; flags hunks no tool call explains and files outside the stated task; shown visually in `trustbut ui` |
-| v0.4 | **PR + IDE surfaces** | VS Code extension on VS Code Marketplace and Open VSX (covers Cursor, Windsurf, Antigravity) with findings inline on code lines (the GitHub Action and the Claude Code, Codex, Gemini CLI and OpenCode hooks shipped in v0.3) |
-| v0.5 | **Mutation on changed lines** | Stryker (JS/TS) and mutmut (Python) on changed lines only: do the tests actually catch broken versions of the new code? |
-| v0.6 | **`compare`** | Scores N agents' attempts at the same task by evidence, as a side-by-side scoreboard in `trustbut ui`; the bridge into the plan → delegate → review → iterate control plane |
-| later | **Desktop app** | Tauri wrapper around `trustbut ui`, only once `compare` has users |
-
-All surfaces consume the receipt JSON (`trustbut verify --json`, `version: 1`), so the engine stays the single source of truth.
+What comes next, and in which version, is in [ROADMAP.md](ROADMAP.md). All surfaces consume the receipt JSON (`trustbut verify --json`, `version: 1`), so the engine stays the single source of truth.
 
 ## Security model
 - The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`. The same holds for `.trustbut.json`, which is read from the head commit: its `command` and `setup` run as shell commands, just as a changed `package.json` test script would.
+- **Agent hooks run outside the agent's sandbox.** `trustbut hook` is started by the agent's turn-end hook, so the tests (including ones the agent just wrote) and `.trustbut.json` commands run with the user's permissions and network, not inside whatever sandbox the agent's own tool calls had. Where that matters, set `hook.enabled: false` or `TRUSTBUT_SKIP=1` and run `trustbut verify` in a sandbox instead.
 - In CI the Action runs on `pull_request` (not `pull_request_target`; it warns if it is). The comment step needs `pull-requests: write`, which GitHub withholds from fork PRs, so those get the job summary only; no job holding a write token ever runs a fork's code.
 - Transcripts stay local, and the receipt never includes transcript text unless asked (`--include-transcript`).
 
