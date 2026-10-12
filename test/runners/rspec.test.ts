@@ -8,7 +8,8 @@ import { parseRspecJson, rspec, rspecArgs } from '../../src/runners/rspec.js';
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';
 import { hasTool, requiredTools } from '../helpers/toolchain.js';
 
-const fixture = new URL('../fixtures/runners/rspec/rspec.json', import.meta.url).pathname;
+const fx = (name: string) => new URL(`../fixtures/runners/rspec/${name}`, import.meta.url).pathname;
+const fixture = fx('rspec.json');
 
 describe('parseRspecJson', () => {
   it('maps statuses, nested groups, normalised files, and a load error per file', async () => {
@@ -19,9 +20,21 @@ describe('parseRspecJson', () => {
       ['spec/calc_spec.rb::Calc multiplies later', 'skip', 'multiplies later'],
       ['spec/calc_spec.rb::Calc when nested handles zero', 'pass', 'handles zero'],
       ['spec/lib/shape_spec.rb::Shape has area', 'pass', 'has area'],
-      ['spec/broken_spec.rb::[load error]', 'error', undefined],
     ]);
     expect(cases[0]!.file).toBe('spec/calc_spec.rb');
+  });
+
+  it('turns a load error (no examples ran) into one error case for the named file', async () => {
+    const cases = parseRspecJson(await readFile(fx('rspec-load-error.json'), 'utf8'));
+    expect(cases.map((c) => [c.id, c.outcome])).toEqual([['spec/broken_spec.rb::[load error]', 'error']]);
+  });
+
+  it('attributes shared examples to the including spec (from the id), not the shared file', async () => {
+    const cases = parseRspecJson(await readFile(fx('rspec-shared.json'), 'utf8'));
+    expect(cases.map((c) => [c.id, c.file])).toEqual([
+      ['spec/models/user_spec.rb::User behaves like a record', 'spec/models/user_spec.rb'],
+      ['spec/models/post_spec.rb::Post behaves like a record', 'spec/models/post_spec.rb'],
+    ]);
   });
 
   it('reports errors outside of examples that name no file as one generic error case', () => {
@@ -87,7 +100,7 @@ describe('rspec runner with a fake rspec', () => {
     expect(res.output).not.toContain('BUNDLE');
     expect(res.exitCode).toBe(1);
     expect(res.cases.map((c) => c.id)).toContain('spec/calc_spec.rb::Calc subtracts');
-    expect(res.cases).toHaveLength(6);
+    expect(res.cases).toHaveLength(5);
   });
 
   it('helpers alone mean a full run; a Gemfile means bundle exec', async () => {

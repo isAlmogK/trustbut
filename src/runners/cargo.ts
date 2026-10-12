@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { childEnv, runOutput } from './env.js';
 import type { ReadHead, Runner } from './types.js';
 
@@ -36,16 +37,6 @@ export function declaredFns(src: string): Set<string> {
 }
 
 const OUTCOMES: Record<string, TestCaseResult['outcome']> = { ok: 'pass', FAILED: 'fail', ignored: 'skip' };
-const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
-
-/** Adds `c`; if the id repeats (the same target listed twice) the worst outcome wins, so a failure is never hidden. */
-function addCase(cases: TestCaseResult[], index: Map<string, number>, c: TestCaseResult): void {
-  const at = index.get(c.id);
-  if (at === undefined) {
-    index.set(c.id, cases.length);
-    cases.push(c);
-  } else if (SEVERITY[c.outcome] > SEVERITY[cases[at]!.outcome]) cases[at] = c;
-}
 
 interface Header {
   file: string;

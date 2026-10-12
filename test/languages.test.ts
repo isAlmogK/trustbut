@@ -69,4 +69,11 @@ describe('splitLine driven by a language definition', () => {
   it('does not treat `* text` as a block continuation without C-style block comments', () => {
     expect(splitLine('  * args', languageById('py'))).toEqual({ code: '  * args', comment: '' });
   });
+
+  it('classifies Ruby, Java and Kotlin tests, including Minitest and root test/ layouts', async () => {
+    const { classify } = await import('../src/classify.js');
+    for (const p of ['spec/a_spec.rb', 'spec/spec_helper.rb', 'test/models/user_test.rb', 'test/test_helper.rb', 'app/user_test.rb', 'src/test/java/a/FooTest.java', 'test/a/Foo.java', 'src/test/kotlin/a/FooTest.kt', 'test/a/Foo.kt']) expect(classify(p), p).toBe('test');
+    for (const p of ['app/models/user.rb', 'src/main/java/a/Foo.java', 'src/main/kotlin/a/Foo.kt']) expect(classify(p), p).toBe('source');
+    for (const p of ['build.gradle.kts', 'settings.gradle.kts', 'mod/build.gradle.kts']) expect(classify(p), p).toBe('other');
+  });
 });

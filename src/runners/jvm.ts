@@ -1,9 +1,12 @@
 // Shared by the Maven and Gradle runners: JUnit XML parsing, report discovery, class names, wrappers.
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { runInGroup } from '../process.js';
 import type { RunResult, TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { childEnv, runOutput } from './env.js';
 import type { ReadHead, RunOptions } from './types.js';
 
@@ -26,20 +29,9 @@ interface Suite {
   testsuite?: Suite[];
 }
 
-const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
-
-/** Adds `c`; if the id repeats (parameterized display names, one class listed twice) the worst outcome wins. */
-export function addCase(cases: TestCaseResult[], index: Map<string, number>, c: TestCaseResult): void {
-  const at = index.get(c.id);
-  if (at === undefined) {
-    index.set(c.id, cases.length);
-    cases.push(c);
-  } else if (SEVERITY[c.outcome] > SEVERITY[cases[at]!.outcome]) cases[at] = c;
-}
-
 /** The method name of a JUnit test name: `adds(int)[1]` -> `adds`; a pure display name (`[1] 2, 3`) stays as is. */
 export function jvmLeaf(name: string): string {
-  const leaf = name.replace(/[([{].*$/s, '').trim();
+  const leaf = name.replace(/(?:\([^)]*\)|\[[^\]]*\])+$/s, '').trim();
   return leaf || name;
 }
 
@@ -78,14 +70,17 @@ function packageFromPath(file: string): string {
   return dir;
 }
 
-/** Fully qualified names of the classes a source file declares (its own name first; nested classes are matched by `Outer$`). */
-export function declaredJvmClasses(file: string, src: string): string[] {
+const TOP_LEVEL_CLASS = /^((?:(?:public|internal|private|protected|abstract|final|open|data|sealed|static)\s+)*)(?:class|object)\s+(\w+)/gm;
+
+/** Fully qualified top-level classes (declared at column 0) of a source file; nested classes are matched by `Outer$`. */
+export function declaredJvmClasses(file: string, src: string, concreteOnly = false): string[] {
   const f = file.split(sep).join('/');
   const pkg = jvmPackage(src) ?? packageFromPath(f);
-  const base = (f.split('/').pop() ?? f).replace(/\.(java|kt|kts)$/, '');
-  const names = new Set([base]);
-  for (const m of src.matchAll(/^[^\S\n]*(?:(?:public|internal|private|protected|abstract|final|open|data|sealed|static)\s+)*(?:class|object)\s+(\w+)/gm)) names.add(m[1]!);
-  return [...names].map((n) => (pkg ? `${pkg}.${n}` : n));
+  const names: string[] = [];
+  for (const m of src.matchAll(TOP_LEVEL_CLASS)) if (!(concreteOnly && /\babstract\b/.test(m[1]!))) names.push(m[2]!);
+  // Nothing readable (head missing): the file name is the best guess.
+  if (!names.length && !concreteOnly) names.push((f.split('/').pop() ?? f).replace(/\.(java|kt|kts)$/, ''));
+  return names.map((n) => (pkg ? `${pkg}.${n}` : n));
 }
 
 /** Whether result `c` (file = class name) comes from the changed source `file`. */
@@ -95,7 +90,9 @@ export function casesInJvmFile(c: TestCaseResult, file: string, readHead: ReadHe
   return declaredJvmClasses(f, readHead(f)).some((fq) => c.file === fq || c.file.startsWith(`${fq}$`));
 }
 
-const SOURCE_SET_FILE = /(?:^|\/)src\/[^/]+\/(?:java|kotlin)\/.+\.(?:java|kt)$/;
+const SOURCE_SET_FILE = /(?:^|\/)src\/test\/(?:java|kotlin)\/.+\.(?:java|kt)$/;
+// Integration tests (Failsafe) are not part of `test`.
+const INTEGRATION = /(?:^IT|IT$|ITCase$)/;
 const TEST_MARKER = /@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate|Nested)\b|extends\s+TestCase\b/;
 
 /** Fully qualified names of the test classes among `files`; helpers without tests are left out (empty = run everything). */
@@ -105,9 +102,10 @@ export function jvmTestClasses(cwd: string, files: string[] | undefined): string
     const f = file.split(sep).join('/');
     if (!SOURCE_SET_FILE.test(f) || !existsSync(join(cwd, f))) continue;
     const src = readFileSync(join(cwd, f), 'utf8');
-    if (!TEST_MARKER.test(src) || /\babstract\s+class\b/.test(src)) continue;
-    const fq = declaredJvmClasses(f, src)[0]!;
-    if (!out.includes(fq)) out.push(fq);
+    if (!TEST_MARKER.test(src)) continue;
+    for (const fq of declaredJvmClasses(f, src, true)) {
+      if (!INTEGRATION.test(fq.split('.').pop()!) && !out.includes(fq)) out.push(fq);
+    }
   }
   return out;
 }
@@ -175,7 +173,11 @@ export interface JvmTool {
   bin: string;
   kind: ReportKind;
   /** Arguments after the executable, for the given test classes (empty = all) and config args. */
-  buildArgs(classes: string[], args: string[]): string[];
+  buildArgs(classes: string[], args: string[], init?: string): string[];
+  /** Content of an init script written to a temporary file and passed as `init`. */
+  initScript?: string;
+  /** The tool is told to carry on after failing tests; the exit code is then derived from the reports. */
+  ignoresTestFailures?: boolean;
 }
 
 export async function runJvm(tool: JvmTool, { cwd, worktree, files, args = [], env: extraEnv, timeoutMs }: RunOptions): Promise<RunResult> {
@@ -184,13 +186,26 @@ export async function runJvm(tool: JvmTool, { cwd, worktree, files, args = [], e
   for (const dir of findReportDirs(cwd, tool.kind)) rmSync(dir, { recursive: true, force: true });
   const classes = jvmTestClasses(cwd, files);
   const { cmd, prefix } = resolveLauncher(cwd, worktree, tool.wrapper, tool.bin);
-  const res = await runInGroup(cmd, [...prefix, ...tool.buildArgs(classes, args)], { cwd, env: childEnv(extraEnv), timeoutMs });
+  const tmp = tool.initScript ? await mkdtemp(join(tmpdir(), 'trustbut-jvm-')) : undefined;
+  let res;
+  try {
+    let init: string | undefined;
+    if (tmp) {
+      init = join(tmp, 'trustbut.init.gradle');
+      await writeFile(init, tool.initScript!);
+    }
+    res = await runInGroup(cmd, [...prefix, ...tool.buildArgs(classes, args, init)], { cwd, env: childEnv(extraEnv), timeoutMs });
+  } finally {
+    if (tmp) await rm(tmp, { recursive: true, force: true });
+  }
   const cases: TestCaseResult[] = [];
   const index = new Map<string, number>();
   for (const report of findReports(cwd, tool.kind)) {
     for (const c of parseJvmJUnit(readFileSync(report, 'utf8'))) addCase(cases, index, c);
   }
-  const exitCode = res.exitCode ?? 1;
+  let exitCode = res.exitCode ?? 1;
+  // Failing tests did not stop the build: the tool's own non-zero code means a build failure, else the reports decide.
+  if (tool.ignoresTestFailures && exitCode === 0) exitCode = cases.some((c) => c.outcome === 'fail' || c.outcome === 'error') ? 1 : 0;
   // A compile or configuration failure writes no failing test: report one error case instead of "no tests".
   if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
     cases.push({ id: `[${tool.name}]::[build failed]`, file: `[${tool.name}]`, name: '[build failed]', outcome: 'error' });

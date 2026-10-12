@@ -53,6 +53,7 @@ describe('parseJvmJUnit', () => {
     expect(jvmLeaf('adds()')).toBe('adds');
     expect(jvmLeaf('[2] 3, 4')).toBe('[2] 3, 4');
     expect(jvmLeaf('adds two numbers')).toBe('adds two numbers');
+    expect(jvmLeaf('adds (positive) numbers')).toBe('adds (positive) numbers');
   });
 });
 
@@ -62,6 +63,15 @@ describe('jvm class names', () => {
     expect(declaredJvmClasses('src/test/java/com/x/CalcTest.java', java)).toEqual(['com.x.CalcTest']);
     expect(declaredJvmClasses('src/test/kotlin/com/x/CalcTest.kt', 'package com.x\n\nclass CalcTest {\n  @Test fun adds() {}\n}\n')).toEqual(['com.x.CalcTest']);
   });
+  it('takes every top-level class, whatever the file is called, and ignores nested ones', () => {
+    const kt = 'package com.x\n\nclass CalculatorTest {\n  @Test fun a() {}\n  class Inner\n}\n\ninternal class SecondTest {\n  @Test fun b() {}\n}\nabstract class BaseTest\n';
+    expect(declaredJvmClasses('src/test/kotlin/com/x/CalcTests.kt', kt)).toEqual(['com.x.CalculatorTest', 'com.x.SecondTest', 'com.x.BaseTest']);
+    expect(declaredJvmClasses('src/test/kotlin/com/x/CalcTests.kt', kt, true)).toEqual(['com.x.CalculatorTest', 'com.x.SecondTest']);
+    const c = (file: string) => ({ id: `${file}::t`, file, name: 't', outcome: 'pass' as const });
+    expect(casesInJvmFile(c('com.x.SecondTest'), 'src/test/kotlin/com/x/CalcTests.kt', () => kt)).toBe(true);
+    expect(casesInJvmFile(c('com.x.Inner'), 'src/test/kotlin/com/x/CalcTests.kt', () => kt)).toBe(false);
+  });
+
   it('falls back to the directory when the head cannot be read', () => {
     expect(declaredJvmClasses('mod/src/test/java/com/x/CalcTest.java', '')).toEqual(['com.x.CalcTest']);
     expect(declaredJvmClasses('src/test/java/CalcTest.java', '')).toEqual(['CalcTest']);
@@ -90,7 +100,11 @@ describe('jvm test targets', () => {
     await mkdir(k, { recursive: true });
     await writeFile(join(k, 'KtTest.kt'), 'package com.y\nclass KtTest { @Test fun a() {} }\n');
     const files = ['src/test/java/com/x/CalcTest.java', 'src/test/java/com/x/TestUtils.java', 'src/test/java/com/x/BaseTest.java', 'src/test/kotlin/com/y/KtTest.kt', 'src/test/java/com/x/Gone.java', 'src/main/java/A.java'];
-    expect(jvmTestClasses(dir, files)).toEqual(['com.x.CalcTest', 'com.y.KtTest']);
+    await writeFile(join(k, 'CalcTests.kt'), 'package com.y\nclass CalculatorTest { @Test fun a() {} }\nclass SecondTest { @Test fun b() {} }\n');
+    await writeFile(join(d, 'PayIT.java'), 'package com.x;\nclass PayIT { @Test void a() {} }\n');
+    await mkdir(join(dir, 'src', 'main', 'java'), { recursive: true });
+    await writeFile(join(dir, 'src', 'main', 'java', 'M.java'), 'class M { @Test void a() {} }\n');
+    expect(jvmTestClasses(dir, [...files, 'src/test/kotlin/com/y/CalcTests.kt', 'src/test/java/com/x/PayIT.java', 'src/main/java/M.java'])).toEqual(['com.x.CalcTest', 'com.y.KtTest', 'com.y.CalculatorTest', 'com.y.SecondTest']);
     expect(jvmTestClasses(dir, ['src/test/java/com/x/TestUtils.java'])).toEqual([]);
     expect(jvmTestClasses(dir, undefined)).toEqual([]);
   });
@@ -98,12 +112,12 @@ describe('jvm test targets', () => {
 
 describe('command lines', () => {
   it('builds the maven command', () => {
-    expect(mavenArgs([], [])).toEqual(['-q', '-B', 'test', '-DfailIfNoTests=false', '-Dsurefire.failIfNoSpecifiedTests=false']);
-    expect(mavenArgs(['com.x.A', 'com.x.B'], ['-pl', 'core'])).toEqual(['-q', '-B', 'test', '-Dtest=com.x.A,com.x.B', '-DfailIfNoTests=false', '-Dsurefire.failIfNoSpecifiedTests=false', '-pl', 'core']);
+    expect(mavenArgs([], [])).toEqual(['-q', '-B', 'test', '-Dmaven.test.failure.ignore=true', '-DfailIfNoTests=false', '-Dsurefire.failIfNoSpecifiedTests=false']);
+    expect(mavenArgs(['com.x.A', 'com.x.B'], ['-pl', 'core'])).toEqual(['-q', '-B', 'test', '-Dtest=com.x.A,com.x.A$*,com.x.B,com.x.B$*', '-Dmaven.test.failure.ignore=true', '-DfailIfNoTests=false', '-Dsurefire.failIfNoSpecifiedTests=false', '-pl', 'core']);
   });
   it('builds the gradle command', () => {
-    expect(gradleArgs([], [])).toEqual(['test', '--continue', '--console=plain', '--no-daemon']);
-    expect(gradleArgs(['com.x.A'], ['--offline'])).toEqual(['test', '--tests', 'com.x.A', '--tests', 'com.x.A$*', '--continue', '--console=plain', '--no-daemon', '--offline']);
+    expect(gradleArgs([], [])).toEqual(['test', '--continue', '--console=plain', '--no-daemon', '--no-build-cache']);
+    expect(gradleArgs(['com.x.A'], ['--offline'], '/t/i.gradle')).toEqual(['test', '--tests', 'com.x.A', '--tests', 'com.x.A$*', '--continue', '--console=plain', '--no-daemon', '--no-build-cache', '-I', '/t/i.gradle', '--offline']);
   });
 });
 
@@ -134,7 +148,7 @@ describe('maven and gradle with a fake wrapper', () => {
     const out = kind === 'maven' ? 'target/surefire-reports' : 'build/test-results/test';
     const write = opts.reports === false ? '' : `for m in . mod; do mkdir -p "$m/${out}"; cp '${sample}' "$m/${out}/TEST-com.x.CalcTest.xml"; done\n`;
     const name = kind === 'maven' ? 'mvnw' : 'gradlew';
-    await writeFile(join(dir, name), `#!/bin/sh\necho "ARGS: $*" >&2\n${write}exit ${opts.exit ?? 0}\n`);
+    await writeFile(join(dir, name), `#!/bin/sh\necho "ARGS: $*" >&2\nwhile [ $# -gt 0 ]; do if [ "$1" = -I ]; then echo "INIT-SCRIPT: $(cat "$2")" >&2; fi; shift; done\n${write}exit ${opts.exit ?? 0}\n`);
     await chmod(join(dir, name), opts.executable === false ? 0o644 : 0o755);
     // stale report from an earlier build
     await mkdir(join(dir, out), { recursive: true });
@@ -152,12 +166,21 @@ describe('maven and gradle with a fake wrapper', () => {
   it('maven: runs ./mvnw with -Dtest, reads every module, drops stale reports', async () => {
     const dir = await project('maven', { exit: 1 });
     const res = await maven.run({ cwd: dir, files: ['src/test/java/com/x/CalcTest.java', 'src/test/java/com/x/TestUtils.java'], args: ['-pl', 'core'] });
-    expect(res.output).toContain('ARGS: -q -B test -Dtest=com.x.CalcTest -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -pl core');
+    expect(res.output).toContain('ARGS: -q -B test -Dtest=com.x.CalcTest,com.x.CalcTest$* -Dmaven.test.failure.ignore=true -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -pl core');
     expect(res.exitCode).toBe(1);
     expect(res.cases.map((c) => c.id)).not.toContain('stale.Old::old');
     expect(res.cases.map((c) => c.id)).not.toContain('n.Mod::t');
     expect(res.cases).toHaveLength(7); // the same report in two modules is one set of ids
     expect(existsSync(join(dir, 'target', 'surefire-reports', 'TEST-stale.Old.xml'))).toBe(false);
+  });
+
+  it('maven: exit 0 with failing tests in the reports is exit 1; a non-zero exit stays as is', async () => {
+    const failing = await maven.run({ cwd: await project('maven', { exit: 0 }) });
+    expect(failing.exitCode).toBe(1);
+    const built = await maven.run({ cwd: await project('maven', { exit: 3 }) });
+    expect(built.exitCode).toBe(3);
+    const dir = await project('maven', { exit: 0, reports: false });
+    expect((await maven.run({ cwd: dir })).exitCode).toBe(0);
   });
 
   it('maven: a full run passes no -Dtest, and a non-executable wrapper runs through sh', async () => {
@@ -184,7 +207,9 @@ describe('maven and gradle with a fake wrapper', () => {
   it('gradle: runs ./gradlew with --tests and reads build/test-results/test', async () => {
     const dir = await project('gradle', { exit: 1 });
     const res = await gradle.run({ cwd: dir, files: ['src/test/java/com/x/CalcTest.java'] });
-    expect(res.output).toContain('ARGS: test --tests com.x.CalcTest --tests com.x.CalcTest$* --continue');
+    expect(res.output).toMatch(/ARGS: test --tests com\.x\.CalcTest --tests com\.x\.CalcTest\$\* --continue --console=plain --no-daemon --no-build-cache -I \S+trustbut\.init\.gradle/);
+    expect(res.output).toContain('failOnNoMatchingTests = false');
+    expect(res.output).toContain('INIT-SCRIPT');
     expect(res.cases.map((c) => c.id)).toEqual(['com.x.CalcTest::adds()', 'com.x.CalcTest::subtracts()', 'com.x.CalcTest::later()', 'com.x.CalcTest::sums(int, int)[1]']);
     expect(findReports(dir, 'gradle').map((p) => p.endsWith('TEST-stale.Old.xml'))).not.toContain(true);
   });

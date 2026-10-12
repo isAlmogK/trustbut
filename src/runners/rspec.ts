@@ -5,15 +5,15 @@ import { join } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { anyExists, fileContains } from './detect.js';
+import { addCase } from './cases.js';
 import { childEnv, runOutput } from './env.js';
 import type { Runner } from './types.js';
 
-const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
 const STATUS: Record<string, TestCaseResult['outcome']> = { passed: 'pass', failed: 'fail', pending: 'skip' };
 
 interface RspecJson {
   messages?: string[];
-  examples?: { description?: string; full_description?: string; status?: string; file_path?: string }[];
+  examples?: { id?: string; description?: string; full_description?: string; status?: string; file_path?: string }[];
   summary?: { errors_outside_of_examples_count?: number };
 }
 
@@ -27,15 +27,10 @@ export function parseRspecJson(text: string): TestCaseResult[] {
   const doc = JSON.parse(text) as RspecJson;
   const cases: TestCaseResult[] = [];
   const index = new Map<string, number>();
-  const add = (c: TestCaseResult) => {
-    const at = index.get(c.id);
-    if (at === undefined) {
-      index.set(c.id, cases.length);
-      cases.push(c);
-    } else if (SEVERITY[c.outcome] > SEVERITY[cases[at]!.outcome]) cases[at] = c;
-  };
+  const add = (c: TestCaseResult) => addCase(cases, index, c);
   for (const ex of doc.examples ?? []) {
-    const file = norm(ex.file_path ?? '');
+    // Shared examples report the shared file in `file_path`; the including spec is in the id (`./spec/a_spec.rb[1:3:1]`).
+    const file = norm(/^(.*)\[[\d:]+\]$/.exec(ex.id ?? '')?.[1] ?? ex.file_path ?? '');
     const name = ex.full_description ?? ex.description ?? '';
     add({ id: `${file}::${name}`, file, name, outcome: STATUS[ex.status ?? ''] ?? 'error', leaf: ex.description ?? name });
   }

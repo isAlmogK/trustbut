@@ -4,7 +4,7 @@ import type { Language } from './types.js';
 export const java: Language = {
   id: 'java',
   extensions: ['.java'],
-  testFile: /(^|\/)src\/[^/]*[tT]est[^/]*\/|Tests?\.java$/,
+  testFile: /(^|\/)(src\/[^/]*[tT]est[^/]*|tests?|__tests__)\/|Tests?\.java$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
   strings: ['"""', '"', "'"],
   rules: {},

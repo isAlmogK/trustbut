@@ -8,14 +8,15 @@ export function mavenArgs(classes: string[], args: string[]): string[] {
     '-q',
     '-B',
     'test',
-    ...(classes.length ? [`-Dtest=${classes.join(',')}`] : []),
+    ...(classes.length ? [`-Dtest=${classes.flatMap((c) => [c, `${c}$*`]).join(',')}`] : []),
+    '-Dmaven.test.failure.ignore=true',
     '-DfailIfNoTests=false',
     '-Dsurefire.failIfNoSpecifiedTests=false',
     ...args,
   ];
 }
 
-const tool: JvmTool = { name: 'maven', wrapper: 'mvnw', bin: 'mvn', kind: 'surefire', buildArgs: mavenArgs };
+const tool: JvmTool = { name: 'maven', wrapper: 'mvnw', bin: 'mvn', kind: 'surefire', ignoresTestFailures: true, buildArgs: mavenArgs };
 
 export const maven: Runner = {
   name: 'maven',
