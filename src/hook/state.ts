@@ -1,49 +1,70 @@
-// Per-session retry counter for `trustbut hook`: how many times in a row a FAIL was sent back to
-// the agent. Any allowed stop ends the agent's continuation chain, so it resets the counter.
+// Per-session hook state: how many times in a row a FAIL was sent back to the agent, and which
+// working tree (plus base) was last verified with which verdict, so an unchanged tree isn't rerun.
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { Verdict } from '../types.js';
 
 export const DEFAULT_STATE_DIR = join(tmpdir(), 'trustbut-hook');
-/** A counter not touched for this long belongs to an old session and is ignored. */
+/** State not touched for this long belongs to an old session and is ignored. */
 export const STALE_MS = 24 * 60 * 60 * 1000;
 
-interface HookState {
+export interface HookState {
   attempts: number;
-  updatedAt: number;
+  /** What was last verified: `<snapshot tree>:<merge-base commit>`. */
+  tree?: string;
+  /** The verdict for `tree`. */
+  verdict?: Verdict;
 }
+
+export interface StateRead {
+  state: HookState;
+  /** Set when the file exists but could not be read or parsed (a missing or stale file is not an error). */
+  error?: string;
+}
+
+const VERDICTS: readonly unknown[] = ['pass', 'warn', 'fail'];
 
 /** `<dir>/<sha1(sessionId + NUL + repo)>.json`. */
 export function stateFile(dir: string, sessionId: string, repo: string): string {
   return join(dir, `${createHash('sha1').update(`${sessionId}\0${repo}`).digest('hex')}.json`);
 }
 
-/** Attempts so far; 0 when the file is missing, unreadable, malformed or stale. */
-export async function readAttempts(file: string, now = Date.now()): Promise<number> {
+export async function readState(file: string, now = Date.now()): Promise<StateRead> {
+  const empty: HookState = { attempts: 0 };
+  let text: string;
   try {
-    const state = JSON.parse(await readFile(file, 'utf8')) as Partial<HookState>;
-    const { attempts, updatedAt } = state;
-    if (!Number.isInteger(attempts) || (attempts as number) < 0 || typeof updatedAt !== 'number') return 0;
-    return now - updatedAt > STALE_MS ? 0 : (attempts as number);
-  } catch {
-    return 0;
+    text = await readFile(file, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' ? { state: empty } : { state: empty, error: (err as Error).message };
+  }
+  try {
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    const { attempts, updatedAt, tree, verdict } = raw ?? {};
+    if (!Number.isInteger(attempts) || (attempts as number) < 0 || typeof updatedAt !== 'number') throw new Error('unexpected contents');
+    if (now - updatedAt > STALE_MS) return { state: empty };
+    return {
+      state: {
+        attempts: attempts as number,
+        ...(typeof tree === 'string' ? { tree } : {}),
+        ...(VERDICTS.includes(verdict) ? { verdict: verdict as Verdict } : {}),
+      },
+    };
+  } catch (err) {
+    return { state: empty, error: `corrupt state file ${file}: ${(err as Error).message}` };
   }
 }
 
 /** Writes a temp file next to it and renames it into place, so a reader never sees half a file. */
-export async function writeAttempts(file: string, attempts: number, now = Date.now()): Promise<void> {
+export async function writeState(file: string, state: HookState, now = Date.now()): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-  const state: HookState = { attempts, updatedAt: now };
   try {
-    await writeFile(tmp, JSON.stringify(state));
+    await writeFile(tmp, JSON.stringify({ ...state, updatedAt: now }));
     await rename(tmp, file);
   } finally {
     await rm(tmp, { force: true });
   }
-}
-
-export async function resetAttempts(file: string): Promise<void> {
-  await rm(file, { force: true });
 }

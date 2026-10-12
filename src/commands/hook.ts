@@ -6,7 +6,10 @@ import { execa } from 'execa';
 import { hookSettings, loadConfig } from '../config.js';
 import { summarize } from '../hook/feedback.js';
 import { respond, type Agent, type HookOutcome, type HookResponse } from '../hook/protocols.js';
-import { DEFAULT_STATE_DIR, readAttempts, resetAttempts, stateFile, writeAttempts } from '../hook/state.js';
+import { resolveHookBase, verifyDefaultBase } from '../hook/base.js';
+import { DEFAULT_STATE_DIR, readState, stateFile, writeState, type HookState } from '../hook/state.js';
+import { resolveRef, snapshotWorkingTree } from '../git.js';
+import { shellQuote } from '../runners/command.js';
 import { renderForAgent } from '../render.js';
 import { runVerify, type VerifyResult } from './verify.js';
 
@@ -21,6 +24,8 @@ export interface HookOptions {
   stateDir?: string;
   /** How long a timed-out verify run gets to stop its processes and remove its worktrees; default 8000 ms. */
   stopGraceMs?: number;
+  /** Aborting (e.g. on SIGTERM) stops the verify run's processes and removes its worktrees. */
+  signal?: AbortSignal;
 }
 
 export interface HookResult extends HookResponse {
@@ -76,9 +81,27 @@ async function receiptLocation(repo: string): Promise<string | undefined> {
 
 type Settled = { ok: true; value: VerifyResult } | { ok: false; error: unknown };
 
+const SAFE_ARG = /^[\w./@{}^~:-]+$/;
+const arg = (s: string): string => (SAFE_ARG.test(s) ? s : shellQuote(s));
+
+/** `<snapshot tree>:<merge-base commit>`, or undefined when the base doesn't resolve. */
+async function fingerprint(repo: string, snapshot: string, baseRef: string): Promise<string | undefined> {
+  const tree = await resolveTree(repo, snapshot);
+  const base = await resolveRef(repo, baseRef);
+  if (!tree || !base) return undefined;
+  const r = await execa('git', ['merge-base', base, snapshot], { cwd: repo, reject: false });
+  return r.exitCode === 0 ? `${tree}:${r.stdout.trim()}` : undefined;
+}
+
+async function resolveTree(repo: string, commit: string): Promise<string | undefined> {
+  const r = await execa('git', ['rev-parse', '--verify', '--quiet', `${commit}^{tree}`], { cwd: repo, reject: false });
+  return r.exitCode === 0 ? r.stdout.trim() : undefined;
+}
+
 async function decide(opts: HookOptions): Promise<Decision> {
   const env = opts.env ?? process.env;
   if (env.TRUSTBUT_SKIP === '1' || env.TRUSTBUT_SKIP === 'true') return { outcome: { kind: 'skip' } };
+  opts.signal?.throwIfAborted();
   const input = parseInput(opts.stdin);
   const dir = str(env.CLAUDE_PROJECT_DIR) ?? str(env.GEMINI_PROJECT_DIR) ?? str(input.cwd) ?? opts.cwd ?? process.cwd();
   const repo = await gitTop(dir);
@@ -88,21 +111,41 @@ async function decide(opts: HookOptions): Promise<Decision> {
   if (!settings.enabled) return { outcome: { kind: 'skip' } };
 
   const counter = stateFile(opts.stateDir ?? DEFAULT_STATE_DIR, str(input.session_id) ?? str(env.GEMINI_SESSION_ID) ?? '', repo);
+  const read = await readState(counter);
+  // stop_hook_active false: the user's new turn, so a new chain. Missing or true: keep counting.
+  const attempts = input.stop_hook_active === false ? 0 : read.state.attempts;
+  // Mid-chain with an unreadable counter, a block could repeat forever: never block then.
+  const noBlock = input.stop_hook_active === true && read.error ? `couldn't read the retry counter (${read.error})` : undefined;
+  const save = (state: HookState) => writeState(counter, state);
   // Letting the agent finish ends its continuation chain, so the next stop starts counting from 0.
-  const allow = async (outcome: HookOutcome, extra: Omit<Decision, 'outcome'> = {}): Promise<Decision> => {
-    await resetAttempts(counter).catch(() => {});
+  const allow = async (outcome: HookOutcome, state: HookState = { attempts: 0 }, extra: Omit<Decision, 'outcome'> = {}): Promise<Decision> => {
+    await save(state).catch(() => {});
     return { outcome, ...extra };
   };
+
+  const base = await resolveHookBase(repo, settings.base);
+  const snapshot = await snapshotWorkingTree(repo);
+  const print = await fingerprint(repo, snapshot, base.ref);
   const receiptPath = await receiptLocation(repo);
+  const where = (path: string | undefined) => (path ? `receipt: ${path}` : 'receipt not written');
+
+  // Nothing changed since the last check: don't rerun. A FAIL is not sent back again on a new turn
+  // (e.g. the user only asked a question); within a chain the normal retry logic applies below.
+  const last = print !== undefined && read.state.tree === print ? read.state.verdict : undefined;
+  if (last === 'pass' || last === 'warn') return allow({ kind: 'skip' }, { attempts: 0, tree: print, verdict: last });
+  if (last === 'fail' && attempts === 0) {
+    return allow({ kind: 'allow', message: `trustbut FAIL (unchanged since last check) — ${where(receiptPath)}` }, { attempts: 0, tree: print, verdict: 'fail' });
+  }
 
   const ctl = new AbortController();
-  const budgetMs = settings.timeoutSec * 1000;
-  const verifying: Promise<Settled> = runVerify({ cwd: repo, working: true, quick: settings.mode === 'quick', receiptMd: receiptPath, signal: ctl.signal }).then(
+  const signal = opts.signal ? AbortSignal.any([ctl.signal, opts.signal]) : ctl.signal;
+  const quick = settings.mode === 'quick';
+  const verifying: Promise<Settled> = runVerify({ cwd: repo, working: true, snapshot, base: base.ref, quick, receiptMd: receiptPath, signal }).then(
     (value) => ({ ok: true, value }),
     (error: unknown) => ({ ok: false, error }),
   );
   let timer: NodeJS.Timeout | undefined;
-  const first = await Promise.race([verifying, new Promise<'timeout'>((r) => (timer = setTimeout(() => r('timeout'), budgetMs)))]);
+  const first = await Promise.race([verifying, new Promise<'timeout'>((r) => (timer = setTimeout(() => r('timeout'), settings.timeoutSec * 1000)))]);
   clearTimeout(timer);
 
   if (first === 'timeout') {
@@ -111,7 +154,7 @@ async function decide(opts: HookOptions): Promise<Decision> {
     const stopped = await Promise.race([verifying.then(() => true), new Promise<boolean>((r) => (grace = setTimeout(() => r(false), opts.stopGraceMs ?? DEFAULT_STOP_GRACE_MS)))]);
     clearTimeout(grace);
     const message = `trustbut couldn't verify: timed out after ${settings.timeoutSec} s (hook.timeoutSec); not blocking`;
-    return allow({ kind: 'allow', message }, stopped ? {} : { forceExit: true });
+    return allow({ kind: 'allow', message }, undefined, stopped ? {} : { forceExit: true });
   }
   if (!first.ok) {
     if (first.error instanceof Error && first.error.message.startsWith(NO_CHANGES)) return allow({ kind: 'skip' });
@@ -120,24 +163,26 @@ async function decide(opts: HookOptions): Promise<Decision> {
 
   const { receipt, writeErrors } = first.value;
   const written = writeErrors.length ? undefined : receiptPath;
-  const where = written ? `receipt: ${written}` : 'receipt not written';
   const summary = summarize(receipt);
-  if (receipt.verdict === 'pass') return allow({ kind: 'allow', message: `trustbut PASS: ${summary}` });
-  if (receipt.verdict === 'warn') return allow({ kind: 'allow', message: `trustbut WARN: ${summary} — ${where}` });
+  const verified: HookState = { attempts: 0, ...(print ? { tree: print } : {}), verdict: receipt.verdict };
+  if (receipt.verdict === 'pass') return allow({ kind: 'allow', message: `trustbut PASS: ${summary}` }, verified);
+  if (receipt.verdict === 'warn') return allow({ kind: 'allow', message: `trustbut WARN: ${summary} — ${where(written)}` }, verified);
 
-  const attempts = await readAttempts(counter);
   const max = settings.maxRetries;
-  if (max === 0) return allow({ kind: 'allow', message: `trustbut FAIL: ${summary} — not sent back to the agent (hook.maxRetries is 0); ${where}` });
-  if (attempts >= max) return allow({ kind: 'allow', message: `trustbut still FAIL after ${attempts} attempt${attempts === 1 ? '' : 's'} — ${where}` });
+  if (max === 0) return allow({ kind: 'allow', message: `trustbut FAIL: ${summary} — not sent back to the agent (hook.maxRetries is 0); ${where(written)}` }, verified);
+  if (attempts >= max) return allow({ kind: 'allow', message: `trustbut still FAIL after ${attempts} attempt${attempts === 1 ? '' : 's'} — ${where(written)}` }, verified);
+  if (noBlock) return allow({ kind: 'allow', message: `trustbut FAIL: ${summary} — not sent back again: ${noBlock}; ${where(written)}` }, verified);
   try {
-    await writeAttempts(counter, attempts + 1);
+    await save({ ...verified, attempts: attempts + 1 });
   } catch (err) {
     // Without a counter the agent could loop forever (Codex has no cap): fall back to one retry per chain.
     if (input.stop_hook_active === true) {
       const reason = err instanceof Error ? err.message : String(err);
-      return allow({ kind: 'allow', message: `trustbut FAIL: ${summary} — not sent back again: couldn't save the retry counter (${reason}); ${where}` });
+      return allow({ kind: 'allow', message: `trustbut FAIL: ${summary} — not sent back again: couldn't save the retry counter (${reason}); ${where(written)}` }, verified);
     }
   }
+  const defaultBase = await verifyDefaultBase(repo);
+  const recheck = `trustbut verify --working${quick ? ' --quick' : ''}${base.ref !== defaultBase ? ` --base ${arg(base.ref)}` : ''}`;
   const message = `trustbut FAIL: ${summary} — sent back to the agent (attempt ${attempts + 1}/${max})`;
-  return { outcome: { kind: 'block', feedback: renderForAgent(receipt, written), message } };
+  return { outcome: { kind: 'block', feedback: renderForAgent(receipt, written, { recheck }), message } };
 }

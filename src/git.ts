@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 
+/** Bases `verify` tries, in order, when none is given. */
+export const DEFAULT_BASES = ['origin/main', 'main', 'origin/master', 'master'];
+
 export async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execa('git', args, { cwd });
   return stdout;

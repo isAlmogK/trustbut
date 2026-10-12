@@ -4,7 +4,7 @@ import { checkEscapes } from '../checks/escapes.js';
 import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
 import { parseChanges } from '../diff.js';
-import { diffText, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
+import { DEFAULT_BASES, diffText, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
 import { withAbort } from '../process.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
@@ -18,6 +18,8 @@ export interface VerifyOptions {
   head?: string;
   /** Verify the working tree (tracked edits + untracked files) instead of a committed head. */
   working?: boolean;
+  /** With `working`: a snapshot commit already taken with `snapshotWorkingTree` (instead of taking one). */
+  snapshot?: string;
   runner?: string;
   /** Config file path (relative to cwd) instead of `.trustbut.json` at head. */
   config?: string;
@@ -42,7 +44,6 @@ export interface VerifyResult {
   writeErrors: { path: string; message: string }[];
 }
 
-const DEFAULT_BASES = ['origin/main', 'main', 'origin/master', 'master'];
 
 async function resolveBase(repo: string, head: string, explicit?: string): Promise<string> {
   if (explicit) {
@@ -67,7 +68,7 @@ async function verify(opts: VerifyOptions): Promise<VerifyResult> {
   const repo = await repoRoot(cwd);
   if (opts.working && opts.head) throw new Error('--working and --head cannot be used together.');
   const headRef = opts.head ?? 'HEAD';
-  const head = opts.working ? await snapshotWorkingTree(repo) : await resolveRef(repo, headRef);
+  const head = opts.working ? (opts.snapshot ?? (await snapshotWorkingTree(repo))) : await resolveRef(repo, headRef);
   if (!head) throw new Error(`Unknown head ref: ${headRef}`);
   const config = await loadConfig(repo, opts.config ? resolve(cwd, opts.config) : undefined, head);
   const root = normalizeRoot(opts.root ?? config.root);

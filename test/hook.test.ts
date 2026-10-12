@@ -6,8 +6,11 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runHook, type HookOptions } from '../src/commands/hook.js';
 import { AGENTS, type Agent } from '../src/hook/protocols.js';
-import { readAttempts, stateFile, writeAttempts } from '../src/hook/state.js';
-import { makeRepo, writeFiles } from './helpers/repo.js';
+import { readState, stateFile, writeState } from '../src/hook/state.js';
+import { branch, commitAll, makeRepo, writeFiles } from './helpers/repo.js';
+
+const readAttempts = async (file: string) => (await readState(file)).state.attempts;
+const writeAttempts = (file: string, attempts: number) => writeState(file, { attempts });
 
 // A fake test suite for the `command` runner: test/lib.test.js › works passes when src/lib.js says "good".
 const RUN_SH = `if grep -q good src/lib.js; then o=pass; else o=fail; fi
@@ -47,12 +50,16 @@ const FAIL_FEEDBACK = (receipt: string) =>
     '',
     '### Must fix',
     '- Test suite fails at head (clean checkout): exit code 1',
-    '- Test fails at head · `test/lib.test.js`: works',
     '',
     '### Failing tests',
-    '- `test/lib.test.js` › works',
+    '- `test/lib.test.js` › works: expected good',
     '',
-    'Fix these and finish again; run `trustbut verify --working` to check.',
+    '### Test output (last lines)',
+    '```',
+    '<?xml version="1.0"?><testsuite name="s"><testcase classname="lib" name="works" file="test/lib.test.js"><failure message="expected good"/></testcase></testsuite>',
+    '```',
+    '',
+    'Fix these and finish again; run `trustbut verify --working --quick` to check.',
     `Full receipt: \`${receipt}\``,
     '',
   ].join('\n');
@@ -203,7 +210,7 @@ describe.concurrent('trustbut hook: settings', () => {
     const file = stateFile(f.stateDir, 'sess-1', f.dir);
     await writeAttempts(file, 2);
     await f.hook('claude');
-    expect(existsSync(file)).toBe(false);
+    expect((await readState(file)).state).toMatchObject({ attempts: 0, verdict: 'pass' });
   });
 
   it('the retry counter is stored atomically under the state dir', async () => {
@@ -228,7 +235,7 @@ describe.concurrent('trustbut hook: settings', () => {
     expect(await readAttempts(stateFile(f.stateDir, 'sess-1', f.dir))).toBe(0);
   });
 
-  it('when the retry counter cannot be saved, blocks only on a first stop', async () => {
+  it('when the state cannot be read or saved, blocks only on a first stop', async () => {
     const f = await fixture('fail');
     const blocked = join(await mkdtemp(join(tmpdir(), 'tb-hook-')), 'file');
     await writeFiles(blocked.replace(/file$/, ''), { file: 'not a folder' });
@@ -236,7 +243,7 @@ describe.concurrent('trustbut hook: settings', () => {
     expect((await f.hook('codex', { session_id: 's', cwd: f.dir, stop_hook_active: false }, opts)).exitCode).toBe(2);
     const r = await f.hook('codex', { session_id: 's', cwd: f.dir, stop_hook_active: true }, opts);
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test — not sent back again: couldn't save the retry counter/);
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test — not sent back again: couldn't read the retry counter/);
   });
 });
 
@@ -251,5 +258,132 @@ describe.concurrent('trustbut hook: receipt location', () => {
     const receipt = join(f.dir, '.git', 'worktrees', 'wt', 'trustbut', 'last-receipt.md');
     expect(r.stderr).toContain(`Full receipt: \`${receipt}\``);
     expect(existsSync(receipt)).toBe(true);
+  });
+});
+
+// A command runner that also counts its runs in a marker file outside the repo.
+async function counted(scenario: Scenario, config: Record<string, unknown> = {}) {
+  const marker = join(await mkdtemp(join(tmpdir(), 'tb-marker-')), 'runs');
+  const f = await fixture(scenario, { command: `echo run >> '${marker}'; sh run.sh`, ...config });
+  const runs = async () => (existsSync(marker) ? (await readFile(marker, 'utf8')).split('\n').filter(Boolean).length : 0);
+  return { ...f, runs };
+}
+
+describe.concurrent('trustbut hook: unchanged trees', () => {
+  it('an unchanged PASS is not rerun, and an edit is', async () => {
+    const f = await counted('pass');
+    expect(JSON.parse((await f.hook('claude')).stdout).systemMessage).toMatch(/^trustbut PASS: /);
+    const after = await f.runs();
+    expect(after).toBeGreaterThan(0);
+    expect(await f.hook('claude')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+    expect(await f.hook('codex', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true })).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+    expect(await f.runs()).toBe(after);
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'good again';\n" });
+    await f.hook('claude');
+    expect(await f.runs()).toBeGreaterThan(after);
+  });
+
+  it('a question-only turn on a branch with a committed FAIL is not blocked again', async () => {
+    const f = await counted('fail');
+    await branch(f.dir, 'feature');
+    await commitAll(f.dir, 'agent commits the failing change');
+    const first = await f.hook('claude');
+    expect(JSON.parse(first.stdout).decision).toBe('block');
+    const after = await f.runs();
+    // Later the user asks a question and the agent answers without editing anything.
+    const qa = await f.hook('claude', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: false });
+    expect(qa).toEqual({ exitCode: 0, stdout: msg(`trustbut FAIL (unchanged since last check) — receipt: ${f.receipt}`), stderr: '' });
+    expect(await f.runs()).toBe(after);
+  });
+
+  it('a new turn (stop_hook_active: false) on an unchanged FAIL tree is allowed even mid-count', async () => {
+    const f = await counted('fail');
+    expect((await f.hook('gemini')).exitCode).toBe(2);
+    const r = await f.hook('gemini', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: false });
+    expect(JSON.parse(r.stdout).systemMessage).toBe(`trustbut FAIL (unchanged since last check) — receipt: ${f.receipt}`);
+  });
+
+  it('within a chain, an unchanged FAIL is verified and blocked again', async () => {
+    const f = await counted('fail');
+    expect((await f.hook('codex')).exitCode).toBe(2);
+    const after = await f.runs();
+    expect((await f.hook('codex', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true })).exitCode).toBe(2);
+    expect(await f.runs()).toBeGreaterThan(after);
+    expect(await readAttempts(stateFile(f.stateDir, 'sess-1', f.dir))).toBe(2);
+  });
+});
+
+describe.concurrent('trustbut hook: stop_hook_active and the counter', () => {
+  it('stop_hook_active: false starts a new chain at attempt 1', async () => {
+    const f = await fixture('fail');
+    await writeAttempts(stateFile(f.stateDir, 'sess-1', f.dir), 3);
+    const r = await f.hook('claude', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: false });
+    expect(JSON.parse(r.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test — sent back to the agent (attempt 1/3)');
+  });
+
+  it('a missing stop_hook_active keeps counting', async () => {
+    const f = await fixture('fail');
+    await writeAttempts(stateFile(f.stateDir, 'sess-1', f.dir), 3);
+    const r = await f.hook('claude', { session_id: 'sess-1', cwd: f.dir });
+    expect(JSON.parse(r.stdout).systemMessage).toBe(`trustbut still FAIL after 3 attempts — receipt: ${f.receipt}`);
+  });
+
+  it('stop_hook_active: true with a corrupt counter never blocks', async () => {
+    const f = await fixture('fail');
+    const file = stateFile(f.stateDir, 'sess-1', f.dir);
+    await writeFiles(f.stateDir, { [file.split('/').pop()!]: '{ corrupt' });
+    for (const agent of AGENTS) {
+      await writeFiles(f.stateDir, { [file.split('/').pop()!]: '{ corrupt' });
+      const r = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
+      expect(r.exitCode).toBe(0);
+      expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test — not sent back again: couldn't read the retry counter \(corrupt state file /);
+    }
+  });
+});
+
+describe.concurrent('trustbut hook: base', () => {
+  const git = (dir: string, ...args: string[]) => execa('git', args, { cwd: dir });
+
+  it('a repo with only a develop branch verifies the uncommitted changes against HEAD', async () => {
+    const f = await fixture('fail');
+    await git(f.dir, 'branch', '-m', 'main', 'develop');
+    const r = await f.hook('codex');
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain('run `trustbut verify --working --quick --base HEAD` to check.');
+  });
+
+  it("compares with origin's default branch, not a stale main", async () => {
+    const f = await fixture('no-changes');
+    // develop (origin's default) has a focused test that a diff from the stale main would flag.
+    await branch(f.dir, 'develop');
+    await writeFiles(f.dir, { 'test/focus.test.js': "it.only('x', () => {});\n" });
+    const develop = await commitAll(f.dir, 'develop work');
+    await git(f.dir, 'update-ref', 'refs/remotes/origin/develop', develop);
+    await git(f.dir, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop');
+    await branch(f.dir, 'feature');
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'good';\n", 'test/lib.test.js': "it('works', () => {});\n" });
+    const r = await f.hook('claude');
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut PASS: /);
+  });
+
+  it('hook.base from the config wins', async () => {
+    const f = await fixture('fail', { hook: { base: 'HEAD' } });
+    await commitAll(f.dir, 'commit the failing change');
+    // Compared with HEAD, a clean tree has nothing to verify.
+    expect(await f.hook('claude')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+  });
+
+  it('committing on a feature branch does not hide the change from the default-branch diff', async () => {
+    const f = await fixture('no-changes');
+    await branch(f.dir, 'feature');
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad';\n", 'test/lib.test.js': "it('works', () => {});\n" });
+    await commitAll(f.dir, 'agent commits');
+    expect((await f.hook('codex')).exitCode).toBe(2);
+  });
+
+  it('known limitation: on a remote-less main, committed work with a clean tree has nothing to verify', async () => {
+    const f = await fixture('fail');
+    await commitAll(f.dir, 'agent commits on main');
+    expect(await f.hook('claude')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
   });
 });

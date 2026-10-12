@@ -36,21 +36,26 @@ export interface HookConfig {
   maxRetries?: number;
   /** Time budget for the whole verify run in the hook; default 540 (under the agents' 600 s hook timeout). */
   timeoutSec?: number;
+  /** Base ref to compare against; default: origin's default branch, main/master, the upstream, else HEAD. */
+  base?: string;
 }
 
-export const HOOK_KEYS = ['enabled', 'mode', 'maxRetries', 'timeoutSec'] as const satisfies readonly (keyof HookConfig)[];
+export const HOOK_KEYS = ['enabled', 'mode', 'maxRetries', 'timeoutSec', 'base'] as const satisfies readonly (keyof HookConfig)[];
 export const DEFAULT_HOOK_TIMEOUT_SEC = 540;
 export const DEFAULT_HOOK_MAX_RETRIES = 3;
 export const MAX_HOOK_RETRIES = 100;
 
-/** Hook settings with defaults applied. */
-export function hookSettings(config: TrustbutConfig): Required<HookConfig> {
+export type HookSettings = Required<Omit<HookConfig, 'base'>> & Pick<HookConfig, 'base'>;
+
+/** Hook settings with defaults applied (`base` stays unset unless configured). */
+export function hookSettings(config: TrustbutConfig): HookSettings {
   const hook = config.hook ?? {};
   return {
     enabled: hook.enabled ?? true,
     mode: hook.mode ?? 'quick',
     maxRetries: hook.maxRetries ?? DEFAULT_HOOK_MAX_RETRIES,
     timeoutSec: hook.timeoutSec ?? DEFAULT_HOOK_TIMEOUT_SEC,
+    ...(hook.base !== undefined ? { base: hook.base } : {}),
   };
 }
 
@@ -130,6 +135,9 @@ function validateHook(hook: unknown, fail: (msg: string) => never, source: strin
   }
   if ('timeoutSec' in h && !(typeof h.timeoutSec === 'number' && h.timeoutSec > 0 && h.timeoutSec <= MAX_SECONDS)) {
     fail(`"hook.timeoutSec" must be a positive number up to ${MAX_SECONDS}`);
+  }
+  if ('base' in h && !(typeof h.base === 'string' && h.base.trim() !== '' && !h.base.startsWith('-'))) {
+    fail('"hook.base" must be a non-empty ref name');
   }
 }
 
