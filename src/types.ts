@@ -69,6 +69,8 @@ export interface Receipt {
   version: 1;
   base: string;
   head: string;
+  /** Human label for head when it is not a plain commit (e.g. "working tree"). */
+  headRef?: string;
   runner: string | null;
   scope: RunScope;
   verdict: Verdict;

@@ -60,3 +60,27 @@ export async function removeWorktree(cwd: string, dir: string): Promise<void> {
 export async function isDirty(cwd: string): Promise<boolean> {
   return (await git(cwd, ['status', '--porcelain', '--untracked-files=no'])).trim().length > 0;
 }
+
+/**
+ * Commit SHA for HEAD plus every tracked modification and untracked, non-ignored file.
+ * Built with a temporary index, so the real index, HEAD and refs are never touched. The commit
+ * is unreferenced (git gc will collect it).
+ */
+export async function snapshotWorkingTree(repo: string): Promise<string> {
+  const head = await resolveRef(repo, 'HEAD');
+  if (!head) throw new Error('This repository has no commits yet; --working needs a HEAD to compare against.');
+  const dir = await mkdtemp(join(tmpdir(), 'trustbut-index-'));
+  try {
+    const env = { GIT_INDEX_FILE: join(dir, 'index') };
+    await execa('git', ['read-tree', 'HEAD'], { cwd: repo, env });
+    await execa('git', ['add', '-A'], { cwd: repo, env });
+    const tree = (await execa('git', ['write-tree'], { cwd: repo, env })).stdout.trim();
+    const identity = {
+      GIT_AUTHOR_NAME: 'trustbut', GIT_AUTHOR_EMAIL: 'trustbut@localhost',
+      GIT_COMMITTER_NAME: 'trustbut', GIT_COMMITTER_EMAIL: 'trustbut@localhost',
+    };
+    return (await execa('git', ['commit-tree', tree, '-p', head, '-m', 'trustbut working snapshot'], { cwd: repo, env: identity })).stdout.trim();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}

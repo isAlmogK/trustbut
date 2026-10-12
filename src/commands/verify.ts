@@ -3,7 +3,7 @@ import { checkEscapes } from '../checks/escapes.js';
 import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
 import { parseChanges } from '../diff.js';
-import { diffText, isDirty, mergeBase, repoRoot, resolveRef } from '../git.js';
+import { diffText, isDirty, mergeBase, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
@@ -14,6 +14,8 @@ export interface VerifyOptions {
   cwd?: string;
   base?: string;
   head?: string;
+  /** Verify the working tree (tracked edits + untracked files) instead of a committed head. */
+  working?: boolean;
   runner?: string;
   /** Config file path (relative to cwd) instead of `.trustbut.json` at head. */
   config?: string;
@@ -49,8 +51,9 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   const forced = opts.runner !== undefined ? getRunner(opts.runner) : undefined;
   const cwd = opts.cwd ?? process.cwd();
   const repo = await repoRoot(cwd);
+  if (opts.working && opts.head) throw new Error('--working and --head cannot be used together.');
   const headRef = opts.head ?? 'HEAD';
-  const head = await resolveRef(repo, headRef);
+  const head = opts.working ? await snapshotWorkingTree(repo) : await resolveRef(repo, headRef);
   if (!head) throw new Error(`Unknown head ref: ${headRef}`);
   const config = await loadConfig(repo, opts.config ? resolve(cwd, opts.config) : undefined, head);
   const root = normalizeRoot(opts.root ?? config.root);
@@ -62,7 +65,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
 
   const changes = parseChanges(await diffText(repo, base, head));
   const findings: Finding[] = [...checkTestIntegrity(changes), ...checkEscapes(changes)];
-  if (await isDirty(repo)) {
+  if (!opts.working && (await isDirty(repo))) {
     findings.push({ id: 'uncommitted-changes', severity: 'info', title: 'Uncommitted changes are not included in this receipt' });
   }
 
@@ -95,6 +98,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   const receipt = buildReceipt({
     base,
     head,
+    headRef: opts.working ? 'working tree' : undefined,
     runner: runner?.name ?? null,
     scope: proof.scope,
     after: proof.after,

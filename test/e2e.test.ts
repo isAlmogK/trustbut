@@ -333,3 +333,28 @@ describe('trustbut verify config errors', () => {
     await expect(runVerify({ cwd: dir, config: 'cfg/bad.json' })).rejects.toThrow(/"timeoutSec" must be a positive number/);
   });
 });
+
+describe('trustbut verify --working', () => {
+  it('PASS: uncommitted fix + untracked test, repo state untouched', async () => {
+    const { dir } = await makeRepo(BASE_FILES);
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/sum.js': 'export const sum = (a, b) => a + b;\n', 'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));") });
+    const snapshot = async () => ({
+      status: (await execa('git', ['status', '--porcelain'], { cwd: dir })).stdout,
+      index: (await execa('git', ['ls-files', '-s'], { cwd: dir })).stdout,
+    });
+    const before = await snapshot();
+    const { receipt, output } = await runVerify({ cwd: dir, base: 'main', working: true });
+    expect(receipt.verdict).toBe('pass');
+    expect(receipt.headRef).toBe('working tree');
+    expect(receipt.findings.map((f) => f.id)).not.toContain('uncommitted-changes');
+    expect(output).toContain('→ working tree');
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects --working together with --head', async () => {
+    const { dir } = await makeRepo(BASE_FILES);
+    await expect(runVerify({ cwd: dir, working: true, head: 'main' })).rejects.toThrow(/--working.*--head/);
+  });
+});

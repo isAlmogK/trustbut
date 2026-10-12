@@ -4,6 +4,7 @@ import type { ChangedFile, Finding, Receipt, RunResult, RunScope, TestProof, Ver
 export interface ReceiptInput {
   base: string;
   head: string;
+  headRef?: string;
   runner: string | null;
   scope?: RunScope;
   after?: RunResult;
@@ -45,6 +46,7 @@ export function buildReceipt(input: ReceiptInput): Receipt {
     version: 1,
     base: input.base,
     head: input.head,
+    ...(input.headRef ? { headRef: input.headRef } : {}),
     runner: input.runner,
     scope: input.scope ?? 'full',
     verdict: decideVerdict(findings),

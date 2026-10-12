@@ -38,7 +38,7 @@ function findingLine(f: Finding): string {
 export function renderMarkdown(r: Receipt): string {
   const lines: string[] = [];
   lines.push(`## 🧾 Receipt: ${r.verdict.toUpperCase()}`, '');
-  lines.push(`${code(r.base.slice(0, 7))} → ${code(r.head.slice(0, 7))}${r.runner ? ` · runner: ${text(r.runner)}` : ''}`, '');
+  lines.push(`${code(r.base.slice(0, 7))} → ${r.headRef ? text(r.headRef) : code(r.head.slice(0, 7))}${r.runner ? ` · runner: ${text(r.runner)}` : ''}`, '');
 
   if (r.after) {
     const t = tally(r.after);
