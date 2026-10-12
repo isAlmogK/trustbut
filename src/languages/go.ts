@@ -7,6 +7,7 @@ export const go: Language = {
   extensions: ['.go'],
   testFile: /_test\.go$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ['"', '`'],
+  // Backtick strings are raw; runes ('"') are literals.
+  strings: ['"', { open: '`', close: '`', raw: true }, "'"],
   rules: {},
 };

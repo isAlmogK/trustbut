@@ -5,6 +5,13 @@ export const dart: Language = {
   extensions: ['.dart'],
   testFile: /_test\.dart$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ["'''", '"""', '"', "'"],
+  // r'…' strings are raw.
+  strings: [
+    ...["r'''", 'r"""', "r'", 'r"'].map((open) => ({ open, close: open.slice(1), raw: true })),
+    "'''",
+    '"""',
+    '"',
+    "'",
+  ],
   rules: {},
 };

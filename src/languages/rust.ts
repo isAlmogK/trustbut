@@ -7,6 +7,12 @@ export const rust: Language = {
   extensions: ['.rs'],
   testFile: /^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/([^/]+|[^/]+\/main)\.rs$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ['"'],
+  // Raw strings (r"…", r#"…"#, br"…") have no escapes; `'` opens a char literal only when it closes as one, so lifetimes
+  // (`'a`, `'static`) and loop labels stay code. Up to three `#`s are recognised.
+  strings: [
+    ...['###', '##', '#', ''].flatMap((h) => [`br${h}"`, `r${h}"`].map((open) => ({ open, close: `"${h}`, raw: true }))),
+    '"',
+    { open: "'", close: "'", char: true },
+  ],
   rules: {},
 };

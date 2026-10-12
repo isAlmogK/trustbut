@@ -5,6 +5,7 @@ export const kotlin: Language = {
   extensions: ['.kt', '.kts'],
   testFile: /(^|\/)(src\/[^/]*[tT]est[^/]*|tests?|__tests__)\/|Tests?\.kt$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ['"""', '"', "'"],
+  // Triple-quoted strings are raw in Kotlin.
+  strings: [{ open: '"""', close: '"""', raw: true }, '"', "'"],
   rules: {},
 };

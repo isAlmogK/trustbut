@@ -4,7 +4,7 @@ export const ruby: Language = {
   id: 'ruby',
   extensions: ['.rb'],
   testFile: /_(spec|test)\.rb$|(^|\/)(spec|test)\/.*\.rb$/,
-  comments: { line: ['#'], block: ['=begin', '=end'] },
-  strings: ['"', "'"],
+  comments: { line: ['#'], lineBlock: ['=begin', '=end'] },
+  strings: ['"', "'", '`'],
   rules: {},
 };

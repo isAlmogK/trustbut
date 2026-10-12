@@ -5,6 +5,11 @@ export const swift: Language = {
   extensions: ['.swift'],
   testFile: /Tests?\.swift$|(^|\/)Tests\/.*\.swift$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ['"""', '"'],
+  // `#"…"#` (and `##"…"##`, `#"""`) are raw: a backslash only escapes when followed by the `#`s.
+  strings: [
+    ...['###', '##', '#'].flatMap((h) => [`${h}"""`, `${h}"`].map((open) => ({ open, close: `${open.slice(h.length)}${h}`, raw: true }))),
+    '"""',
+    '"',
+  ],
   rules: {},
 };

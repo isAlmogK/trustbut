@@ -5,6 +5,13 @@ export const csharp: Language = {
   extensions: ['.cs'],
   testFile: /(Tests?|Spec)\.cs$|(^|\/)[\w.]*Tests?\//,
   comments: { line: ['//'], block: ['/*', '*/'] },
-  strings: ['"""', '"', "'"],
+  // Raw `"""…"""` strings have no escapes; verbatim `@"…"` (also `$@"`/`@$"`) doubles quotes instead of escaping.
+  strings: [
+    { open: '"""', close: '"""', raw: true },
+    { open: '@$"', close: '"', doubled: true },
+    { open: '@"', close: '"', doubled: true },
+    '"',
+    "'",
+  ],
   rules: {},
 };

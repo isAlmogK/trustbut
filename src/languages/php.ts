@@ -4,7 +4,8 @@ export const php: Language = {
   id: 'php',
   extensions: ['.php'],
   testFile: /Test\.php$/,
-  comments: { line: ['//', '#'], block: ['/*', '*/'] },
-  strings: ['"', "'"],
+  // `#[` starts a PHP 8 attribute, not a comment.
+  comments: { line: ['//', '#'], block: ['/*', '*/'], notComment: ['#['] },
+  strings: ['"', "'", '`'],
   rules: {},
 };
