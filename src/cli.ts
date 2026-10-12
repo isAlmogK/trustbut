@@ -2,7 +2,7 @@
 import { CommanderError } from 'commander';
 import { buildProgram } from './program.js';
 
-// Exit codes: 0 PASS (or WARN without --strict), 1 FAIL, 2 usage or runtime error.
+// Exit codes: 0 PASS (or WARN without --strict), 1 FAIL, 2 usage/runtime error or a requested receipt file not written.
 try {
   await buildProgram().parseAsync(process.argv);
 } catch (e) {

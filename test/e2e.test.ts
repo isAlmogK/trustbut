@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -498,6 +498,52 @@ describe('--receipt-json / --receipt-md', () => {
     const { dir } = await makeRepo(BASE_FILES);
     await expect(runVerify({ cwd: dir, base: 'nope', receiptJson: jsonPath })).rejects.toThrow();
     await expect(readFile(jsonPath, 'utf8')).rejects.toThrow();
+  });
+
+  it('reports write failures in writeErrors, keeping the receipt and verdict exit code', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    await writeFile(join(out, 'file'), 'x');
+    const bad = join(out, 'file', 'r.json');
+    const r = await runVerify({ cwd: dir, receiptJson: bad });
+    expect(r.exitCode).toBe(0);
+    expect(r.receipt.verdict).toBe('pass');
+    expect(r.writeErrors).toHaveLength(1);
+    expect(r.writeErrors[0]!.path).toBe(bad);
+  });
+
+  it('CLI: verify --receipt-json writes the file; a failed write prints the receipt first, then exits 2', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    const good = join(out, 'sub/r.json');
+    await writeFile(join(out, 'file'), 'x');
+    const bad = join(out, 'file', 'r.json');
+    const cap = { out: '', err: '' };
+    const so = process.stdout.write.bind(process.stdout);
+    const se = process.stderr.write.bind(process.stderr);
+    const prevCwd = process.cwd();
+    const prevCode = process.exitCode;
+    process.chdir(dir);
+    process.stdout.write = ((c: string) => ((cap.out += c), true)) as typeof process.stdout.write;
+    process.stderr.write = ((c: string) => ((cap.err += c), true)) as typeof process.stderr.write;
+    try {
+      await buildProgram().parseAsync(['node', 'trustbut', 'verify', '--receipt-json', good, '--receipt-md', bad]);
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.stdout.write = so;
+      process.stderr.write = se;
+      process.chdir(prevCwd);
+      process.exitCode = prevCode;
+    }
+    expect(cap.out).toContain('Receipt: PASS');
+    expect(cap.err).toContain(`trustbut: couldn't write receipt to ${bad}:`);
+    expect(JSON.parse(await readFile(good, 'utf8')).verdict).toBe('pass');
   });
 
   it('CLI flags are registered on verify', () => {

@@ -35,6 +35,8 @@ export interface VerifyResult {
   receipt: Receipt;
   output: string;
   exitCode: number;
+  /** Receipt files that were requested but could not be written (the receipt and verdict are still returned). */
+  writeErrors: { path: string; message: string }[];
 }
 
 const DEFAULT_BASES = ['origin/main', 'main', 'origin/master', 'master'];
@@ -128,13 +130,17 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
     changes,
   });
   const output = opts.json ? `${JSON.stringify(receipt, null, 2)}\n` : renderMarkdown(receipt);
-  const cwdPath = (p: string) => resolve(cwd, p);
+  const writeErrors: VerifyResult['writeErrors'] = [];
   const write = async (path: string, text: string) => {
-    await mkdir(dirname(cwdPath(path)), { recursive: true });
-    await writeFile(cwdPath(path), text);
+    try {
+      await mkdir(dirname(resolve(cwd, path)), { recursive: true });
+      await writeFile(resolve(cwd, path), text);
+    } catch (err) {
+      writeErrors.push({ path, message: (err as Error).message });
+    }
   };
   if (opts.receiptJson) await write(opts.receiptJson, `${JSON.stringify(receipt, null, 2)}\n`);
   if (opts.receiptMd) await write(opts.receiptMd, opts.json ? renderMarkdown(receipt) : output);
   const exitCode = receipt.verdict === 'fail' || (opts.strict && receipt.verdict === 'warn') ? 1 : 0;
-  return { receipt, output, exitCode };
+  return { receipt, output, exitCode, writeErrors };
 }

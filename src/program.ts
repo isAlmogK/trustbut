@@ -34,13 +34,15 @@ export function buildProgram(): Command {
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
     .option('--json', 'print the receipt as JSON')
-    .option('--receipt-json <path>', 'also write the JSON receipt to this file')
-    .option('--receipt-md <path>', 'also write the Markdown receipt to this file')
+    .option('--receipt-json <path>', 'also write the JSON receipt to this file (relative to the current directory)')
+    .option('--receipt-md <path>', 'also write the Markdown receipt to this file (relative to the current directory)')
     .action(async (opts: VerifyOptions) => {
       try {
         const result = await runVerify(opts);
         process.stdout.write(result.output);
-        process.exitCode = result.exitCode;
+        for (const e of result.writeErrors) process.stderr.write(`trustbut: couldn't write receipt to ${e.path}: ${e.message}\n`);
+        // 2 = a requested artifact was not written (the receipt was still printed).
+        process.exitCode = result.writeErrors.length > 0 ? 2 : result.exitCode;
       } catch (err) {
         process.stderr.write(`trustbut: ${(err as Error).message}\n`);
         process.exitCode = 2;

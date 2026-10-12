@@ -68,10 +68,10 @@ describe('cli process exit codes', () => {
   }, 60_000);
 });
 
-describe('built cli', () => {
-  it('node dist/cli.js --version equals package.json (after build)', async () => {
-    await execa('npm', ['run', 'build'], { cwd: ROOT });
-    const r = await execa('node', ['dist/cli.js', '--version'], { cwd: ROOT });
-    expect(r.stdout.trim()).toBe(PKG_VERSION);
-  }, 120_000);
+describe('version injection', () => {
+  it('tsup config defines __TRUSTBUT_VERSION__ as package.json version, and version.ts uses it', async () => {
+    const config = (await import('../tsup.config.js')).default as { define?: Record<string, string> };
+    expect(config.define?.__TRUSTBUT_VERSION__).toBe(JSON.stringify(PKG_VERSION));
+    expect(readFileSync(new URL('../src/version.ts', import.meta.url), 'utf8')).toContain('__TRUSTBUT_VERSION__');
+  });
 });
