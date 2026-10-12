@@ -1,3 +1,5 @@
+
+import { csharp } from './csharp.js';
 import { go } from './go.js';
 import { js } from './js.js';
 import { py } from './python.js';
@@ -5,7 +7,7 @@ import { rust } from './rust.js';
 import type { Language } from './types.js';
 
 /** Every supported language. To add one: create `src/languages/<id>.ts` and list it here. */
-export const LANGUAGES: Language[] = [js, py, go, rust];
+export const LANGUAGES: Language[] = [js, py, go, rust, csharp];
 
 /** The language of a file, by extension. */
 export function languageOf(path: string): Language | undefined {
