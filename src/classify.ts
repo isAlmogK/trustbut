@@ -2,8 +2,18 @@ import { languageOf } from './languages/index.js';
 import type { FileKind } from './types.js';
 
 const SNAPSHOT = /(^|\/)__snapshots__\/|\.snap$/;
-const TEST_CONFIG =
-  /(^|\/)(vitest\.config|vitest\.workspace|jest\.config)\.[cm]?[jt]s$|(^|\/)(pytest\.ini|tox\.ini|setup\.cfg|\.coveragerc|codecov\.ya?ml|\.nycrc(\.json)?|\.c8rc(\.json)?)$/;
+// Test runner, coverage and trustbut config: each decides which tests run and what counts as passing.
+const TEST_CONFIG = new RegExp(
+  [
+    /(^|\/)(vitest\.config|vitest\.workspace|jest\.config|karma\.conf)\.[cm]?[jt]s$/,
+    /(^|\/)\.mocharc\.([cm]?js|jsonc?|ya?ml)$/,
+    /(^|\/)(jest\.config\.json|pytest\.ini|tox\.ini|setup\.cfg|\.coveragerc|codecov\.ya?ml|\.nycrc(\.json)?|\.c8rc(\.json)?)$/,
+    /(^|\/)(phpunit\.xml|phpunit\.xml\.dist|phpunit\.dist\.xml|\.rspec|dart_test\.yaml|xunit\.runner\.json|\.trustbut\.json)$/,
+    /(^|\/)\.config\/nextest\.toml$|\.runsettings$/,
+  ]
+    .map((r) => r.source)
+    .join('|'),
+);
 // Source files of languages that are not (yet) in the registry, and how their tests are recognised.
 const OTHER_SOURCE = /\.(rs|java|kt|rb|php|cs|swift|scala|vue|svelte)$/;
 const OTHER_TEST = /(^|\/)(tests?|__tests__)\//;

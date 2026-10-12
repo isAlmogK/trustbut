@@ -32,6 +32,20 @@ describe('rankRisks', () => {
   });
 });
 
+describe('rankRisks: verification config and dependency manifests', () => {
+  it('weights a .trustbut.json change as verification config', () => {
+    expect(rankRisks([file('.trustbut.json', 'test-config')], [])).toEqual([{ file: '.trustbut.json', score: 3, reasons: ['verification config'] }]);
+  });
+
+  it.each([
+    'go.mod', 'go.sum', 'Cargo.toml', 'Cargo.lock', 'pom.xml', 'build.gradle', 'app/build.gradle.kts', 'settings.gradle', 'settings.gradle.kts',
+    'Gemfile', 'Gemfile.lock', 'composer.json', 'composer.lock', 'pubspec.yaml', 'pubspec.lock', 'Package.swift', 'Package.resolved',
+    'src/App/App.csproj', 'Directory.Packages.props', 'packages.lock.json',
+  ])('%s is a dependency change', (path) => {
+    expect(rankRisks([file(path, 'other')], []).map((r) => r.reasons)).toEqual([['dependencies']]);
+  });
+});
+
 describe('derived findings and verdict', () => {
   it('turns proofs into findings', () => {
     expect(proofFindings([proof('a', 'proves-change'), proof('b', 'does-not-constrain'), proof('c', 'failing')]).map((f) => [f.id, f.severity])).toEqual([

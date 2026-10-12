@@ -97,6 +97,14 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.proofs.map((p) => p.name)).not.toContain('truth');
   });
 
+  it('WARN: a changed .trustbut.json is flagged and ranked as verification config', async () => {
+    const dir = await scenario({ '.trustbut.json': JSON.stringify({ timeoutSec: 600 }) });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings).toContainEqual({ id: 'test-config-changed', severity: 'warn', title: 'Test or coverage config changed', file: '.trustbut.json' });
+    expect(receipt.risks[0]).toEqual({ file: '.trustbut.json', score: 5, reasons: ['verification config', 'has findings'] });
+    expect(receipt.verdict).toBe('warn');
+  });
+
   it('copies changed fixtures and snapshots into the base checkout', async () => {
     const dir = await scenario({
       'src/sum.js': 'export const sum = (a, b) => a + b;\n',
