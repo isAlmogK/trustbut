@@ -85,6 +85,7 @@ export interface GroupRunResult {
 /**
  * Runs `file args` in its own process group with combined output. On timeout the whole group is
  * stopped (SIGTERM, then SIGKILL); processes left behind after a normal exit are stopped too.
+ * Throws `Couldn't start <file>: …` when the program cannot be spawned at all (e.g. not on PATH).
  */
 export async function runInGroup(
   file: string,
@@ -107,6 +108,11 @@ export async function runInGroup(
     const res = await sub;
     clearTimeout(timer);
     await killing;
+    // No exit code, no signal, no timeout: the program never started (not found, not executable).
+    if (res.failed && res.exitCode === undefined && res.signal === undefined && !timedOut) {
+      const reason = String(res.shortMessage ?? '').split('\n').pop() || 'could not be spawned';
+      throw new Error(`Couldn't start ${file}: ${reason}`);
+    }
     return {
       exitCode: timedOut ? undefined : res.exitCode,
       stdout: String(res.stdout ?? ''),

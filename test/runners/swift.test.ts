@@ -152,11 +152,9 @@ describe('swift runner with a fake swift', () => {
     expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
   });
 
-  it('a missing swift is an error case, not "no tests"', async () => {
+  it("a missing swift is a start-up error, not \"no tests\"", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-swnone-'));
-    const res = await swift.run({ cwd: dir, env: { PATH: '/nonexistent' } });
-    expect(res.exitCode).not.toBe(0);
-    expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
+    await expect(swift.run({ cwd: dir, env: { PATH: '/nonexistent' } })).rejects.toThrow(/^Couldn't start swift: /);
   });
 });
 

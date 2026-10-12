@@ -188,6 +188,41 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['TestLater', 'skipped']]);
   }, 180_000);
 
+  it('WARN: args that filter out every test (no results, exit 0) are not a silent PASS', async () => {
+    const { dir } = await makeRepo({ ...BASE, '.trustbut.json': JSON.stringify({ args: ['-run', '^$'] }) });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'sub.go': 'package fx\n\nfunc Sub(a, b int) int { return a + b }\n',
+      'sub_test.go': sumTest('func TestSub(t *testing.T) {\n\tif Sub(3, 2) != 1 {\n\t\tt.Fatal("bad")\n\t}\n}'),
+    });
+    await commitAll(dir, 'agent change');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.after?.cases).toEqual([]);
+    expect(receipt.verdict).toBe('warn');
+    expect(receipt.findings.map((f) => f.id)).toEqual(expect.arrayContaining(['no-test-results', 'proofs-unmatched']));
+  }, 180_000);
+
+  it('WARN: a golden file under testdata/ is copied to base, so a test that passes without the change is caught', async () => {
+    const dir = await scenario({
+      'sum.go': 'package fx\n\n// Sum subtracts (comment-only change).\nfunc Sum(a, b int) int { return a - b }\n',
+      'testdata/want.txt': '1\n',
+      'golden_test.go': sumTest(
+        'func TestGolden(t *testing.T) {\n\tb, err := os.ReadFile("testdata/want.txt")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif strings.TrimSpace(string(b)) != strconv.Itoa(Sum(3, 2)) {\n\t\tt.Fatal("bad")\n\t}\n}',
+      ).replace('import "testing"', 'import (\n\t"os"\n\t"strconv"\n\t"strings"\n\t"testing"\n)'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.before, p.verdict, p.weak])).toEqual([['TestGolden', 'pass', 'does-not-constrain', false]]);
+    expect(receipt.verdict).toBe('warn');
+  }, 180_000);
+
+  it("a go that can't be started is a runtime error, not a failing suite", async () => {
+    const { dir } = await makeRepo({ ...BASE, '.trustbut.json': JSON.stringify({ env: { PATH: '/nonexistent' } }) });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'sum.go': FIXED });
+    await commitAll(dir, 'agent change');
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(/^Couldn't start go: /);
+  }, 180_000);
+
   it('a test file that does not compile is an error, not a proof', async () => {
     const dir = await scenario({
       'sum.go': FIXED,

@@ -239,11 +239,9 @@ describe('maven and gradle with a fake wrapper', () => {
     expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
   });
 
-  it('maven: a missing mvn is an error case, not "no tests"', async () => {
+  it("maven: a missing mvn is a start-up error, not \"no tests\"", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-nomvn-'));
-    const res = await maven.run({ cwd: dir, env: { PATH: '/nonexistent' } });
-    expect(res.exitCode).not.toBe(0);
-    expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
+    await expect(maven.run({ cwd: dir, env: { PATH: '/nonexistent' } })).rejects.toThrow(/^Couldn't start mvn: /);
   });
 
   it('gradle: runs ./gradlew with --tests and reads build/test-results/test', async () => {
@@ -254,6 +252,25 @@ describe('maven and gradle with a fake wrapper', () => {
     expect(res.output).toContain('INIT-SCRIPT');
     expect(res.cases.map((c) => c.id)).toEqual(['com.x.CalcTest::adds()', 'com.x.CalcTest::subtracts()', 'com.x.CalcTest::later()', 'com.x.CalcTest::sums(int, int)[1]']);
     expect(findReports(dir, 'gradle').map((p) => p.endsWith('TEST-stale.Old.xml'))).not.toContain(true);
+  });
+
+  it('gradle: reads reports of every test task (Android variants such as testDebugUnitTest)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-gradlevariant-'));
+    const report = (cls: string) => `<testsuite name="${cls}"><testcase name="t" classname="${cls}"/></testsuite>`;
+    await mkdir(join(dir, 'app/build/test-results/testDebugUnitTest'), { recursive: true });
+    await mkdir(join(dir, 'app/build/test-results/testReleaseUnitTest'), { recursive: true });
+    await writeFile(join(dir, 'app/build/test-results/testDebugUnitTest/TEST-a.Debug.xml'), report('a.Debug'));
+    await writeFile(join(dir, 'app/build/test-results/testReleaseUnitTest/TEST-a.Release.xml'), report('a.Release'));
+    await writeFile(join(dir, 'gradlew'), '#!/bin/sh\nexit 0\n');
+    await chmod(join(dir, 'gradlew'), 0o755);
+    expect(findReports(dir, 'gradle').map((p) => p.slice(dir.length + 1))).toEqual([
+      'app/build/test-results/testDebugUnitTest/TEST-a.Debug.xml',
+      'app/build/test-results/testReleaseUnitTest/TEST-a.Release.xml',
+    ]);
+    // A fake build that writes a variant report: the run reads it.
+    await writeFile(join(dir, 'gradlew'), `#!/bin/sh\nmkdir -p app/build/test-results/testDebugUnitTest\necho '${report('a.Fresh')}' > app/build/test-results/testDebugUnitTest/TEST-a.Fresh.xml\n`);
+    const res = await gradle.run({ cwd: dir });
+    expect(res.cases.map((c) => c.id)).toEqual(['a.Fresh::t']);
   });
 
   it('gradle: a build failure without reports is one error case', async () => {

@@ -121,11 +121,9 @@ describe('rspec runner with a fake rspec', () => {
     expect(res.output).toContain('Could not find gem');
   });
 
-  it('a missing rspec is an error case, not "no tests"', async () => {
+  it("a missing rspec is a start-up error, not \"no tests\"", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-rbnone-'));
-    const res = await rspec.run({ cwd: dir, env: { PATH: '/nonexistent' } });
-    expect(res.exitCode).not.toBe(0);
-    expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
+    await expect(rspec.run({ cwd: dir, env: { PATH: '/nonexistent' } })).rejects.toThrow(/^Couldn't start rspec: /);
   });
 });
 

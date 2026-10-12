@@ -100,7 +100,7 @@ Review these first
 | Source changed, no tests changed | WARN | |
 
 ### 4. Proof engine (reruns)
-- **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL.
+- **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL; an exit 0 without any test result is WARN (`no-test-results`). A test tool that can't be started at all (not on `PATH`, not executable) is a runtime error, `Couldn't start <tool>: …` (exit 2).
 - **Fail-before / pass-after:** copy the head version of every new or changed test file into a worktree at `base` and run just those files. Then, for each test case:
   - fails at base, passes at head → **proves the change** ✅
   - passes at base and at head → **passes without the change** ⚠ (the test doesn't constrain the new behavior)
@@ -180,12 +180,13 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
   | `test-config-changed` | WARN | Test or coverage config changed |
   | `escape-added` | WARN | A type, lint, coverage, warning or safety escape was added |
   | `no-tests-changed` | WARN | Source changed but no tests were added or changed |
-  | `suite-failing` | FAIL | The suite fails at head, or the runner failed without reporting any test |
+  | `suite-failing` | FAIL | The suite fails at head, or the runner failed without reporting any test (a build or start-up failure: the detail is the last output line) |
+  | `no-test-results` | WARN | The head run exited 0 but reported no test results (e.g. args that filter out every test, a `junit` path the command never writes, a test task whose reports trustbut doesn't read) |
   | `test-failing` | FAIL | A changed test fails at head |
   | `test-passes-without-change` | WARN | A changed test passes at base too |
   | `no-runner` | WARN | No runner detected; the message lists the supported runners |
   | `base-run-failed` | WARN | The changed tests could not run at base (nothing reported, nonzero exit), so there is no fail-before evidence |
-  | `proofs-unmatched` | WARN | The suite ran but no result matched the changed test files, so there is no fail-before/pass-after evidence |
+  | `proofs-unmatched` | WARN | The suite ran (or exited 0 with no results) but no result matched the changed test files, so there is no fail-before/pass-after evidence. Not emitted when the head run only reports a build or start-up failure |
   | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Not checked for Python |
   | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
   | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |

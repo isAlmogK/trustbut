@@ -82,9 +82,15 @@ export function buildProofs(
 const lastLine = (output: string): string =>
   output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? '';
 
+/** A placeholder the runner reports when its tool failed before any test ran (`[cargo]::[build]`, `[phpunit]::[run]`). */
+export const isSynthetic = (c: TestCaseResult): boolean => c.file.startsWith('[');
+
+/** Whether the run reported nothing but placeholders for a failed build or start-up. */
+const onlySynthetic = (r: RunResult): boolean => r.cases.length > 0 && r.cases.every(isSynthetic);
+
 function headRunFinding(after: RunResult): Finding | undefined {
   if (after.exitCode === 0) return undefined;
-  if (after.cases.length === 0) {
+  if (after.cases.length === 0 || onlySynthetic(after)) {
     const detail = lastLine(after.output);
     return { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', ...(detail ? { detail } : {}) };
   }
@@ -92,7 +98,8 @@ function headRunFinding(after: RunResult): Finding | undefined {
 }
 
 // Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
-const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?)\//;
+// Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/` projects included.
+const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
@@ -168,6 +175,9 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
     const headFinding = headRunFinding(after);
     if (headFinding) findings.push(headFinding);
+    if (after.exitCode === 0 && after.cases.length === 0) {
+      findings.push({ id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' });
+    }
     if (!testFiles.length) return { scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
@@ -203,7 +213,9 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
 
     // Only files whose name says they define tests (helpers under test dirs produce no results of their own).
     const namedTests = changedTests.filter((f) => isNamedTestFile(f.path));
-    if (namedTests.length && after.cases.length && !after.cases.some((c) => namedTests.some((f) => inFile(c, f)))) {
+    // Nothing ran (exit 0, no results) counts; a build or start-up failure is already reported by suite-failing.
+    const ran = after.exitCode === 0 ? !onlySynthetic(after) : after.cases.some((c) => !isSynthetic(c));
+    if (namedTests.length && ran && !after.cases.some((c) => namedTests.some((f) => inFile(c, f)))) {
       findings.push({
         id: 'proofs-unmatched',
         severity: 'warn',

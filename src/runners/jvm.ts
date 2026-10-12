@@ -139,8 +139,15 @@ export function findReportDirs(root: string, kind: ReportKind): string[] {
         const reports = join(path, 'surefire-reports');
         if (existsSync(reports)) found.push(reports);
       } else if (kind === 'gradle' && e.name === 'build') {
-        const reports = join(path, 'test-results', 'test');
-        if (existsSync(reports)) found.push(reports);
+        // One folder per test task: `test`, Android `testDebugUnitTest`, custom ones.
+        const results = join(path, 'test-results');
+        let tasks: string[] = [];
+        try {
+          tasks = readdirSync(results, { withFileTypes: true }).filter((t) => t.isDirectory()).map((t) => t.name).sort();
+        } catch {
+          // no test results
+        }
+        for (const t of tasks) found.push(join(results, t));
       } else walk(path);
     }
   };

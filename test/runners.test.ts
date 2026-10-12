@@ -233,8 +233,7 @@ describe('pytest adapter without pytest installed', () => {
     await chmod(join(outer, '.venv', 'bin', 'python'), 0o755);
     await mkdir(join(outer, 'wt', 'pkg'), { recursive: true });
     process.env.TRUSTBUT_PYTHON = join(outer, 'no-such-python');
-    const result = await pytest.run({ cwd: join(outer, 'wt', 'pkg'), worktree: join(outer, 'wt') });
-    expect(result.output).toMatch(/ENOENT|no-such-python/);
+    await expect(pytest.run({ cwd: join(outer, 'wt', 'pkg'), worktree: join(outer, 'wt') })).rejects.toThrow(/Couldn't start .*no-such-python/);
   });
 
   it('uses just the checkout on PYTHONPATH without src/ or an inherited PYTHONPATH', async () => {
@@ -246,13 +245,10 @@ describe('pytest adapter without pytest installed', () => {
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe(cwd);
   });
 
-  it('surfaces start-up errors in output', async () => {
+  it('throws a start-up error when python cannot be started', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
     process.env.TRUSTBUT_PYTHON = join(dir, 'no-such-python');
-    const result = await pytest.run({ cwd: dir });
-    expect(result.exitCode).not.toBe(0);
-    expect(result.cases).toEqual([]);
-    expect(result.output).toMatch(/ENOENT|no-such-python/);
+    await expect(pytest.run({ cwd: dir })).rejects.toThrow(/^Couldn't start .*no-such-python: /);
   });
 
   it('normalizes exit code 5 (no tests collected) to 0', async () => {

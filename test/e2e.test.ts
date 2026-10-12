@@ -325,6 +325,19 @@ describe('trustbut verify with the generic command runner', () => {
     expect(pids.filter(alive)).toEqual([]);
   }, 120_000);
 
+  it('WARN: the command exits 0 without writing results (no-test-results), even though tests changed', async () => {
+    const { dir } = await makeRepo({ 'src/value.txt': 'old\n', 'tests/test_existing.py': '# EXPECT=old\n', '.trustbut.json': JSON.stringify({ command: 'true', junit: 'out/junit.xml' }) });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/value.txt': 'new\n', 'tests/test_value.py': '# EXPECT=new\n' });
+    await commitAll(dir, 'change value');
+    const { receipt, exitCode } = await runVerify({ cwd: dir });
+    expect(receipt.verdict).toBe('warn');
+    expect(exitCode).toBe(0);
+    expect(receipt.findings.map((f) => [f.id, f.severity])).toEqual(
+      expect.arrayContaining([['no-test-results', 'warn'], ['proofs-unmatched', 'warn']]),
+    );
+  });
+
   it('errors when runner is "command" without a command', async () => {
     const dir = await scenario({ '.trustbut.json': JSON.stringify({ runner: 'command' }) });
     await expect(runVerify({ cwd: dir })).rejects.toThrow(/needs a "command"/);

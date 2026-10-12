@@ -176,6 +176,34 @@ describe('proveTests evidence findings', () => {
     });
   });
 
+  it('warns when the head run exits 0 with no test results, and the changed tests matched nothing', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([]), run([])) });
+    expect(result.findings).toEqual([
+      { id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' },
+      { id: 'proofs-unmatched', severity: 'warn', title: 'No test results matched the changed test files; fail-before/pass-after evidence unavailable' },
+    ]);
+  });
+
+  it('warns about no test results even when no tests changed', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n' });
+    const head = await commitAll(dir, 'source only');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([])) });
+    expect(result.findings.map((f) => f.id)).toEqual(['no-test-results']);
+  });
+
+  it('treats only synthetic error cases (a build or start-up failure) like no results', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const synthetic: TestCaseResult = { id: '[cargo]::[build]', file: '[cargo]', name: '[build or run failed]', outcome: 'error' };
+    const output = 'Compiling fx v0.1.0\nerror: could not compile `fx` due to 1 previous error\n';
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([synthetic], 101, output), run([synthetic], 101, output)) });
+    expect(result.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', detail: 'error: could not compile `fx` due to 1 previous error' },
+    ]);
+  });
+
   it('keeps the plain suite-failing finding when tests ran and failed', async () => {
     const { dir, base, head, changes } = await repoWithNewTest();
     const runner = stubRunner(run([tc('test/a.test.js', 'a', 'fail')], 1), run([tc('test/a.test.js', 'a', 'fail')], 1));

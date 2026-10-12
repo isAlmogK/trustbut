@@ -151,11 +151,9 @@ describe('dart runner with fake tools', () => {
     expect(res.cases.map((c) => [c.name, c.outcome])).toEqual([['[pub get failed]', 'error']]);
   });
 
-  it('a missing tool is an error case, not "no tests"', async () => {
+  it("a missing tool is a start-up error, not \"no tests\"", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-dartnone-'));
-    const res = await flutter.run({ cwd: dir, env: { PATH: '/nonexistent' } });
-    expect(res.exitCode).not.toBe(0);
-    expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
+    await expect(flutter.run({ cwd: dir, env: { PATH: '/nonexistent' } })).rejects.toThrow(/^Couldn't start flutter: /);
   });
 });
 
