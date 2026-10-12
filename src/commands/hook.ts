@@ -141,6 +141,11 @@ async function decide(opts: HookOptions): Promise<Decision> {
     return allow({ kind: 'allow', message: `trustbut FAIL (unchanged since last check) — ${where(receiptPath)}` }, { attempts: 0, tree: print, verdict: 'fail' });
   }
 
+  // The plugin launcher passes what is left of the agent's hook timeout after its own start-up.
+  const cap = Number(env.TRUSTBUT_HOOK_TIMEOUT_SEC);
+  const capped = Number.isFinite(cap) && cap > 0 && cap < settings.timeoutSec;
+  const budgetSec = capped ? cap : settings.timeoutSec;
+  const budgetName = capped ? 'TRUSTBUT_HOOK_TIMEOUT_SEC' : 'hook.timeoutSec';
   const ctl = new AbortController();
   const signal = opts.signal ? AbortSignal.any([ctl.signal, opts.signal]) : ctl.signal;
   const quick = settings.mode === 'quick';
@@ -149,15 +154,15 @@ async function decide(opts: HookOptions): Promise<Decision> {
     (error: unknown) => ({ ok: false, error }),
   );
   let timer: NodeJS.Timeout | undefined;
-  const first = await Promise.race([verifying, new Promise<'timeout'>((r) => (timer = setTimeout(() => r('timeout'), settings.timeoutSec * 1000)))]);
+  const first = await Promise.race([verifying, new Promise<'timeout'>((r) => (timer = setTimeout(() => r('timeout'), budgetSec * 1000)))]);
   clearTimeout(timer);
 
   if (first === 'timeout') {
-    ctl.abort(new Error(`timed out after ${settings.timeoutSec} s`));
+    ctl.abort(new Error(`timed out after ${budgetSec} s`));
     let grace: NodeJS.Timeout | undefined;
     const stopped = await Promise.race([verifying.then(() => true), new Promise<boolean>((r) => (grace = setTimeout(() => r(false), opts.stopGraceMs ?? DEFAULT_STOP_GRACE_MS)))]);
     clearTimeout(grace);
-    const message = `trustbut couldn't verify: timed out after ${settings.timeoutSec} s (hook.timeoutSec); not blocking`;
+    const message = `trustbut couldn't verify: timed out after ${budgetSec} s (${budgetName}); not blocking`;
     return allow({ kind: 'allow', message }, undefined, stopped ? {} : { forceExit: true });
   }
   if (!first.ok) {

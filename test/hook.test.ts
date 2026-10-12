@@ -220,6 +220,12 @@ describe.concurrent('trustbut hook: settings', () => {
     expect(readdirSync(f.stateDir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
 
+  it('TRUSTBUT_HOOK_TIMEOUT_SEC is an upper bound on hook.timeoutSec', async () => {
+    const f = await fixture('fail', { command: 'sleep 60' });
+    const r = await f.hook('claude', undefined, { env: { TRUSTBUT_HOOK_TIMEOUT_SEC: '1.5' } });
+    expect(r).toMatchObject({ exitCode: 0, stdout: msg("trustbut couldn't verify: timed out after 1.5 s (TRUSTBUT_HOOK_TIMEOUT_SEC); not blocking") });
+  }, 60_000);
+
   it('times out within the budget, stops the tests, removes worktrees and allows the stop', async () => {
     const f = await fixture('fail', { command: 'sleep 60', hook: { timeoutSec: 1.5 } });
     await writeAttempts(stateFile(f.stateDir, 'sess-1', f.dir), 1);

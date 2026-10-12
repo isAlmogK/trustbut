@@ -4,24 +4,49 @@
 // passes stdout, stderr and the exit code through unchanged. If trustbut can't be found or started,
 // it says so and exits 0: the hook never blocks because of a missing tool.
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { accessSync, constants, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIN_NODE = 22;
+const STARTED = Date.now();
+/** The agent allows the hook 600 s; what is left after our own start-up goes to trustbut as its time budget. */
+export const budgetSec = (elapsedMs = Date.now() - STARTED) => Math.max(30, Math.floor(570 - elapsedMs / 1000));
 
 export function pluginVersion() {
   return JSON.parse(readFileSync(join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
 }
 
-/** Compares the numeric x.y.z parts (a prerelease suffix is ignored). Returns <0, 0 or >0, or NaN if either is not a version. */
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const parseVersion = (v) => {
+  for (const token of String(v).trim().split(/\s+/)) {
+    const m = SEMVER.exec(token);
+    if (m) return { nums: m.slice(1, 4).map(Number), pre: m[4] === undefined ? undefined : m[4].split('.') };
+  }
+  return undefined;
+};
+
+/** Semver order (a prerelease is lower than its release). Returns <0, 0 or >0, or NaN if either is not a version. */
 export function compareVersions(a, b) {
-  const parse = (v) => /(\d+)\.(\d+)\.(\d+)/.exec(String(v))?.slice(1, 4).map(Number);
-  const x = parse(a);
-  const y = parse(b);
+  const x = parseVersion(a);
+  const y = parseVersion(b);
   if (!x || !y) return NaN;
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  for (let i = 0; i < 3; i++) if (x.nums[i] !== y.nums[i]) return x.nums[i] - y.nums[i];
+  if (!x.pre || !y.pre) return x.pre ? -1 : y.pre ? 1 : 0;
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return Number(p) - Number(q);
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
   return 0;
 }
 
@@ -35,11 +60,48 @@ export function resolveTrustbut(env = process.env, version = pluginVersion(), ve
   return { command: 'npx', args: ['--yes', '--quiet', `trustbut@${version}`] };
 }
 
-/** The version `trustbut --version` prints, or undefined if there is no working `trustbut` on PATH. */
-function pathVersion(env) {
+function findOnPath(env) {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    const file = join(dir, 'trustbut');
+    try {
+      accessSync(file, constants.X_OK);
+      if (statSync(file).isFile()) return file;
+    } catch {
+      // not here
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The version `trustbut --version` prints, or undefined if there is no working `trustbut` on PATH.
+ * Cached per binary path and mtime in CLAUDE_PLUGIN_DATA (else the temp dir), so Stop doesn't probe every time.
+ */
+export function pathVersion(env) {
+  const file = findOnPath(env);
+  if (!file) return undefined;
+  const cacheFile = join(env.CLAUDE_PLUGIN_DATA || tmpdir(), 'trustbut-version-cache.json');
+  let key;
+  let cache = {};
   try {
-    const r = spawnSync('trustbut', ['--version'], { env, encoding: 'utf8', timeout: 15000 });
-    return r.status === 0 ? r.stdout.trim() : undefined;
+    key = `${file}:${statSync(file).mtimeMs}`;
+    cache = JSON.parse(readFileSync(cacheFile, 'utf8'));
+    if (typeof cache[key] === 'string') return cache[key];
+  } catch {
+    // no cache yet
+  }
+  try {
+    const r = spawnSync(file, ['--version'], { env, encoding: 'utf8', timeout: 5000 });
+    if (r.status !== 0) return undefined;
+    const version = r.stdout.trim();
+    try {
+      mkdirSync(dirname(cacheFile), { recursive: true });
+      writeFileSync(cacheFile, JSON.stringify({ [key]: version }));
+    } catch {
+      // cache is best effort
+    }
+    return version;
   } catch {
     return undefined;
   }
@@ -72,10 +134,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return couldNotVerify(agent, err instanceof Error ? err.message : String(err));
   }
   const input = await readStdin();
+  const childEnv = { ...env, TRUSTBUT_HOOK_TIMEOUT_SEC: String(budgetSec()) };
   await new Promise((done) => {
     let child;
     try {
-      child = spawn(target.command, [...target.args, 'hook', agent], { env, stdio: ['pipe', 'inherit', 'inherit'] });
+      child = spawn(target.command, [...target.args, 'hook', agent], { env: childEnv, stdio: ['pipe', agent === 'claude' ? 'pipe' : 'inherit', 'pipe'] });
     } catch (err) {
       couldNotVerify(agent, `could not start ${target.command}: ${err instanceof Error ? err.message : err}`);
       return done();
@@ -83,18 +146,58 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     // Agent timeouts and Ctrl-C reach trustbut itself, which cleans up its worktrees.
     for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
     let failed = false;
+    let out = '';
+    let errTail = '';
+    child.stdout?.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => {
+      process.stderr.write(d);
+      errTail = (errTail + d).slice(-2000);
+    });
     child.on('error', (err) => {
       failed = true;
       couldNotVerify(agent, err.code === 'ENOENT' ? `${target.command} not found` : `could not start ${target.command}: ${err.message}`);
       done();
     });
     child.on('close', (code) => {
-      if (!failed && code !== null) process.exitCode = code; // not started, or killed by a signal: don't block
+      if (failed) return done();
+      if (code === null) return done(); // killed by a signal: don't block
+      const quiet = out.trim() === '';
+      if (code !== 0 && code !== 2 && quiet) {
+        // e.g. npx could not fetch trustbut: say so instead of failing silently.
+        const detail = errTail.trim().split(/\r?\n/).slice(-3).join(' | ').slice(-300);
+        couldNotVerify(agent, `${target.command} exited with code ${code}${detail ? ` (${detail})` : ''}`);
+        return done();
+      }
+      process.exitCode = code;
+      if (agent === 'claude') emitClaudeStdout(out);
       done();
     });
     child.stdin.on('error', () => {});
     child.stdin.end(input);
   });
+}
+
+const isJsonObject = (text) => {
+  try {
+    const v = JSON.parse(text);
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+  } catch {
+    return false;
+  }
+};
+
+/** Claude Code must get exactly one JSON object: wrapper noise (e.g. `npm notice`) before it would make the hook output unparseable. */
+export function emitClaudeStdout(out) {
+  const text = out.trim();
+  if (text === '' || isJsonObject(text)) return void process.stdout.write(out);
+  const lines = text.split(/\r?\n/);
+  const at = lines.findLastIndex((l) => isJsonObject(l.trim()));
+  if (at === -1) {
+    process.exitCode = 0;
+    return couldNotVerify('claude', 'unexpected output from trustbut');
+  }
+  process.stderr.write(`${lines.filter((_, i) => i !== at).join('\n')}\n`);
+  process.stdout.write(`${lines[at].trim()}\n`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
