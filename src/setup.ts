@@ -1,7 +1,7 @@
 // Runs the config's `setup` command (e.g. a database emulator) in the background for one test run.
 // It gets its own process group so that it and everything it starts can be stopped together.
 import { spawn } from 'node:child_process';
-import { GRACE_MS, guardGroup, killGroup } from './process.js';
+import { currentAbortSignal, GRACE_MS, guardGroup, killGroup } from './process.js';
 import { childEnv, tail } from './runners/env.js';
 
 export interface SetupOptions {
@@ -24,6 +24,8 @@ export interface SetupProcess {
 }
 
 export async function startSetup({ command, cwd, env, waitMs, readyPattern, graceMs = GRACE_MS }: SetupOptions): Promise<SetupProcess> {
+  const signal = currentAbortSignal();
+  signal?.throwIfAborted();
   const child = spawn('sh', ['-c', command], { cwd, env: childEnv(env), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const pid = child.pid;
   if (pid === undefined) {
@@ -59,9 +61,19 @@ export async function startSetup({ command, cwd, env, waitMs, readyPattern, grac
     });
   }
 
-  type Outcome = { kind: 'ready' } | { kind: 'failed'; code: number | null; signal: NodeJS.Signals | null } | { kind: 'error'; err: Error };
+  type Outcome =
+    | { kind: 'ready' }
+    | { kind: 'failed'; code: number | null; signal: NodeJS.Signals | null }
+    | { kind: 'error'; err: Error }
+    | { kind: 'aborted' };
   let timer: NodeJS.Timeout | undefined;
+  let onAbort = () => {};
   const outcome = await Promise.race<Outcome>([
+    // The caller's budget ran out (withAbort) while waiting for the setup to get ready.
+    new Promise<Outcome>((resolve) => {
+      onAbort = () => resolve({ kind: 'aborted' });
+      signal?.addEventListener('abort', onAbort, { once: true });
+    }),
     ready.then(() => ({ kind: 'ready' })),
     new Promise<Outcome>((resolve) => (timer = setTimeout(() => resolve({ kind: 'ready' }), waitMs))),
     // Finished and its output closed: a one-shot setup (or one that failed).
@@ -73,9 +85,11 @@ export async function startSetup({ command, cwd, env, waitMs, readyPattern, grac
     new Promise<Outcome>((resolve) => child.once('error', (err) => resolve({ kind: 'error', err }))),
   ]);
   clearTimeout(timer);
+  signal?.removeEventListener('abort', onAbort);
 
   if (outcome.kind !== 'ready') {
     await stop();
+    if (outcome.kind === 'aborted') throw signal?.reason ?? new Error('Aborted');
     if (outcome.kind === 'error') throw new Error(`Setup command could not start: ${outcome.err.message}`);
     const how = outcome.code !== null ? `with code ${outcome.code}` : `on ${outcome.signal}`;
     const last = output.trim() ? `: ${output.trim().split(/\r?\n/).slice(-5).join('\n')}` : '';

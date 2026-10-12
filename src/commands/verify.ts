@@ -5,6 +5,7 @@ import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
 import { parseChanges } from '../diff.js';
 import { diffText, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
+import { withAbort } from '../process.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
@@ -29,6 +30,8 @@ export interface VerifyOptions {
   receiptJson?: string;
   /** Also write the Markdown receipt to this file (parent dirs created; relative to cwd). */
   receiptMd?: string;
+  /** Aborting stops every test and setup process (their whole process groups), removes the worktrees, and rejects with the signal's reason. */
+  signal?: AbortSignal;
 }
 
 export interface VerifyResult {
@@ -54,7 +57,11 @@ async function resolveBase(repo: string, head: string, explicit?: string): Promi
   throw new Error('Could not find a base branch (main/master). Pass --base <ref>.');
 }
 
-export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
+export function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
+  return withAbort(opts.signal, () => verify(opts));
+}
+
+async function verify(opts: VerifyOptions): Promise<VerifyResult> {
   const forced = opts.runner !== undefined ? getRunner(opts.runner) : undefined;
   const cwd = opts.cwd ?? process.cwd();
   const repo = await repoRoot(cwd);
