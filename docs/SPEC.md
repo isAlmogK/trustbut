@@ -150,6 +150,7 @@ Optional. Read from the repo root **as committed at head** (`git cat-file blob <
 | `env` | object of strings | — | Extra environment for every test run and for `setup`. |
 | `args` | string[] | — | Extra arguments added to the runner's command: before the test files (or packages, selectors) for most runners; for Maven, Gradle and .NET at the end; for `swift` after the `--filter` options; for the `command` runner appended (shell-quoted) at the very end of the command. |
 | `timeoutSec` | number, > 0 and ≤ 2,000,000 | `900` | Time limit per test run. A run that hits it is stopped (its whole process group) and the finding says `timed out after N s`. |
+| `hook` | object | — | Settings for `trustbut hook <agent>` (see [Agent hooks](#7-agent-hooks-trustbut-hook-agent)): `enabled` (boolean, default `true`), `mode` (`"quick"` default: rerun only changed test files at head; `"full"`: the whole suite), `maxRetries` (whole number 0–100, default `3`), `timeoutSec` (number > 0, default `540`). Unknown keys inside `hook` are errors too. |
 
 Example (Go service with a Firestore emulator in a subfolder):
 
@@ -194,7 +195,30 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |
 
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
-- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error.
+- **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error. `trustbut hook` follows the agent's protocol instead (see below).
+
+### 7. Agent hooks (`trustbut hook <agent>`)
+
+`trustbut hook claude|codex|gemini` is the command an agent's turn-end hook runs (Claude Code `Stop`, Codex CLI ≥ 0.124 `Stop`, Gemini CLI ≥ 0.35 `AfterAgent`). It reads the hook input (JSON) on stdin, runs the same pipeline as `trustbut verify --working` in-process, and answers in that agent's protocol, so a FAIL keeps the agent working instead of letting it say "done".
+
+- **Input:** stdin JSON; empty, invalid or non-object input is treated as `{}` (a terminal is not read; an open stdin is read for at most 5 s). Fields used: `session_id` (falls back to `GEMINI_SESSION_ID`, then `""`), `cwd`, `stop_hook_active`.
+- **Project:** `CLAUDE_PROJECT_DIR`, else `GEMINI_PROJECT_DIR`, else the input's `cwd`, else the process cwd; the repo is its `git rev-parse --show-toplevel`.
+- **Settings:** `hook` in `.trustbut.json`, read **as committed at `HEAD`** (else the working-tree file), so an uncommitted edit can't switch the hook off. The verify run itself reads the config like `verify --working` (at the working-tree snapshot), including `root`; there are no `--config`/`--root` flags.
+- **Skip (allow the stop, print nothing):** `TRUSTBUT_SKIP=1` (or `true`); not inside a git repo; `hook.enabled: false`; nothing to verify (verify's "No changes" error).
+- **Time budget:** `hook.timeoutSec` (default 540 s, under the agents' 600 s default; Gemini's own default is 60 s, so its hook entry needs `"timeout": 600000`). When it runs out, the verify run is aborted: every test and setup process group is stopped (SIGTERM, then SIGKILL) and the worktrees are removed by the usual `finally` blocks; the hook then allows the stop with a "couldn't verify: timed out" message. If the run has not stopped 8 s later, the process exits anyway (leftover process groups are SIGKILLed on exit).
+- **Loop guard:** a retry counter per session and repo in `os.tmpdir()/trustbut-hook/<sha1(session_id NUL repo)>.json` (`{attempts, updatedAt}`, written to a temp file and renamed; missing, corrupt or older than 24 h counts as 0). A FAIL blocks while `attempts < hook.maxRetries` and increments it; at the limit the stop is allowed with "trustbut still FAIL after N attempts — receipt: <path>". Every allowed stop (PASS, WARN, error, timeout, nothing to verify, limit reached) resets it, since it ends the agent's continuation chain. `maxRetries: 0` reports a FAIL without ever blocking. If the counter can't be saved, a FAIL blocks only when `stop_hook_active` is not `true` (one retry per chain), so an agent can never loop forever.
+- **Full receipt:** the Markdown receipt is written to `<git dir>/trustbut/last-receipt.md` (`git rev-parse --git-dir`: `.git/trustbut/…` in a normal checkout, `.git/worktrees/<name>/trustbut/…` in a linked worktree), inside `.git` so it is never committed.
+- **Feedback to the agent (FAIL):** plain Markdown of at most 6,000 characters (Codex and Gemini cut hook output at about 2,500 tokens): the verdict, the tests line, each FAIL finding with `file:line`, failing tests (up to 10), warnings (up to 10, one line each), "Fix these and finish again; run `trustbut verify --working` to check." and the receipt path. Lines are flattened and clipped at 400 characters; when the whole text is still too long, lines are dropped from the end with "… N more lines not shown; see the full receipt", keeping the instruction and the path.
+- **Message to the user (`systemMessage`):** one line. FAIL: counts, e.g. `trustbut FAIL: 2 failing tests, 1 test passes without the change — sent back to the agent (attempt 1/3)`. WARN: up to 3 finding titles and the receipt path. PASS: tests passed and how many new/changed tests prove the change. Errors: `trustbut couldn't verify: <first line of the error>`.
+
+| Outcome | `claude` (Stop) | `codex` (Stop) | `gemini` (AfterAgent) |
+|---|---|---|---|
+| FAIL, within `maxRetries` | exit 0, stdout `{"decision":"block","reason":<feedback>,"systemMessage":"trustbut FAIL: …"}` | exit 2, feedback on stderr, empty stdout | exit 2, feedback on stderr, **empty stdout** |
+| FAIL at the limit, PASS, WARN | exit 0, stdout `{"systemMessage":"…"}` | same | same |
+| Error or timeout | exit 0, stdout `{"systemMessage":"trustbut couldn't verify: …"}` | same | same |
+| Skip | exit 0, no output | same | same |
+
+Exit 2 means "block" to all three agents, so `trustbut hook` uses it only for a FAIL on Codex and Gemini. Its own usage errors (an unknown agent name, an unknown option) exit **1**, which all three treat as a non-blocking hook error, not trustbut's usual 2.
 
 ## Later layers (not in v0.1)
 
