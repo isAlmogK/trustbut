@@ -20,7 +20,7 @@ export interface HookOptions {
   env?: NodeJS.ProcessEnv;
   /** Fallback project directory when neither the environment nor the input names one. */
   cwd?: string;
-  /** Where retry counters live; default `os.tmpdir()/trustbut-hook`. */
+  /** Where retry counters live; default `os.tmpdir()/trustbut-hook-<uid>` (mode 0700). */
   stateDir?: string;
   /** How long a timed-out verify run gets to stop its processes and remove its worktrees; default 8000 ms. */
   stopGraceMs?: number;
