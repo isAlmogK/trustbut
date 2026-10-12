@@ -11,6 +11,7 @@ import {
   nextestArgs,
   parseCargoTest,
   parseNextestJson,
+  parseNextestList,
   testBinaryOf,
   testSelectors,
 } from '../../src/runners/cargo.js';
@@ -63,6 +64,23 @@ describe('parseCargoTest', () => {
 
   it('returns nothing for a build failure', () => {
     expect(parseCargoTest('', "error[E0425]: cannot find value `x` in this scope\n --> src/lib.rs:3:5\n")).toEqual([]);
+  });
+});
+
+describe('parseNextestList', () => {
+  it('turns ignored testcases into skip cases and ignores the rest', () => {
+    // Shape per the nextest list --message-format json docs (hand-written, not captured).
+    const out = JSON.stringify({
+      'rust-suites': {
+        'fx::later': { testcases: { later: { ignored: true, 'filter-match': { status: 'mismatch' } }, runs: { ignored: false } } },
+        fx: { testcases: { 'tests::slow': { ignored: true } } },
+      },
+    });
+    expect(parseNextestList(`warning\n${out}\n`).map((c) => [c.id, c.file, c.name, c.outcome])).toEqual([
+      ['fx::later:tests/later.rs::later', 'tests/later.rs', 'later', 'skip'],
+      ['fx:src/lib.rs::tests::slow', 'src/lib.rs', 'tests::slow', 'skip'],
+    ]);
+    expect(parseNextestList('not json')).toEqual([]);
   });
 });
 

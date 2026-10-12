@@ -18,3 +18,7 @@ export function requiredTools(): Set<string> {
       .filter(Boolean),
   );
 }
+
+// Isolation: where one test file covers several tools whose binaries a runner image preinstalls
+// (jvm.test.ts: mvn and gradle), the CI matrix narrows each entry with `vitest -t "<describe name>"`
+// rather than the tests inspecting TRUSTBUT_REQUIRE; TRUSTBUT_REQUIRE only ever turns skips into failures.

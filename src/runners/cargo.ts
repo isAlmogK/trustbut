@@ -143,6 +143,33 @@ export function parseNextestJson(output: string): TestCaseResult[] {
   return cases;
 }
 
+/**
+ * Parses `cargo nextest list --message-format json`. A run's event stream never mentions `#[ignore]`d tests
+ * (nextest only counts them as skipped), so the list supplies them as `skip` cases. Shape (nextest docs):
+ * `{"rust-suites": {"<binary-id>": {"testcases": {"<name>": {"ignored": true, ...}}}}}`.
+ */
+export function parseNextestList(output: string): TestCaseResult[] {
+  const cases: TestCaseResult[] = [];
+  for (const line of output.split('\n')) {
+    if (!line.startsWith('{')) continue;
+    let doc: { 'rust-suites'?: Record<string, { testcases?: Record<string, { ignored?: boolean }> }> };
+    try {
+      doc = JSON.parse(line) as typeof doc;
+    } catch {
+      continue;
+    }
+    for (const [binaryId, suite] of Object.entries(doc['rust-suites'] ?? {})) {
+      const { file } = nextestBinary(binaryId);
+      for (const [raw, tc] of Object.entries(suite.testcases ?? {})) {
+        if (tc?.ignored !== true) continue;
+        const { name, leaf } = libtestName(raw);
+        cases.push({ id: `${binaryId}:${file}::${name}`, file, name, outcome: 'skip', leaf });
+      }
+    }
+  }
+  return cases;
+}
+
 /** The test binary a changed file is the entry point of (`tests/x.rs`, `tests/x/main.rs`); other files are not binaries. */
 function entryBinary(file: string): string | undefined {
   return /^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/(?:([^/]+)\.rs|([^/]+)\/main\.rs)$/.exec(file)?.slice(1).find(Boolean);
@@ -196,6 +223,14 @@ export const cargo: Runner = {
       ? await runInGroup('cargo', nextestArgs(args, selectors), { cwd, env: { ...env, NEXTEST_EXPERIMENTAL_LIBTEST_JSON: '1' }, timeoutMs })
       : await runInGroup('cargo', cargoTestArgs(args, selectors), { cwd, env, timeoutMs });
     const cases = nextest ? parseNextestJson(res.stdout) : parseCargoTest(res.stdout, res.stderr);
+    if (nextest) {
+      // Best effort: add #[ignore]d tests, which the run's event stream omits. Never overrides a reported case.
+      const list = await runInGroup('cargo', ['nextest', 'list', '--message-format', 'json', ...selectors], { cwd, env, timeoutMs: 120_000 });
+      if (list.exitCode === 0) {
+        const seen = new Set(cases.map((c) => c.id));
+        for (const c of parseNextestList(list.stdout)) if (!seen.has(c.id)) cases.push(c);
+      }
+    }
     let exitCode = res.exitCode ?? 1;
     // nextest exits 4 when there is nothing to run
     if (nextest && exitCode === 4 && cases.length === 0) exitCode = 0;

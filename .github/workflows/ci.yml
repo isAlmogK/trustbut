@@ -4,8 +4,11 @@ on:
   push:
     branches: [main]
 jobs:
+  # Note: ubuntu runners preinstall several toolchains (mvn, gradle, dotnet, ruby, php, ...), so this job
+  # may also run some adapter suites opportunistically; the `adapters` job below is what guarantees them.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # pull-requests: write is enough to create/update the sticky PR comment: GitHub accepts either
     # pull-requests: write or issues: write for the issue-comments endpoints on a pull request,
     # so we grant only the one that names what we touch.
@@ -43,7 +46,7 @@ jobs:
         if: >-
           always() &&
           github.event_name == 'pull_request' &&
-          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
           github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
@@ -60,8 +63,11 @@ jobs:
           {
             echo '<!-- trustbut-receipt -->'
             if [ "$(wc -c < receipt.md)" -gt "$MAX" ]; then
-              head -c "$MAX" receipt.md | iconv -f UTF-8 -t UTF-8 -c
+              head -c "$MAX" receipt.md | iconv -f UTF-8 -t UTF-8 -c > cut.md
+              cat cut.md
               echo
+              # an odd number of ``` lines means the cut fell inside a code block: close it
+              if [ $(( $(grep -c '^```' cut.md) % 2 )) -eq 1 ]; then echo '```'; fi
               echo
               echo "_Receipt truncated: the full receipt is in the job summary of the [run](${RUN_URL})._"
             else
@@ -84,6 +90,7 @@ jobs:
   adapters:
     name: adapters (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30   # macOS runners are free for public repos
     permissions:
       contents: read
     strategy:
@@ -93,8 +100,8 @@ jobs:
           - { name: go, os: ubuntu-latest, require: go, tests: test/runners/go.test.ts }
           - { name: rust, os: ubuntu-latest, require: cargo, tests: test/runners/cargo.test.ts }
           - { name: rust-plain, os: ubuntu-latest, require: cargo, tests: test/runners/cargo.test.ts }
-          - { name: java-maven, os: ubuntu-latest, require: mvn, tests: test/runners/jvm.test.ts }
-          - { name: java-gradle, os: ubuntu-latest, require: gradle, tests: test/runners/jvm.test.ts }
+          - { name: java-maven, os: ubuntu-latest, require: mvn, tests: test/runners/jvm.test.ts, filter: 'verify with maven' }
+          - { name: java-gradle, os: ubuntu-latest, require: gradle, tests: test/runners/jvm.test.ts, filter: 'verify with gradle' }
           - { name: dotnet, os: ubuntu-latest, require: dotnet, tests: test/runners/dotnet.test.ts }
           - { name: ruby, os: ubuntu-latest, require: rspec, tests: test/runners/rspec.test.ts }
           - { name: php, os: ubuntu-latest, require: php, tests: test/runners/phpunit.test.ts }
@@ -188,4 +195,5 @@ jobs:
       - name: Integration tests (${{ matrix.name }})
         env:
           TRUSTBUT_REQUIRE: ${{ matrix.require }}
-        run: npx vitest run ${{ matrix.tests }}
+        # `filter` (-t) isolates one describe when a file covers several tools whose binaries are all preinstalled.
+        run: npx vitest run ${{ matrix.tests }} ${{ matrix.filter && format('-t "{0}"', matrix.filter) || '' }}
