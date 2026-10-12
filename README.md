@@ -167,7 +167,7 @@ trustbut picks the runner by looking at the package folder (the repo root, or `r
 | `node-test` | JS / TS | `scripts.test` in `package.json` uses `node --test` | `node --test` | Uses the built-in `node:test` runner |
 | `pytest` | Python | `pytest.ini`, `conftest.py`, `tox.ini`, or `[tool.pytest` in `pyproject.toml` | `python -m pytest -q --junitxml` | Uses the checkout's `.venv` / `venv` if present |
 | `go` | Go | `go.mod` | `go test -json -count=1 ./...` | Add `"args": ["-p", "1"]` for packages that share a database or emulator |
-| `cargo` | Rust | `Cargo.toml` | `cargo nextest run` if installed, else `cargo test --no-fail-fast` | Also checks `#[cfg(test)]` modules in source files |
+| `cargo` | Rust | `Cargo.toml` | `cargo nextest run` if installed, else `cargo test --no-fail-fast` | Also checks `#[cfg(test)]` modules in source files. Proofs come from integration tests under `tests/`: inline `#[cfg(test)]` tests run in the suite but give no fail-before / pass-after proof, since they live in the source file being changed |
 | `maven` | Java / Kotlin | `pom.xml` (the `mvnw` wrapper is preferred) | `mvn -B test` (Surefire reports) | |
 | `gradle` | Java / Kotlin | `build.gradle(.kts)` or `settings.gradle(.kts)` (the `gradlew` wrapper is preferred) | `gradle test --continue` | |
 | `dotnet` | C# | a `.sln`, `.slnx`, `.csproj` or `.fsproj` in the root | `dotnet test` (TRX results) | With several projects it prefers the solution file |
@@ -178,7 +178,7 @@ trustbut picks the runner by looking at the package folder (the repo root, or `r
 | `swift` | Swift | `Package.swift` | `swift test --parallel --verbose --xunit-output` | Swift Package Manager projects |
 | `command` | anything | never detected; chosen with `command` in the config | your command | See below |
 
-All runners report through JUnit-style results, so each language gets the same fail-before / pass-after proof.
+Each runner's own report (JUnit XML, JSON events or TRX, depending on the tool) is turned into the same per-test results, so each language gets the same fail-before / pass-after proof.
 
 ### Any other runner: the `command` runner
 
@@ -186,7 +186,7 @@ If your tests run through something not listed, point trustbut at a command that
 
 ```json
 {
-  "command": "bundle exec minitest-reporters-runner {files} --junit",
+  "command": "./run-tests.sh {files}",
   "junit": "test/reports/junit.xml"
 }
 ```
@@ -207,7 +207,7 @@ Everything is optional; most projects need no config at all. Put `.trustbut.json
 | `setupReadyPattern` | regex string | none | Tests start as soon as `setup` prints a line matching this (stdout or stderr). |
 | `setupWaitSec` | number, 0 to 2,000,000 | `5` | How long to wait for `setup`; with `setupReadyPattern` it is the maximum wait. |
 | `env` | object of strings | none | Extra environment variables for every test run and for `setup`. |
-| `args` | string[] | none | Extra arguments appended to the runner's command, before the test files. |
+| `args` | string[] | none | Extra arguments added to the runner's command: before the test files (or packages, selectors) for most runners; for Maven, Gradle and .NET at the end; for `swift` after the `--filter` options; for the `command` runner appended (shell-quoted) at the very end of the command. |
 | `timeoutSec` | number, up to 2,000,000 | `900` | Time limit for each test run; the receipt says when a run timed out. |
 
 ### Examples

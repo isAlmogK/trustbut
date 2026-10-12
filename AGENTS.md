@@ -11,7 +11,7 @@ trustbut is a local CLI that produces a deterministic evidence report ("receipt"
 - `npm test` — all tests (unit + fixture e2e)
 - `npm run typecheck`
 - `npm run build` — outputs `dist/cli.js`
-- `npm run dev -- check` — run the CLI from source
+- `npm run dev -- verify` — run the CLI from source
 
 ## Rules
 - Test first. Every behavior change starts with a failing test; every new finding type needs a fixture scenario in `test/fixtures/` or `test/e2e.test.ts`.
