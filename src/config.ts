@@ -21,6 +21,37 @@ export interface TrustbutConfig {
   args?: string[];
   /** Per test run; default 900. */
   timeoutSec?: number;
+  /** `trustbut hook <agent>` settings. */
+  hook?: HookConfig;
+}
+
+export type HookMode = 'quick' | 'full';
+
+export interface HookConfig {
+  /** false: the hook allows every stop without verifying. Default true. */
+  enabled?: boolean;
+  /** 'quick' (default) reruns only changed test files at head; 'full' reruns the whole suite. */
+  mode?: HookMode;
+  /** How many times in a row a FAIL is sent back to the agent before the stop is allowed. Default 3. */
+  maxRetries?: number;
+  /** Time budget for the whole verify run in the hook; default 540 (under the agents' 600 s hook timeout). */
+  timeoutSec?: number;
+}
+
+export const HOOK_KEYS = ['enabled', 'mode', 'maxRetries', 'timeoutSec'] as const satisfies readonly (keyof HookConfig)[];
+export const DEFAULT_HOOK_TIMEOUT_SEC = 540;
+export const DEFAULT_HOOK_MAX_RETRIES = 3;
+export const MAX_HOOK_RETRIES = 100;
+
+/** Hook settings with defaults applied. */
+export function hookSettings(config: TrustbutConfig): Required<HookConfig> {
+  const hook = config.hook ?? {};
+  return {
+    enabled: hook.enabled ?? true,
+    mode: hook.mode ?? 'quick',
+    maxRetries: hook.maxRetries ?? DEFAULT_HOOK_MAX_RETRIES,
+    timeoutSec: hook.timeoutSec ?? DEFAULT_HOOK_TIMEOUT_SEC,
+  };
 }
 
 export const CONFIG_FILE = '.trustbut.json';
@@ -42,6 +73,7 @@ export const CONFIG_KEYS = [
   'env',
   'args',
   'timeoutSec',
+  'hook',
 ] as const satisfies readonly (keyof TrustbutConfig)[];
 
 const STRING_KEYS = ['root', 'runner', 'command', 'junit', 'setup', 'setupReadyPattern'] as const;
@@ -80,9 +112,25 @@ export function validateConfig(value: unknown, source: string): TrustbutConfig {
       fail('"setupReadyPattern" is not a valid regular expression');
     }
   }
+  if ('hook' in value) validateHook(value.hook, fail, source);
   const config = { ...value };
   for (const k of IGNORED_KEYS) delete config[k];
   return config as TrustbutConfig;
+}
+
+function validateHook(hook: unknown, fail: (msg: string) => never, source: string): void {
+  if (!isObject(hook)) fail('"hook" must be an object');
+  const h = hook as Record<string, unknown>;
+  const unknown = Object.keys(h).filter((k) => !(HOOK_KEYS as readonly string[]).includes(k));
+  if (unknown.length) throw new Error(`Unknown keys in "hook" in ${source}: ${unknown.join(', ')}. Allowed keys: ${HOOK_KEYS.join(', ')}`);
+  if ('enabled' in h && typeof h.enabled !== 'boolean') fail('"hook.enabled" must be true or false');
+  if ('mode' in h && h.mode !== 'quick' && h.mode !== 'full') fail('"hook.mode" must be "quick" or "full"');
+  if ('maxRetries' in h && !(Number.isInteger(h.maxRetries) && (h.maxRetries as number) >= 0 && (h.maxRetries as number) <= MAX_HOOK_RETRIES)) {
+    fail(`"hook.maxRetries" must be a whole number from 0 to ${MAX_HOOK_RETRIES}`);
+  }
+  if ('timeoutSec' in h && !(typeof h.timeoutSec === 'number' && h.timeoutSec > 0 && h.timeoutSec <= MAX_SECONDS)) {
+    fail(`"hook.timeoutSec" must be a positive number up to ${MAX_SECONDS}`);
+  }
 }
 
 /** A package root as a normalized repo-relative POSIX path ('.' for the repo root). */
