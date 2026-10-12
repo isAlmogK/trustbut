@@ -1,6 +1,7 @@
 import { command } from './command.js';
 import { go } from './go.js';
 import { jest } from './jest.js';
+import { mocha } from './mocha.js';
 import { nodeTest } from './node-test.js';
 import { pytest } from './pytest.js';
 import type { Runner } from './types.js';
@@ -10,7 +11,7 @@ import { vitest } from './vitest.js';
  * Every supported runner. To add one: create `src/runners/<name>.ts` exporting a `Runner` and list
  * it here. On equal detection scores the earlier entry wins.
  */
-export const RUNNERS: Runner[] = [vitest, jest, nodeTest, pytest, go, command];
+export const RUNNERS: Runner[] = [vitest, jest, mocha, nodeTest, pytest, go, command];
 
 export const runnerNames = (): string[] => RUNNERS.map((r) => r.name);
 
