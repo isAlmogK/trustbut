@@ -56,7 +56,19 @@ export function detectIndent(text: string): string {
   return m ? m[1] : '  ';
 }
 
-const COMMENT = /^\s*\/\/|\/\*|[,{[]\s*\/\//m;
+/** True when `//` or `/*` appears outside a string literal (a JSONC comment, not a URL or glob inside a string). */
+export function hasComments(text: string): boolean {
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === '/' && (text[i + 1] === '/' || text[i + 1] === '*')) return true;
+  }
+  return false;
+}
 
 /**
  * Puts `hook` under `hooks[event]` of the JSON config in `text` (undefined or blank = new file), replacing in place
@@ -72,7 +84,7 @@ export function mergeHook(path: string, text: string | undefined, event: string,
     try {
       value = JSON.parse(text);
     } catch (err) {
-      if (COMMENT.test(text)) {
+      if (hasComments(text)) {
         const snippet = JSON.stringify({ hooks: { [event]: [{ ...group, hooks: [hook] }] } }, null, 2);
         throw new InitError(`${path} has comments, which init can't preserve. Nothing was changed. Add this to it by hand (merge it into any existing "hooks"):\n${snippet}`);
       }

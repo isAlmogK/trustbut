@@ -183,6 +183,23 @@ describe('init: comments, indent, atomic writes', () => {
     expect(tree(dir)).toEqual(['.claude/settings.json']);
   });
 
+  it.each([
+    ['a line comment', '{\n  "a": 1 // note\n}\n'],
+    ['a block comment', '{ /* note */ "a": 1 }'],
+    ['a comment after a string with a quote in it', '{ "a": "say \\"hi\\"" // note\n}'],
+  ])('reports comments for %s', async (_, text) => {
+    write(dir, '.codex/hooks.json', text);
+    await expect(init('codex')).rejects.toThrow(/has comments/);
+  });
+
+  it('a glob string with a trailing comma is "not valid JSON", not "has comments"', async () => {
+    write(dir, '.claude/settings.json', '{\n  "permissions": { "allow": ["Read(src/**/*.ts)", "Bash(curl https://x.dev/*)"] },\n}\n');
+    const err = await init('claude').then(() => undefined, (e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(InitError);
+    expect(err!.message).toMatch(/is not valid JSON/);
+    expect(err!.message).not.toMatch(/comments/);
+  });
+
   it.each([['\t'], ['    '], ['  ']])('keeps the existing indent %j', async (indent) => {
     write(dir, '.gemini/settings.json', JSON.stringify({ theme: 'dark' }, null, indent));
     await init('gemini');
