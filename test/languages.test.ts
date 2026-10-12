@@ -4,8 +4,8 @@ import type { Language } from '../src/languages/types.js';
 import { splitLine } from '../src/lex.js';
 
 describe('language registry', () => {
-  it('registers js, py, go, rust, csharp, php, java, kotlin, ruby and dart', () => {
-    expect(LANGUAGES.map((l) => l.id)).toEqual(['js', 'py', 'go', 'rust', 'csharp', 'php', 'java', 'kotlin', 'ruby', 'dart']);
+  it('registers js, py, go, rust, csharp, php, java, kotlin, ruby, dart and swift', () => {
+    expect(LANGUAGES.map((l) => l.id)).toEqual(['js', 'py', 'go', 'rust', 'csharp', 'php', 'java', 'kotlin', 'ruby', 'dart', 'swift']);
   });
 
   it.each([

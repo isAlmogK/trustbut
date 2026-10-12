@@ -9,10 +9,11 @@ import { php } from './php.js';
 import { py } from './python.js';
 import { ruby } from './ruby.js';
 import { rust } from './rust.js';
+import { swift } from './swift.js';
 import type { Language } from './types.js';
 
 /** Every supported language. To add one: create `src/languages/<id>.ts` and list it here. */
-export const LANGUAGES: Language[] = [js, py, go, rust, csharp, php, java, kotlin, ruby, dart];
+export const LANGUAGES: Language[] = [js, py, go, rust, csharp, php, java, kotlin, ruby, dart, swift];
 
 /** The language of a file, by extension. */
 export function languageOf(path: string): Language | undefined {

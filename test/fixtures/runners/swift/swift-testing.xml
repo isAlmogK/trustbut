@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="5" failures="1" skipped="0" time="0.003256737">
+    <testcase classname="CalcTests.MathSuite" name="fails()" time="0.001601455" >
+      <failure message="Expectation failed: (sum(1, 1) &#8594; 2) == 3 (error)" />
+    </testcase>
+    <testcase classname="CalcTests.MathSuite" name="named()" time="0.000816528" />
+    <testcase classname="CalcTests.MathSuite" name="param(x:)" time="0.000850082" />
+    <testcase classname="CalcTests.MathSuite" name="adds()" time="0.000860759" />
+    <testcase classname="CalcTests" name="topLevel()" time="0.001230479" />
+  </testsuite>
+</testsuites>

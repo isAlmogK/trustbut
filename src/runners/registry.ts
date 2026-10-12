@@ -11,6 +11,7 @@ import { nodeTest } from './node-test.js';
 import { phpunit } from './phpunit.js';
 import { pytest } from './pytest.js';
 import { rspec } from './rspec.js';
+import { swift } from './swift.js';
 import type { Runner } from './types.js';
 import { vitest } from './vitest.js';
 
@@ -18,7 +19,7 @@ import { vitest } from './vitest.js';
  * Every supported runner. To add one: create `src/runners/<name>.ts` exporting a `Runner` and list
  * it here. On equal detection scores the earlier entry wins.
  */
-export const RUNNERS: Runner[] = [vitest, jest, mocha, nodeTest, pytest, go, cargo, dotnet, phpunit, maven, gradle, rspec, dart, flutter, command];
+export const RUNNERS: Runner[] = [vitest, jest, mocha, nodeTest, pytest, go, cargo, dotnet, phpunit, maven, gradle, rspec, dart, flutter, swift, command];
 
 export const runnerNames = (): string[] => RUNNERS.map((r) => r.name);
 
