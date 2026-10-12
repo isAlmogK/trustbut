@@ -108,7 +108,7 @@ async function copyFromHead(repo: string, head: string, dir: string, path: strin
 }
 
 // Files whose name says they define tests (helpers under test/ do not produce results of their own).
-const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$|_test\.go$|^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/([^/]+|[^/]+\/main)\.rs$|Tests?\.cs$|Test\.php$/;
+const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$|_test\.go$|^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/([^/]+|[^/]+\/main)\.rs$|Tests?\.cs$|Test\.php$|Tests?\.(java|kt)$/;
 
 // Dependency folders are linked at the repo root and, for a package root, inside it too.
 const depFolders = (root: string): string[] => (root === '.' ? DEP_DIRS : [...DEP_DIRS, ...DEP_DIRS.map((d) => join(root, d))]);

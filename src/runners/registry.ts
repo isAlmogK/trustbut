@@ -2,7 +2,9 @@ import { cargo } from './cargo.js';
 import { command } from './command.js';
 import { dotnet } from './dotnet.js';
 import { go } from './go.js';
+import { gradle } from './gradle.js';
 import { jest } from './jest.js';
+import { maven } from './maven.js';
 import { mocha } from './mocha.js';
 import { nodeTest } from './node-test.js';
 import { phpunit } from './phpunit.js';
@@ -14,7 +16,7 @@ import { vitest } from './vitest.js';
  * Every supported runner. To add one: create `src/runners/<name>.ts` exporting a `Runner` and list
  * it here. On equal detection scores the earlier entry wins.
  */
-export const RUNNERS: Runner[] = [vitest, jest, mocha, nodeTest, pytest, go, cargo, dotnet, phpunit, command];
+export const RUNNERS: Runner[] = [vitest, jest, mocha, nodeTest, pytest, go, cargo, dotnet, phpunit, maven, gradle, command];
 
 export const runnerNames = (): string[] => RUNNERS.map((r) => r.name);
 
