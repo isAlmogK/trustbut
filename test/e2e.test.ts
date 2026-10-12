@@ -266,6 +266,25 @@ describe('trustbut verify with a package root', () => {
     expect(receipt.verdict).toBe('pass');
   }, 120_000);
 
+  it('errors (exit 2) when the package root does not exist at head, instead of a no-runner WARN', async () => {
+    const dir = await monorepo();
+    await expect(runVerify({ cwd: dir, root: 'packages/nope' })).rejects.toThrow('Package root "packages/nope" does not exist at head');
+    const cfg = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'packages/typo' }) });
+    await expect(runVerify({ cwd: cfg })).rejects.toThrow('Package root "packages/typo" does not exist at head');
+  });
+
+  it('reports a changed test outside the package root as not run (info)', async () => {
+    const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'packages/app' }) });
+    await writeFiles(dir, { 'packages/other/test/x.test.js': "it('x', () => {});\n", 'tools/a.test.js': "it('a', () => {});\n" });
+    await commitAll(dir, 'tests elsewhere');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings).toContainEqual({
+      id: 'tests-outside-root',
+      severity: 'info',
+      title: '2 changed test files are outside the package root packages/app and were not run: packages/other/test/x.test.js, tools/a.test.js',
+    });
+  }, 120_000);
+
   it('--root overrides the config root', async () => {
     const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'elsewhere' }) });
     const { receipt } = await runVerify({ cwd: dir, root: 'packages/app/' });
@@ -363,6 +382,32 @@ describe('trustbut verify with the generic command runner', () => {
   });
 });
 
+describe('trustbut verify runner detection', () => {
+  it('detects the runner from the head commit, not the checked-out working tree', async () => {
+    const { dir } = await makeRepo({ '.gitignore': 'node_modules\n', 'src/sum.js': 'export const sum = (a, b) => a - b;\n' });
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'package.json': BASE_FILES['package.json'],
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    await commitAll(dir, 'add vitest and a fix');
+    await execa('git', ['checkout', '-q', 'main'], { cwd: dir });
+    const { receipt } = await runVerify({ cwd: dir, base: 'main', head: 'agent-change' });
+    expect(receipt.runner).toBe('vitest');
+    expect(receipt.findings.map((f) => f.id)).not.toContain('no-runner');
+    expect(receipt.proofs.map((p) => [p.file, p.verdict])).toEqual([['test/sum.test.js', 'proves-change']]);
+  }, 120_000);
+
+  it('still warns no-runner when head has no runner files', async () => {
+    const dir = await scenario({ 'package.json': JSON.stringify({ name: 'fx', private: true }), 'README.md': '# x\n' });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.runner).toBeNull();
+    expect(receipt.findings.map((f) => f.id)).toContain('no-runner');
+  });
+});
+
 describe('trustbut verify config errors', () => {
   it('rejects unknown keys in .trustbut.json', async () => {
     const dir = await scenario({ '.trustbut.json': JSON.stringify({ rooot: 'x' }) });
@@ -398,6 +443,19 @@ describe('trustbut verify --working', () => {
     expect(receipt.findings.map((f) => f.id)).not.toContain('uncommitted-changes');
     expect(output).toContain('→ working tree');
     expect(await snapshot()).toEqual(before);
+  });
+
+  it('errors (exit 2) when the working tree has nothing to verify', async () => {
+    const { dir } = await makeRepo(BASE_FILES);
+    await branch(dir, 'agent-change');
+    await expect(runVerify({ cwd: dir, base: 'main', working: true })).rejects.toThrow(/^No changes between base and head/);
+  });
+
+  it('errors when head differs from base by commits but not by content', async () => {
+    const { dir } = await makeRepo(BASE_FILES);
+    await branch(dir, 'agent-change');
+    await execa('git', ['commit', '-q', '--allow-empty', '-m', 'empty'], { cwd: dir });
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(/^No changes between base and head/);
   });
 
   it('rejects --working together with --head', async () => {

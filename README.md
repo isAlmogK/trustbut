@@ -157,7 +157,7 @@ trustbut verify --json > receipt.json
 
 ## Supported languages and test runners
 
-trustbut picks the runner by looking at the package folder (the repo root, or `root` / `--root`). If several match, the most specific one wins; force one with `--runner <name>` or `"runner"` in the config.
+trustbut picks the runner by looking at the package folder (the repo root, or `root` / `--root`) as committed at head (with `--working`, your working tree). If several match, the most specific one wins; force one with `--runner <name>` or `"runner"` in the config.
 
 | Runner | Language | Detected by | Runs | Notes |
 |---|---|---|---|---|
@@ -199,7 +199,7 @@ Everything is optional; most projects need no config at all. Put `.trustbut.json
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `root` | string | `"."` | Package folder relative to the repo root. Runners are detected and run there, and only changed test files under it are rerun. Must stay inside the repo. `--root` overrides it. |
+| `root` | string | `"."` | Package folder relative to the repo root. Runners are detected and run there, and only changed test files under it are rerun (changed tests elsewhere are listed as not run). Must stay inside the repo and exist at head (otherwise exit code `2`). `--root` overrides it. |
 | `runner` | string | detected | Force a runner from the table above. `--runner` overrides it. |
 | `command` | string | none | The `command` runner: shell command to run. `{files}` becomes the quoted test files (nothing for a full run). |
 | `junit` | string | none | The `command` runner: JUnit XML file the command writes, relative to `root`. |

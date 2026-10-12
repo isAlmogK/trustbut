@@ -306,7 +306,41 @@ describe('proveTests in a package root', () => {
     ]);
     expect(seen).toContainEqual(['test/a.test.js', '// TestA lives here']);
     expect(result.proofs.map((p) => [p.file, p.name, p.verdict])).toEqual([['pkg/test/a.test.js', 'TestA', 'proves-change']]);
-    expect(result.findings).toEqual([]);
+    expect(result.findings).toEqual([
+      { id: 'tests-outside-root', severity: 'info', title: '1 changed test file is outside the package root pkg and was not run: other/test/b.test.js' },
+    ]);
+  });
+
+  it('lists at most 3 changed tests outside the package root', async () => {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((n) => [`other/test/${n}.test.js`, `it('${n}', () => {});\n`])));
+    const head = await commitAll(dir, 'tests elsewhere');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([tc('x', 'x', 'pass')])), root: 'pkg' });
+    expect(result.findings).toEqual([
+      {
+        id: 'tests-outside-root',
+        severity: 'info',
+        title: '5 changed test files are outside the package root pkg and were not run: other/test/a.test.js, other/test/b.test.js, other/test/c.test.js and 2 more',
+      },
+    ]);
+  });
+
+  it('detects the runner in the head checkout of the package root when none is given', async () => {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'pkg/go.mod': 'module example.com/fx\n', 'pkg/src/a.js': 'export const a = 2;\n' });
+    const head = await commitAll(dir, 'go module');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const seen: string[] = [];
+    const detecting: Runner = { name: 'probe', detect: async (root) => (seen.push(root), existsSync(join(root, 'go.mod')) ? 10 : 0), run: async () => run([tc('x', 'x', 'pass')]) };
+    const result = await proveTests({ repo: dir, base, head, changes, root: 'pkg', detect: async (root) => ((await detecting.detect(root)) ? detecting : null) });
+    expect(result.runner?.name).toBe('probe');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toBe(join(dir, 'pkg'));
+    expect(seen[0]!.endsWith('/pkg')).toBe(true);
+    const none = await proveTests({ repo: dir, base, head, changes, root: 'pkg', detect: async () => null });
+    expect(none.runner).toBeNull();
+    expect(none.after).toBeUndefined();
   });
 
   it('passes root-relative files to caseInFile when the runner has no hook', async () => {

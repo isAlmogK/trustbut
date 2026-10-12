@@ -107,7 +107,7 @@ Review these first
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
-- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered, in tie-break order (score in parentheses):
+- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry; detection runs on the package root of the head checkout, so it sees head's files, not the working tree's), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered, in tie-break order (score in parentheses):
 
 | Runner | Language | Detected by |
 |---|---|---|
@@ -131,6 +131,7 @@ Review these first
  `--runner <name>` accepts any registered name; an unknown name exits 2 and lists the supported ones. Adding a runner means adding one file and listing it in the registry.
 - **Matching results to changed test files.** By default a result belongs to a changed test file when its reported file equals the path, is a path suffix of it, or (pytest) is its dotted module name. Runners whose results don't carry file paths (Go, JVM) implement `casesInFile(c, file, readHead)`: `file` is the changed test file relative to the package root, and `readHead(path)` returns the head contents of a changed test file (relative to the package root; `''` if unreadable), read from the head worktree and cached, e.g. to find which `func TestX` a Go file defines. Results may carry an optional `leaf` (the test's own short name, e.g. the .NET method without parameters or the last Rust path segment); the proof engine looks for it on added lines to tell new tests from untouched ones, defaulting to the last segment of `name`. Receipts always report repo-relative paths.
 
+- **Nothing to verify:** when base and head are the same commit, or their trees don't differ (an empty commit, `--working` with no edits), `verify` exits 2 with a hint (`--base HEAD~1`, `--working`).
 - **`--working`** verifies uncommitted work: the tracked edits plus untracked, non-ignored files are snapshotted into an unreferenced commit on top of `HEAD`, built with a temporary index (the real index, HEAD and working tree are never touched), which is used as `head`. It is rejected together with `--head`; the receipt's `headRef` is `"working tree"`.
 
 ### Configuration (`.trustbut.json`)
@@ -139,7 +140,7 @@ Optional. Read from the repo root **as committed at head** (`git cat-file blob <
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `root` | string | `"."` | Package folder relative to the repo root. Runner detection looks there, the runner runs in `<worktree>/<root>`, only changed test files under it are rerun and they are passed relative to it, and `node_modules`/`.venv`/`venv` are linked from `<repo>/<root>` too. `--root <dir>` overrides it. Must stay inside the repo. |
+| `root` | string | `"."` | Package folder relative to the repo root; it must exist at head (else exit 2). Runner detection looks there, in the head checkout, the runner runs in `<worktree>/<root>`, only changed test files under it are rerun and they are passed relative to it, and `node_modules`/`.venv`/`venv` are linked from `<repo>/<root>` too. `--root <dir>` overrides it. Must stay inside the repo. |
 | `runner` | string | detected | Force a registered runner. `--runner` overrides it. |
 | `command` | string | — | Generic runner: shell command run with `sh -c` in the root. `{files}` is replaced with the shell-quoted test files (nothing for a full run). Setting `command` without `runner` selects the `command` runner. |
 | `junit` | string | — | Generic runner: JUnit XML file the command writes, relative to the root (deleted before each run). Without it, stdout is parsed when it starts with `<?xml` or `<testsuite`. Exit code semantics are the same as for other runners. |
@@ -189,6 +190,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `proofs-unmatched` | WARN | The suite ran (or exited 0 with no results) but no result matched the changed test files, so there is no fail-before/pass-after evidence. Not emitted when the head run only reports a build or start-up failure |
   | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Not checked for Python |
   | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
+  | `tests-outside-root` | info | Changed test files outside the package root were not run; gives the count and the first 3 paths |
   | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |
 
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.

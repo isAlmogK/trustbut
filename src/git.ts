@@ -29,6 +29,12 @@ export async function diffText(cwd: string, base: string, head: string): Promise
   ]);
 }
 
+/** Object type (`tree`, `blob`, …) of `path` at `ref`, or null when it does not exist there. */
+export async function objectType(cwd: string, ref: string, path: string): Promise<string | null> {
+  const r = await execa('git', ['cat-file', '-t', `${ref}:${path}`], { cwd, reject: false });
+  return r.exitCode === 0 ? r.stdout.trim() : null;
+}
+
 /** Raw blob bytes of `path` at `ref` (no textconv, no filters). */
 export async function showFileBuffer(cwd: string, ref: string, path: string): Promise<Uint8Array> {
   const { stdout } = await execa('git', ['cat-file', 'blob', `${ref}:${path}`], { cwd, encoding: 'buffer', stripFinalNewline: false });

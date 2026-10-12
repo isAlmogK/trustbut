@@ -4,6 +4,7 @@ import { dirname, join, sep } from 'node:path';
 import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import { SEVERITY } from './runners/cases.js';
+import { detectRunner } from './runners/registry.js';
 import { isNamedTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
 import { startSetup, type SetupOptions } from './setup.js';
@@ -17,7 +18,10 @@ export interface ProofInput {
   base: string;
   head: string;
   changes: ChangedFile[];
-  runner: Runner;
+  /** The runner to use; when omitted it is detected in the head checkout of the package root. */
+  runner?: Runner;
+  /** Runner detection for a package root (default: the registry's `detectRunner`). */
+  detect?: (root: string) => Promise<Runner | null>;
   quick?: boolean;
   /** Package root relative to the repo ('.' default): the runner runs in `<worktree>/<root>`. */
   root?: string;
@@ -28,6 +32,8 @@ export interface ProofInput {
 }
 
 export interface ProofOutput {
+  /** The runner used; null when none was given and none was detected at head (nothing was run). */
+  runner?: Runner | null;
   scope: RunScope;
   after?: RunResult;
   before?: RunResult;
@@ -155,27 +161,42 @@ async function runWithSetup(runner: Runner, opts: RunOptions, setup: ProofInput[
   }
 }
 
+const SHOWN_OUTSIDE = 3;
+
 export async function proveTests(input: ProofInput): Promise<ProofOutput> {
-  const { repo, base, head, changes, runner, quick, runOptions = {}, setup } = input;
+  const { repo, base, head, changes, quick, runOptions = {}, setup } = input;
   const root = input.root ?? '.';
   const prefix = root === '.' ? '' : `${root}/`;
   /** Path relative to the package root. */
   const rel = (path: string) => path.slice(prefix.length);
-  const changedTests = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted' && c.path.startsWith(prefix));
+  const liveTests = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted');
+  const changedTests = liveTests.filter((c) => c.path.startsWith(prefix));
   const testFiles = changedTests.map((c) => rel(c.path));
   const findings: Finding[] = [];
   if (changes.some((c) => LOCKFILE.test(c.path))) {
     findings.push({ id: 'deps-changed', severity: 'info', title: 'Dependencies changed; both runs use the currently installed dependencies' });
   }
-
-  const notInstalled = checkDepsInstalled(repo, root, runner.name);
-  if (notInstalled) findings.push(notInstalled);
+  const outside = liveTests.filter((c) => !c.path.startsWith(prefix)).map((c) => c.path);
+  if (outside.length) {
+    const n = outside.length;
+    const more = n > SHOWN_OUTSIDE ? ` and ${n - SHOWN_OUTSIDE} more` : '';
+    findings.push({
+      id: 'tests-outside-root',
+      severity: 'info',
+      title: `${n} changed test file${n === 1 ? ' is' : 's are'} outside the package root ${root} and ${n === 1 ? 'was' : 'were'} not run: ${outside.slice(0, SHOWN_OUTSIDE).join(', ')}${more}`,
+    });
+  }
 
   const headDir = await addWorktree(repo, head);
   let baseDir: string | undefined;
   try {
     const headRoot = join(headDir, root);
     if (!existsSync(headRoot)) throw new Error(`Package root "${root}" does not exist at head`);
+    // Detected from head's files, which may differ from the checked-out working tree (--head, --working).
+    const runner = input.runner ?? (await (input.detect ?? detectRunner)(headRoot));
+    if (!runner) return { runner: null, scope: 'full', proofs: [], findings };
+    const notInstalled = checkDepsInstalled(repo, root, runner.name);
+    if (notInstalled) findings.push(notInstalled);
     await linkDeps(repo, headDir, root);
     const scope: RunScope = quick && testFiles.length ? 'changed' : 'full';
     const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
@@ -184,7 +205,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     if (after.exitCode === 0 && after.cases.length === 0) {
       findings.push({ id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' });
     }
-    if (!testFiles.length) return { scope, after, proofs: [], findings };
+    if (!testFiles.length) return { runner, scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
@@ -228,7 +249,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
         title: 'No test results matched the changed test files; fail-before/pass-after evidence unavailable',
       });
     }
-    return { scope, after, before, proofs: buildProofs(changedTests, before, after, inFile), findings };
+    return { runner, scope, after, before, proofs: buildProofs(changedTests, before, after, inFile), findings };
   } finally {
     // Nested so a failure cleaning up head cannot skip cleaning up base.
     try {

@@ -1,13 +1,13 @@
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { checkEscapes } from '../checks/escapes.js';
 import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
 import { parseChanges } from '../diff.js';
-import { diffText, isDirty, mergeBase, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
+import { diffText, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
-import { detectRunner, getRunner, runnerNames } from '../runners/registry.js';
+import { getRunner, runnerNames } from '../runners/registry.js';
 import type { Finding, Receipt } from '../types.js';
 
 export interface VerifyOptions {
@@ -60,8 +60,9 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   const configRunner = config.runner ?? (config.command ? 'command' : undefined);
   const chosen = forced ?? (configRunner ? getRunner(configRunner) : undefined);
   if (chosen?.name === 'command' && !config.command) throw new Error('The command runner needs a "command" in .trustbut.json');
+  if (root !== '.' && (await objectType(repo, head, root)) !== 'tree') throw new Error(`Package root "${root}" does not exist at head`);
   const base = await resolveBase(repo, head, opts.base);
-  if (base === head) {
+  const noChanges = async (): Promise<Error> => {
     let baseName = opts.base;
     for (const ref of baseName ? [] : DEFAULT_BASES) {
       if (await resolveRef(repo, ref)) {
@@ -69,40 +70,42 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         break;
       }
     }
-    throw new Error(
+    return new Error(
       `No changes between base and head (this branch may already be merged into ${baseName ?? 'the base branch'}). Try --base HEAD~1 to verify the latest commit, or --working for uncommitted changes.`,
     );
-  }
+  };
+  if (base === head) throw await noChanges();
 
   const changes = parseChanges(await diffText(repo, base, head));
+  // Different commits with the same content (an empty commit, or --working with nothing changed): nothing to verify.
+  if (changes.length === 0) throw await noChanges();
   const findings: Finding[] = [...checkTestIntegrity(changes), ...checkEscapes(changes)];
   if (!opts.working && (await isDirty(repo))) {
     findings.push({ id: 'uncommitted-changes', severity: 'info', title: 'Uncommitted changes are not included in this receipt' });
   }
 
-  const runner = chosen ?? (await detectRunner(join(repo, root)));
-  let proof: ProofOutput = { scope: 'full', proofs: [], findings: [] };
-  if (runner) {
-    proof = await proveTests({
-      repo,
-      base,
-      head,
-      changes,
-      runner,
-      quick: opts.quick,
-      root,
-      runOptions: {
-        args: config.args,
-        env: config.env,
-        timeoutMs: (config.timeoutSec ?? DEFAULT_TIMEOUT_SEC) * 1000,
-        command: config.command,
-        junit: config.junit,
-      },
-      setup: config.setup
-        ? { command: config.setup, waitMs: (config.setupWaitSec ?? DEFAULT_SETUP_WAIT_SEC) * 1000, readyPattern: config.setupReadyPattern }
-        : undefined,
-    });
-  } else {
+  // Without a forced runner, proveTests detects one from head's files in the package root.
+  const proof: ProofOutput = await proveTests({
+    repo,
+    base,
+    head,
+    changes,
+    runner: chosen,
+    quick: opts.quick,
+    root,
+    runOptions: {
+      args: config.args,
+      env: config.env,
+      timeoutMs: (config.timeoutSec ?? DEFAULT_TIMEOUT_SEC) * 1000,
+      command: config.command,
+      junit: config.junit,
+    },
+    setup: config.setup
+      ? { command: config.setup, waitMs: (config.setupWaitSec ?? DEFAULT_SETUP_WAIT_SEC) * 1000, readyPattern: config.setupReadyPattern }
+      : undefined,
+  });
+  const runner = proof.runner ?? null;
+  if (!runner) {
     findings.push({ id: 'no-runner', severity: 'warn', title: `No supported test runner detected (supported: ${runnerNames().join(', ')}); tests were not rerun` });
   }
 
