@@ -1,5 +1,6 @@
 import { writeSync } from 'node:fs';
 import { Argument, Command, InvalidArgumentError, Option } from 'commander';
+import { INIT_AGENTS, runInit, type InitAgent } from './init/index.js';
 import { runHook } from './commands/hook.js';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
 import { AGENTS, respond, type Agent } from './hook/protocols.js';
@@ -46,6 +47,21 @@ export function buildProgram(): Command {
         for (const e of result.writeErrors) process.stderr.write(`trustbut: couldn't write receipt to ${e.path}: ${e.message}\n`);
         // 2 = a requested artifact was not written (the receipt was still printed).
         process.exitCode = result.writeErrors.length > 0 ? 2 : result.exitCode;
+      } catch (err) {
+        process.stderr.write(`trustbut: ${(err as Error).message}\n`);
+        process.exitCode = 2;
+      }
+    });
+
+  program
+    .command('init')
+    .description("Install trustbut's turn-end hook for an agent (merges into its config; safe to rerun)")
+    .addArgument(new Argument('<agent>', 'the agent to set up').choices(INIT_AGENTS))
+    .option('--dry-run', 'print what would change; write nothing')
+    .option('--user', 'set up the user-level config instead of the project')
+    .action(async (agent: InitAgent, opts: { dryRun?: boolean; user?: boolean }) => {
+      try {
+        process.stdout.write(await runInit({ agent, ...opts }));
       } catch (err) {
         process.stderr.write(`trustbut: ${(err as Error).message}\n`);
         process.exitCode = 2;
