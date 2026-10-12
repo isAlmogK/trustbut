@@ -225,7 +225,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
 | Skip, unchanged PASS/WARN | exit 0, no output | same | same | same |
 | Unchanged FAIL (new turn, or mid-chain with no edits) | exit 0, stdout `{"systemMessage":"trustbut FAIL (unchanged since last check) — receipt: …"}` (mid-chain: `(no changes since the receipt was sent back)`) | same | same | exit 0, empty stdout, message on stderr |
 
-(The `trustbut-run.mjs` runner that `init` and the Claude plugin install adds one case in front: when it can't find or start trustbut, it exits 0 with `trustbut couldn't verify: <reason>. Install with: npm i -g trustbut`, as a `systemMessage` on stdout for `claude` and on stderr for the other agents.)
+(The `trustbut-run.mjs` runner that `init` and the Claude plugin install adds one case in front: when it can't find or start trustbut, or trustbut's answer isn't one of the above, it exits 0 with `trustbut couldn't verify: <reason>. Install with: npm i -g trustbut`, as a `systemMessage` on stdout for `claude` and on stderr for the other agents. Since exit 2 means "block" to the agents, the runner passes it through only as trustbut's own block: for `claude` when stdout holds a `{"decision":"block",…}` object, for `codex`/`gemini` when stderr starts with `trustbut verdict: FAIL`; any other exit 2 (e.g. an old trustbut without `hook` failing with "unknown command") becomes `couldn't verify`. The npx fallback runs with `--prefer-offline`, `npm_config_update_notifier=false` and `npm_config_loglevel=error`.)
 
 Exit 2 means "block" to Claude Code, Codex and Gemini CLI, so `trustbut hook` uses it only for a FAIL on Codex and Gemini. Its own usage errors (an unknown agent name, an unknown option) exit **1**, which those three treat as a non-blocking hook error, not trustbut's usual 2.
 
@@ -237,7 +237,7 @@ Exit 2 means "block" to Claude Code, Codex and Gemini CLI, so `trustbut hook` us
 | `TRUSTBUT_HOOK_TIMEOUT_SEC` | `trustbut hook` | A positive number of seconds that caps `hook.timeoutSec` when smaller (never raises it). The runner sets it to what is left of its own budget; the timeout message then names this variable |
 | `TRUSTBUT_HOOK_BUDGET_SEC` | the runner (`trustbut-run.mjs`) | Starting point of the runner's time budget, default `570` (the agents' 600 s hook timeout minus a margin); the budget handed to trustbut is this minus the runner's own start-up time, at least 30 s. Set it lower for an agent with a shorter hook timeout |
 | `TRUSTBUT_VERSION_PROBE_MS` | the runner | How long the `trustbut --version` probe of the `trustbut` on PATH may take, default `10000` |
-| `TRUSTBUT_BIN` | the runner | Path of the trustbut executable to run, instead of looking on PATH and falling back to `npx --yes --quiet trustbut@<runner version>` |
+| `TRUSTBUT_BIN` | the runner | Path of the trustbut executable to run, instead of looking on PATH and falling back to `npx --yes --quiet --prefer-offline trustbut@<runner version>` |
 | `TRUSTBUT_NO_TOOLCHAIN_E2E` | trustbut's own test suite | `1` skips the real-toolchain end-to-end tests (Go, Cargo, Maven, …). This repo's `.trustbut.json` sets it through `env` so its own receipt doesn't need those toolchains; the CI matrix runs them (with `TRUSTBUT_REQUIRE=<tools>` making a missing tool a failure instead of a skip) |
 
 ### 8. GitHub Action (`isAlmogK/trustbut@v0`)

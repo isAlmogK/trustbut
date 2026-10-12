@@ -85,8 +85,9 @@ describe('run.mjs helpers', () => {
     expect(resolveTrustbut({ TRUSTBUT_BIN: '/x/tb' }, '0.3.0', () => '9.9.9')).toEqual({ command: '/x/tb', args: [] });
     expect(resolveTrustbut({}, '0.3.0', () => '0.3.0')).toEqual({ command: 'trustbut', args: [] });
     expect(resolveTrustbut({}, '0.3.0', () => '1.0.0')).toEqual({ command: 'trustbut', args: [] });
-    expect(resolveTrustbut({}, '0.3.0', () => '0.2.0')).toEqual({ command: 'npx', args: ['--yes', '--quiet', 'trustbut@0.3.0'] });
-    expect(resolveTrustbut({}, '0.3.0', () => undefined)).toEqual({ command: 'npx', args: ['--yes', '--quiet', 'trustbut@0.3.0'] });
+    const npx = { command: 'npx', args: ['--yes', '--quiet', '--prefer-offline', 'trustbut@0.3.0'], env: { npm_config_update_notifier: 'false', npm_config_loglevel: 'error' } };
+    expect(resolveTrustbut({}, '0.3.0', () => '0.2.0')).toEqual(npx);
+    expect(resolveTrustbut({}, '0.3.0', () => undefined)).toEqual(npx);
   });
 });
 
@@ -98,8 +99,8 @@ async function fakeBin(dir: string, name: string, script: string): Promise<strin
 }
 
 // Each run gets its own version-cache dir (a shared one is overwritten by concurrent tests) and a generous probe timeout.
-const run = async (env: Record<string, string>, input = '{"session_id":"s"}') =>
-  execa(process.execPath, [RUN, 'claude'], {
+const run = async (env: Record<string, string>, input = '{"session_id":"s"}', agent = 'claude') =>
+  execa(process.execPath, [RUN, agent], {
     env: { CLAUDE_PLUGIN_DATA: await mkdtemp(join(tmpdir(), 'tb-data-')), TRUSTBUT_VERSION_PROBE_MS: '60000', ...env },
     extendEnv: false,
     input,
@@ -113,9 +114,9 @@ const ECHO = (version: string, code = 0) =>
 describe('run.mjs end to end (fake binaries)', () => {
   it('TRUSTBUT_BIN: stdin in, stdout, stderr and the exit code out, unchanged', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
-    const bin = await fakeBin(dir, 'tb', ECHO('0.0.1', 2));
+    const bin = await fakeBin(dir, 'tb', ECHO('0.0.1', 3));
     const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' });
-    expect(r).toMatchObject({ exitCode: 2, stdout: '{"systemMessage":"ARGS:hook claude STDIN:{session_id:s}"}', stderr: 'ERR' });
+    expect(r).toMatchObject({ exitCode: 3, stdout: '{"systemMessage":"ARGS:hook claude STDIN:{session_id:s}"}', stderr: 'ERR' });
   });
 
   it('uses trustbut from PATH when its version is at least the plugin version', async () => {
@@ -133,7 +134,21 @@ describe('run.mjs end to end (fake binaries)', () => {
     await fakeBin(dir, 'trustbut', ECHO('0.0.1'));
     await fakeBin(dir, 'npx', ECHO('x'));
     const r = await run({ PATH: `${dir}:/usr/bin:/bin` });
-    expect(r.stdout).toContain(`ARGS:--yes --quiet trustbut@${pkg.version} hook claude`);
+    expect(r.stdout).toContain(`ARGS:--yes --quiet --prefer-offline trustbut@${pkg.version} hook claude`);
+  });
+
+  it('runs npx without update notices or npm log noise', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
+    await fakeBin(dir, 'npx', 'printf \'{"systemMessage":"%s %s"}\\n\' "$npm_config_update_notifier" "$npm_config_loglevel"');
+    const r = await run({ PATH: `${dir}:/usr/bin:/bin` });
+    expect(JSON.parse(r.stdout).systemMessage).toBe('false error');
+  });
+
+  it('does not set npm variables for a trustbut binary', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
+    const bin = await fakeBin(dir, 'tb', 'printf \'{"systemMessage":"[%s]"}\\n\' "$npm_config_loglevel"');
+    const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' });
+    expect(JSON.parse(r.stdout).systemMessage).toBe('[]');
   });
 
   it('says it could not verify (and exits 0) when neither trustbut nor npx can be found', async () => {
@@ -189,11 +204,42 @@ describe('run.mjs hardening (fake binaries)', () => {
     expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut couldn't verify: npx exited with code 1 \(npm error 404 Not Found - trustbut\)\. Install with/);
   });
 
-  it('exit 2 with no stdout (a Codex/Gemini block) is passed through, not rewritten', async () => {
+  it.each(['codex', 'gemini'])('%s: a trustbut FAIL (exit 2, feedback on stderr) is passed through, not rewritten', async (agent) => {
     const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
-    const bin = await fakeBin(dir, 'tb', 'echo feedback >&2\nexit 2');
+    const bin = await fakeBin(dir, 'tb', "printf 'trustbut verdict: FAIL\\n\\nfix it\\n' >&2\nexit 2");
+    const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' }, undefined, agent);
+    expect(r).toMatchObject({ exitCode: 2, stdout: '', stderr: 'trustbut verdict: FAIL\n\nfix it' });
+  });
+
+  // e.g. an old trustbut without `hook`, or a wrapper's usage error: exit 2 means "block" to the agent.
+  const UNKNOWN = "echo \"error: unknown command 'hook'\" >&2\nexit 2";
+
+  it.each(['codex', 'gemini'])("%s: exit 2 that isn't a trustbut FAIL becomes a couldn't-verify message and exit 0", async (agent) => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
+    const bin = await fakeBin(dir, 'tb', UNKNOWN);
+    const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' }, undefined, agent);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toMatch(/trustbut couldn't verify: .*tb exited with code 2 \(error: unknown command 'hook'\)\. Install with/);
+  });
+
+  it("claude: exit 2 without a block JSON becomes a couldn't-verify message and exit 0", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
+    const bin = await fakeBin(dir, 'tb', UNKNOWN);
     const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' });
-    expect(r).toMatchObject({ exitCode: 2, stdout: '' });
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut couldn't verify: .*tb exited with code 2 \(error: unknown command 'hook'\)\. Install with/);
+    const json = await fakeBin(dir, 'tb2', `echo '{"systemMessage":"not a block"}'\nexit 2`);
+    const r2 = await run({ TRUSTBUT_BIN: json, PATH: '/usr/bin:/bin' });
+    expect(r2.exitCode).toBe(0);
+    expect(JSON.parse(r2.stdout).systemMessage).toMatch(/^trustbut couldn't verify: .*tb2 exited with code 2\. Install with/);
+  });
+
+  it('claude: exit 2 with a block JSON is passed through', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-plugin-'));
+    const bin = await fakeBin(dir, 'tb', `echo '${BLOCK}'\nexit 2`);
+    const r = await run({ TRUSTBUT_BIN: bin, PATH: '/usr/bin:/bin' });
+    expect(r).toMatchObject({ exitCode: 2, stdout: BLOCK });
   });
 
   it('passes the remaining time budget to trustbut as TRUSTBUT_HOOK_TIMEOUT_SEC', async () => {
