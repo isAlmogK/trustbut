@@ -45,6 +45,8 @@
     "typecheck": "tsc --noEmit",
     "receipt": "npm run build && node dist/cli.js verify",
     "prepare": "npm run build",
+    "release:bump": "node scripts/release/bump.mjs",
+    "check:versions": "node scripts/release/check-versions.mjs",
     "check:plugin-version": "vitest run test/plugin.test.ts -t \"plugin.json matches package.json\""
   },
   "dependencies": {

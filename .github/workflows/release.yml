@@ -1,0 +1,64 @@
+name: release
+# Publishes to npm via trusted publishing (OIDC): no npm token is stored anywhere. See RELEASING.md.
+# Trigger: publishing a GitHub Release (vX.Y.Z). Releases created with GITHUB_TOKEN do not trigger workflows.
+on:
+  release:
+    types: [published]
+
+permissions: {}   # job-level grants only
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest   # trusted publishing requires GitHub-hosted runners
+    timeout-minutes: 30
+    environment: npm         # must equal the Environment set in the npm trusted-publisher config
+    permissions:
+      contents: read
+      id-token: write        # OIDC for npm trusted publishing (+ automatic provenance)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24   # trusted publishing needs Node >= 22.14
+          registry-url: https://registry.npmjs.org
+      - run: npm ci          # `prepare` builds dist/
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          # Real-toolchain e2e suites are covered by ci.yml's adapters matrix; this runner has no such toolchains.
+          TRUSTBUT_NO_TOOLCHAIN_E2E: '1'
+      - name: Tag, package.json, CLI and plugin versions agree
+        run: node scripts/release/check-versions.mjs "$TAG"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      - run: npm pack --dry-run
+      - name: Install npm 11 (OIDC needs >= 11.5.1; stay off npm 12 for now)
+        run: npm install -g npm@11 && npm --version
+      - name: Publish
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then npm publish --tag next; else npm publish; fi
+          # If the trusted publisher is staging-only, use `npm stage publish` instead and approve with 2FA on npmjs.com.
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+
+  major-tag:
+    needs: npm
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # force-move v0 (a plain tag, never a release, so it stays movable)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move the major tag
+        run: |
+          major="${TAG%%.*}"                       # v0.3.0 -> v0
+          git tag -f "$major" "${TAG}^{commit}"
+          git push -f origin "refs/tags/${major}"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
