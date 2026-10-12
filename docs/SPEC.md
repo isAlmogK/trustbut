@@ -107,8 +107,31 @@ Review these first
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
-- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered: **vitest** (dependency or `vitest.config.*`/`vitest.workspace.*` → 10), **pytest** (`pytest.ini`, `conftest.py`, `tox.ini` or `[tool.pytest` in `pyproject.toml` → 10) and the generic **command** runner (never detected; chosen through config). `--runner <name>` accepts any registered name; an unknown name exits 2 and lists the supported ones. Adding a runner means adding one file and listing it in the registry.
+- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered, in tie-break order (score in parentheses):
+
+| Runner | Language | Detected by |
+|---|---|---|
+| `vitest` | JS/TS | `vitest` dependency, `vitest.config.*` / `vitest.workspace.*` (10) |
+| `jest` | JS/TS | `jest` dependency, `jest` key, `jest.config.*`, `jest-expo` / `react-native` preset (10; 9 when Vitest also matches) |
+| `mocha` | JS/TS | `mocha` dependency or `.mocharc.*` (9) |
+| `node-test` | JS/TS | `scripts.test` runs `node --test` (8) |
+| `pytest` | Python | `pytest.ini`, `conftest.py`, `tox.ini`, `[tool.pytest` in `pyproject.toml` (10) |
+| `go` | Go | `go.mod` (10) |
+| `cargo` | Rust | `Cargo.toml` (10); uses `cargo nextest` when installed, else `cargo test` |
+| `dotnet` | C# | `.sln`, `.slnx`, `.csproj` or `.fsproj` in the root (10) |
+| `phpunit` | PHP | `phpunit.xml(.dist)` or `phpunit/phpunit` in `composer.json` (10); runs `composer install` in the temporary checkout |
+| `maven` | Java/Kotlin | `pom.xml` (10) |
+| `gradle` | Java/Kotlin | `build.gradle(.kts)` or `settings.gradle(.kts)` (10) |
+| `rspec` | Ruby | `.rspec`, or `spec/` plus `rspec` in `Gemfile` / `Gemfile.lock` (10) |
+| `dart` | Dart | `pubspec.yaml` with a `test` dev dependency and no Flutter SDK (10); runs `dart pub get` when needed |
+| `flutter` | Dart | `pubspec.yaml` with the Flutter SDK (10) |
+| `swift` | Swift | `Package.swift` (10) |
+| `command` | any | never detected; chosen through config (`command`) |
+
+ `--runner <name>` accepts any registered name; an unknown name exits 2 and lists the supported ones. Adding a runner means adding one file and listing it in the registry.
 - **Matching results to changed test files.** By default a result belongs to a changed test file when its reported file equals the path, is a path suffix of it, or (pytest) is its dotted module name. Runners whose results don't carry file paths (Go, JVM) implement `casesInFile(c, file, readHead)`: `file` is the changed test file relative to the package root, and `readHead(path)` returns the head contents of a changed test file (relative to the package root; `''` if unreadable), read from the head worktree and cached, e.g. to find which `func TestX` a Go file defines. Results may carry an optional `leaf` (the test's own short name, e.g. the .NET method without parameters or the last Rust path segment); the proof engine looks for it on added lines to tell new tests from untouched ones, defaulting to the last segment of `name`. Receipts always report repo-relative paths.
+
+- **`--working`** verifies uncommitted work: the tracked edits plus untracked, non-ignored files are snapshotted into an unreferenced commit on top of `HEAD`, built with a temporary index (the real index, HEAD and working tree are never touched), which is used as `head`. It is rejected together with `--head`; the receipt's `headRef` is `"working tree"`.
 
 ### Configuration (`.trustbut.json`)
 
@@ -144,6 +167,28 @@ Example (Go service with a Firestore emulator in a subfolder):
 Path rules add weight for: auth or permissions, migrations, CI pipelines, dependencies and lockfiles, secrets and env, infrastructure, and agent config (`.claude/`, `AGENTS.md`, hooks). Files with findings and very large changes get extra weight. The output is an ordered "review these first" list.
 
 ### 6. Receipt
+- **Fields (JSON, `version: 1`; additive changes keep the version):** `base`, `head`, `headRef?` (human label for head when it is not a plain commit, e.g. `"working tree"`), `runner` (registry name or `null`), `languages` (registry ids of the languages of the changed files: sorted, unique), `root` (package root relative to the repo, `"."` by default), `scope` (`full` or `changed`), `verdict`, `after?`, `before?`, `proofs`, `findings`, `risks`. The Markdown header reads `runner: X`, plus ` · root: Y` when `root` is not `.`. A proof's test case may also carry `leaf`, the test's own short name used to tell new tests from untouched ones.
+- **Finding ids** (stable, kebab-case; severity in parentheses):
+
+  | Id | Severity | Meaning |
+  |---|---|---|
+  | `test-focused` | FAIL | A focus marker was added (`.only`, `fit`, `solo: true`, …) |
+  | `test-skipped` | WARN | A skip marker was added |
+  | `tests-removed` | WARN | Net test definitions removed |
+  | `assertions-removed` | WARN | Net assertions removed |
+  | `snapshot-changed` | WARN | A snapshot was changed or deleted |
+  | `test-config-changed` | WARN | Test or coverage config changed |
+  | `escape-added` | WARN | A type, lint, coverage, warning or safety escape was added |
+  | `no-tests-changed` | WARN | Source changed but no tests were added or changed |
+  | `suite-failing` | FAIL | The suite fails at head, or the runner failed without reporting any test |
+  | `test-failing` | FAIL | A changed test fails at head |
+  | `test-passes-without-change` | WARN | A changed test passes at base too |
+  | `no-runner` | WARN | No runner detected; the message lists the supported runners |
+  | `base-run-failed` | WARN | The changed tests could not run at base (nothing reported, nonzero exit), so there is no fail-before evidence |
+  | `proofs-unmatched` | WARN | The suite ran but no result matched the changed test files, so there is no fail-before/pass-after evidence |
+  | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
+  | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |
+
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
 - **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error.
 

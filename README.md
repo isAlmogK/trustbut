@@ -13,7 +13,7 @@
 
 🧾 *Verified by trustbut: every pull request to this repo carries its own trustbut receipt.*
 
-[Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Why](#why-im-building-this) · [Install](#install) · [Languages](#supported-languages-and-test-runners) · [Usage](#usage) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
 
@@ -21,7 +21,7 @@
 
 trustbut is a local command-line tool that produces a **receipt** for any change an AI coding agent makes. It reruns your tests from scratch, checks whether the agent's new tests actually prove anything, and flags skipped tests, deleted assertions and silenced type checks. Then it gives you a **PASS / WARN / FAIL** verdict you can read in 30 seconds.
 
-It works with **any agent** (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) because it only needs git and your test runner. No LLM, no server, no account. Your code never leaves your machine.
+It works with **any agent** (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) and **every major language** (JavaScript/TypeScript, Python, Go, Rust, Java, Kotlin, C#, Ruby, PHP, Dart/Flutter and Swift) because it only needs git and your test runner. No LLM, no server, no account. Your code never leaves your machine.
 
 ```console
 $ npx github:isAlmogK/trustbut verify
@@ -66,7 +66,7 @@ So I want something **independent, deterministic and local**: evidence, not opin
 > [!NOTE]
 > trustbut is in early alpha and **not on npm yet**. Until the first release, run it straight from GitHub; the build happens automatically.
 
-**Requirements:** Node.js 22 or newer, git, and a repository that uses **Vitest** or **pytest** (Jest is next).
+**Requirements:** Node.js 22 or newer, git, and a repository with tests in one of the [supported languages and test runners](#supported-languages-and-test-runners), or any runner that can write JUnit XML. The toolchain of your project (Go, Cargo, Maven, .NET, Composer, …) must be installed, as it is when you run the tests yourself.
 
 **Run without installing (recommended):**
 
@@ -94,10 +94,11 @@ Once it's published, `npx trustbut verify` will work too.
 
 ## Usage
 
-Run it in your repository after an agent finishes and the changes are committed:
+Run it in your repository after an agent finishes:
 
 ```bash
-trustbut verify
+trustbut verify            # the committed work on your branch
+trustbut verify --working  # uncommitted work too (tracked edits plus untracked files)
 ```
 
 By default trustbut compares your branch with the point where it split off `main` (or `master`), the same way a GitHub pull request shows its diff.
@@ -109,8 +110,15 @@ By default trustbut compares your branch with the point where it split off `main
 trustbut verify --base develop
 trustbut verify --base HEAD~3
 
+# Verify uncommitted work (the agent hasn't committed yet)
+trustbut verify --working
+
 # Faster: rerun only the new and changed test files at head
 trustbut verify --quick
+
+# The tests live in a subfolder, or the config lives outside the repo
+trustbut verify --root services/api
+trustbut verify --config ~/configs/myapp.trustbut.json
 
 # Gate a script or CI job on warnings as well as failures
 trustbut verify --strict
@@ -124,8 +132,11 @@ trustbut verify --json > receipt.json
 | Option | Description | Default |
 |---|---|---|
 | `-b, --base <ref>` | Base branch or commit, compared from its merge-base with head | `origin/main`, `main`, `origin/master` or `master` |
-| `--head <ref>` | The commit to verify | `HEAD` |
-| `--runner <name>` | Force a test runner: `vitest` or `pytest` | detected automatically |
+| `--head <ref>` | The commit to verify (not with `--working`) | `HEAD` |
+| `--working` | Verify uncommitted work: tracked edits plus untracked, non-ignored files, snapshotted without touching your index | off |
+| `--runner <name>` | Force a test runner, any name from the [table below](#supported-languages-and-test-runners) | detected automatically |
+| `--root <dir>` | Package folder to run the tests in, relative to the repo root (overrides `root` in the config) | `.` |
+| `--config <path>` | Use this config file instead of `.trustbut.json` at head; it may live outside the repo | `.trustbut.json` |
 | `--quick` | At head, rerun only the new and changed test files | off (full suite) |
 | `--strict` | Exit with `1` on WARN as well as FAIL | off |
 | `--json` | Print the receipt as JSON instead of Markdown | off |
@@ -140,7 +151,111 @@ trustbut verify --json > receipt.json
 | — | Usage or runtime error, e.g. an unknown ref or option | `2` |
 
 > [!TIP]
-> trustbut only looks at **committed** changes. If you have uncommitted work, the receipt says so. Commit first (or let your agent commit) to include it.
+> By default trustbut only looks at **committed** changes. If you have uncommitted work, the receipt says so. Commit first, or pass `--working` to include it.
+
+## Supported languages and test runners
+
+trustbut picks the runner by looking at the package folder (the repo root, or `root` / `--root`). If several match, the most specific one wins; force one with `--runner <name>` or `"runner"` in the config.
+
+| Runner | Language | Detected by | Runs | Notes |
+|---|---|---|---|---|
+| `vitest` | JS / TS | `vitest` dependency, or `vitest.config.*` / `vitest.workspace.*` | `vitest run --reporter=junit` | Wins over Jest when both are present |
+| `jest` | JS / TS | `jest` dependency or config, `jest.config.*`, or a `jest-expo` / `react-native` preset | `jest --ci --json --runTestsByPath <files>` | Works for Expo and React Native apps |
+| `mocha` | JS / TS | `mocha` dependency or `.mocharc.*` | `mocha --reporter json` | |
+| `node-test` | JS / TS | `scripts.test` in `package.json` uses `node --test` | `node --test` | Uses the built-in `node:test` runner |
+| `pytest` | Python | `pytest.ini`, `conftest.py`, `tox.ini`, or `[tool.pytest` in `pyproject.toml` | `python -m pytest -q --junitxml` | Uses the checkout's `.venv` / `venv` if present |
+| `go` | Go | `go.mod` | `go test -json -count=1 ./...` | Add `"args": ["-p", "1"]` for packages that share a database or emulator |
+| `cargo` | Rust | `Cargo.toml` | `cargo nextest run` if installed, else `cargo test --no-fail-fast` | Also checks `#[cfg(test)]` modules in source files |
+| `maven` | Java / Kotlin | `pom.xml` (the `mvnw` wrapper is preferred) | `mvn -B test` (Surefire reports) | |
+| `gradle` | Java / Kotlin | `build.gradle(.kts)` or `settings.gradle(.kts)` (the `gradlew` wrapper is preferred) | `gradle test --continue` | |
+| `dotnet` | C# | a `.sln`, `.slnx`, `.csproj` or `.fsproj` in the root | `dotnet test` (TRX results) | With several projects it prefers the solution file |
+| `rspec` | Ruby | `.rspec`, or `spec/` plus `rspec` in the `Gemfile` | `bundle exec rspec --format json` | Plain `rspec` when there is no Gemfile |
+| `phpunit` | PHP | `phpunit.xml(.dist)`, or `phpunit/phpunit` in `composer.json` | `vendor/bin/phpunit --log-junit` | Runs `composer install` in the temporary checkout, since `vendor/` isn't tracked |
+| `dart` | Dart | `pubspec.yaml` with a `test` dev dependency | `dart test --reporter json` | Runs `dart pub get` first when `.dart_tool` is missing |
+| `flutter` | Dart / Flutter | `pubspec.yaml` with the Flutter SDK | `flutter test --machine` | |
+| `swift` | Swift | `Package.swift` | `swift test --parallel --verbose --xunit-output` | Swift Package Manager projects |
+| `command` | anything | never detected; chosen with `command` in the config | your command | See below |
+
+All runners report through JUnit-style results, so each language gets the same fail-before / pass-after proof.
+
+### Any other runner: the `command` runner
+
+If your tests run through something not listed, point trustbut at a command that writes **JUnit XML**:
+
+```json
+{
+  "command": "bundle exec minitest-reporters-runner {files} --junit",
+  "junit": "test/reports/junit.xml"
+}
+```
+
+`{files}` is replaced with the quoted changed test files (and with nothing for a full run). Without `junit`, trustbut reads the command's stdout if it is JUnit XML. Setting `command` selects the `command` runner automatically.
+
+## Configuration (`.trustbut.json`)
+
+Everything is optional; most projects need no config at all. Put `.trustbut.json` in the repo root. trustbut reads it **as committed at head** (so the version under review is the one used), then falls back to the working-tree file. `--config <file>` uses a different file instead, which can live outside the repo. Unknown keys and wrong types are errors (exit code `2`) that list the allowed keys.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `root` | string | `"."` | Package folder relative to the repo root. Runners are detected and run there, and only changed test files under it are rerun. Must stay inside the repo. `--root` overrides it. |
+| `runner` | string | detected | Force a runner from the table above. `--runner` overrides it. |
+| `command` | string | none | The `command` runner: shell command to run. `{files}` becomes the quoted test files (nothing for a full run). |
+| `junit` | string | none | The `command` runner: JUnit XML file the command writes, relative to `root`. |
+| `setup` | string | none | Shell command started in the background before **each** test run (for example an emulator or database), and always killed afterwards. If it exits non-zero before the tests start, the run stops with exit code `2`. |
+| `setupReadyPattern` | regex string | none | Tests start as soon as `setup` prints a line matching this (stdout or stderr). |
+| `setupWaitSec` | number ≥ 0 | `5` | How long to wait for `setup`; with `setupReadyPattern` it is the maximum wait. |
+| `env` | object of strings | none | Extra environment variables for every test run and for `setup`. |
+| `args` | string[] | none | Extra arguments appended to the runner's command, before the test files. |
+| `timeoutSec` | number > 0 | `900` | Time limit for each test run. |
+
+### Examples
+
+**1. A Go backend with a Firebase emulator, in a subfolder**
+
+```json
+{
+  "root": "backend",
+  "args": ["-p", "1"],
+  "setup": "firebase emulators:start --only firestore,auth",
+  "setupReadyPattern": "All emulators ready",
+  "setupWaitSec": 90,
+  "env": { "FIRESTORE_EMULATOR_HOST": "127.0.0.1:8080" }
+}
+```
+
+`-p 1` runs packages one at a time so they don't fight over the emulator. The emulator is started before the head run and again before the base run, and always shut down.
+
+**2. An Expo / React Native app with Jest**
+
+```json
+{
+  "runner": "jest",
+  "args": ["--silent"]
+}
+```
+
+Usually you don't need any config: `jest-expo` and `react-native` presets are detected. Dependencies are linked from your checkout, so there's no reinstall.
+
+**3. Vitest in a `functions/` subfolder**
+
+```json
+{ "root": "functions" }
+```
+
+Or skip the file and run `trustbut verify --root functions`.
+
+**4. Any other tool, through the `command` runner**
+
+```json
+{
+  "command": "./scripts/run-tests.sh {files}",
+  "junit": "build/test-results/junit.xml",
+  "timeoutSec": 1800
+}
+```
+
+> [!WARNING]
+> `command` and `setup` are shell commands that run as part of verification, from the config at head, just like a changed `test` script in `package.json` would. Only verify code you'd be willing to run.
 
 ## What it checks
 
@@ -164,8 +279,8 @@ This is the core idea. Every new or changed test also runs against the **base** 
 
 | Finding | Severity |
 |---|---|
-| Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`) | ✖️ FAIL |
-| Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `@unittest.skip`, `pytest.skip()`, `self.skipTest()`) | ⚠️ WARN |
+| Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`, RSpec `focus: true`, Dart `solo: true`) | ✖️ FAIL |
+| Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `t.Skip()`, `#[ignore]`, `@Disabled`, `[Ignore]`, `markTestSkipped`, `XCTSkip`, `skip:` …) | ⚠️ WARN |
 | Tests removed (net count) | ⚠️ WARN |
 | Assertions removed (net count, including `self.assertEqual` style) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
@@ -176,12 +291,21 @@ This is the core idea. Every new or changed test also runs against the **base** 
 
 New lines that silence the type checker, linter or coverage:
 
-| Language | Flagged |
-|---|---|
-| TypeScript / JavaScript | `as any`, `: any`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `eslint-disable`, `istanbul` / `c8` / `v8 ignore` |
-| Python | `# type: ignore`, `# noqa`, `# pragma: no cover` |
+| Language | Skip / focus markers | Escapes flagged |
+|---|---|---|
+| TypeScript / JavaScript | `.only`, `fit`, `fdescribe` (FAIL); `.skip`, `.todo`, `xit`, `xdescribe` | `as any`, `: any`, `@ts-ignore`, `@ts-nocheck`, `@ts-expect-error`, `eslint-disable`, `istanbul` / `c8` / `v8 ignore` |
+| Python | `@pytest.mark.skip` / `skipif` / `xfail`, `@unittest.skip`, `pytest.skip()`, `self.skipTest()` | `# type: ignore`, `# noqa`, `# pragma: no cover` |
+| Go | `t.Skip()`, `t.SkipNow()`, `t.Skipf()` | `//nolint`, `//lint:ignore`, `//go:build ignore`, `unsafe.*` |
+| Rust | `#[ignore]` | `#[allow(…)]`, `#[expect(…)]`, `unsafe` blocks |
+| Java | `@Disabled`, `@Ignore` | `@SuppressWarnings`, `@SuppressFBWarnings`, `NOPMD`, `CHECKSTYLE:OFF` |
+| Kotlin | `@Disabled`, `@Ignore` | `@Suppress`, `@SuppressLint`, `ktlint-disable` |
+| C# | `[Ignore]`, `[Explicit]`, `Skip =`, `Assert.Ignore()` | `#pragma warning disable`, `SuppressMessage`, `#nullable disable`, `ExcludeFromCodeCoverage` |
+| Ruby | `focus: true` / `:focus` and `fit` (FAIL); `skip`, `pending`, `xit` | `rubocop:disable`, `:nocov:` |
+| PHP | `markTestSkipped()`, `markTestIncomplete()`, Pest `->skip()` / `->todo()` | `@phpstan-ignore`, `@psalm-suppress`, `phpcs:ignore`, `@codeCoverageIgnore`, `@` error suppression |
+| Dart | `solo: true` (FAIL); `skip: true` / a reason string, `@Skip` | `// ignore:`, `// ignore_for_file:`, `coverage:ignore-*` |
+| Swift | `XCTSkip`, `XCTSkipIf`, `.disabled(…)` | `swiftlint:disable`, `@unchecked Sendable` |
 
-Checks look at real code and comments only, so a string or regex that merely *mentions* `it.only` doesn't trigger a false alarm.
+Checks look at real code and comments only, so a string or regex that merely *mentions* `it.only` doesn't trigger a false alarm. Removed tests and assertions are counted per language too (`@Test`, `func Test…`, `#[test]`, `assert_eq!`, `Assert.*`, …).
 
 ### 5. Review these first
 
@@ -215,7 +339,7 @@ jobs:
         run: npx github:isAlmogK/trustbut verify --base "origin/${BASE_REF}" | tee -a "$GITHUB_STEP_SUMMARY"
 ```
 
-A dedicated GitHub Action that posts the receipt as a PR comment is on the [roadmap](docs/ROADMAP.md).
+The example uses Node because trustbut does; add your own language's `setup-*` step and dependency install (for example `actions/setup-go`) before the trustbut step, and a `.trustbut.json` in the repo if your tests need setup. A dedicated GitHub Action that posts the receipt as a PR comment is on the [roadmap](docs/ROADMAP.md).
 
 ## How it works
 
@@ -231,8 +355,8 @@ flowchart LR
     F --> G
 ```
 
-- **Throwaway worktrees.** Both runs happen in temporary `git worktree`s that are always removed afterwards. Your working directory is never touched. Dependencies (`node_modules`, `.venv`) are linked from your checkout instead of reinstalled.
-- **JUnit everywhere.** Runners report through JUnit XML, so adding a new runner is a small adapter.
+- **Throwaway worktrees.** Both runs happen in temporary `git worktree`s that are always removed afterwards. Your working directory is never touched. Dependencies (`node_modules`, `.venv`) are linked from your checkout instead of reinstalled; other toolchains (Go, Cargo, Maven, …) use their usual caches.
+- **Runner and language registries.** Each runner is a small adapter that turns a test command into per-test results, and each language declares how to read its comments, strings and test markers. Adding either is one file.
 - **Deterministic.** The same commits give the same receipt. There's no model, no sampling and no network call in the core.
 
 ## FAQ
@@ -275,10 +399,10 @@ From "trust, but verify." Agents are genuinely useful, so keep trusting them, bu
 
 ## Roadmap
 
-- **v0.2:** a Claude Code panel that shows the receipt when the agent finishes a turn, and `trustbut ui`, a local web view with the receipt beside the diff
-- **v0.3:** read agent transcripts and check claims like "tests pass" against what actually ran
-- **v0.4:** GitHub Action with PR comments, a VS Code / Cursor extension, and Jest support
-- **Later:** mutation testing on changed lines, and `trustbut compare` to score several agents' attempts at the same task
+- **v0.2 (done, in review):** every language, a runner registry and `.trustbut.json`, `--working`
+- **v0.3:** GitHub Action with PR comments, hooks that stop an agent from saying "done" on a red receipt, npm release
+- **v0.4:** the receipt format as an open spec
+- **Later:** transcripts and claim checks, mutation testing on changed lines, `trustbut compare`, a local web UI
 
 See the full [roadmap](docs/ROADMAP.md) and the [design spec](docs/SPEC.md).
 
