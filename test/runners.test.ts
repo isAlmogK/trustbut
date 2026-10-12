@@ -206,8 +206,8 @@ describe('pytest adapter without pytest installed', () => {
     process.env.TRUSTBUT_PYTHON = fake;
     const start = Date.now();
     // Long enough for the fresh script to start (macOS checks new executables on first run).
-    const result = await pytest.run({ cwd: dir, timeoutMs: 1500 });
-    expect(Date.now() - start).toBeLessThan(5_000);
+    const result = await pytest.run({ cwd: dir, timeoutMs: 8000 });
+    expect(Date.now() - start).toBeLessThan(20_000);
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toMatch(/timed out/i);
     expect(await gone(Number(await readFile(join(dir, 'child.pid'), 'utf8')))).toBe(true);

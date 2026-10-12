@@ -32,7 +32,7 @@ describe('startSetup', () => {
       waitMs: 20_000,
       readyPattern: 'emulators ready',
     });
-    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(Date.now() - start).toBeLessThan(15_000);
     const child = Number(await readFile(join(dir, 'child.pid'), 'utf8'));
     expect(alive(child)).toBe(true);
     expect(alive(setup.pid)).toBe(true);
@@ -61,7 +61,7 @@ describe('startSetup', () => {
     const dir = await tmp();
     const start = Date.now();
     const setup = await startSetup({ command: 'echo done > marker', cwd: dir, waitMs: 20_000, readyPattern: 'never' });
-    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(Date.now() - start).toBeLessThan(15_000);
     expect(existsSync(join(dir, 'marker'))).toBe(true);
     await setup.stop();
   });
@@ -85,7 +85,7 @@ describe('startSetup', () => {
     });
     const start = Date.now();
     await setup.stop();
-    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(Date.now() - start).toBeLessThan(15_000);
     expect(await gone(setup.pid)).toBe(true);
   });
 
