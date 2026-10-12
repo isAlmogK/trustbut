@@ -83,7 +83,10 @@ export function renderMarkdown(r: Receipt): string {
 export const AGENT_FEEDBACK_MAX = 6000;
 const AGENT_MAX_LINE = 400;
 const AGENT_MAX_WARN = 10;
-const RECHECK = 'Fix these and finish again; run `trustbut verify --working` to check.';
+/** The default way to recheck: the same command the hook runs, in the terminal. */
+export const DEFAULT_RECHECK = 'trustbut verify --working';
+const OUTPUT_LINES = 20;
+const OUTPUT_MAX = 1500;
 
 const clip = (s: string, max = AGENT_MAX_LINE): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
@@ -95,12 +98,36 @@ function agentFinding(f: Finding): string {
 
 const more = (n: number, what: string): string => `- and ${n} more ${what}${n === 1 ? '' : 's'}`;
 
+export interface AgentFeedbackOptions {
+  /** Command the agent should run to recheck; default `trustbut verify --working`. */
+  recheck?: string;
+  maxChars?: number;
+}
+
+/** The last lines (at most 20 and 1,500 characters) of a run's output, without colour codes. */
+export function outputTail(output: string): string {
+  // eslint-disable-next-line no-control-regex
+  const lines = output.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').replace(/\s+$/, '').split(/\r?\n/).slice(-OUTPUT_LINES);
+  while (lines.length > 1 && lines.join('\n').length > OUTPUT_MAX) lines.shift();
+  const text = lines.join('\n');
+  return text.length > OUTPUT_MAX ? text.slice(-OUTPUT_MAX) : text;
+}
+
+/** A fenced code block whose fence is longer than any backtick run inside. */
+function fenced(text: string): string {
+  const longest = (text.match(/`+/g) ?? []).reduce((m, run) => Math.max(m, run.length), 0);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}\n${text}\n${fence}`;
+}
+
 /**
  * Feedback for an agent whose turn-end hook got a FAIL: plain Markdown of at most `maxChars`
- * characters (FAIL findings, failing tests, warnings, how to recheck, the full receipt's path).
- * Agent-written text is flattened to one line per item but not escaped: it goes back to the agent, not to a PR.
+ * characters: FAIL findings, failing tests with the runner's messages, the end of the test output
+ * when the suite fails, warnings, how to recheck and the full receipt's path. Agent-written text is
+ * flattened to one line per item but not escaped: it goes back to the agent, not to a PR.
  */
-export function renderForAgent(r: Receipt, receiptPath: string | undefined, maxChars = AGENT_FEEDBACK_MAX): string {
+export function renderForAgent(r: Receipt, receiptPath: string | undefined, opts: AgentFeedbackOptions = {}): string {
+  const { recheck = DEFAULT_RECHECK, maxChars = AGENT_FEEDBACK_MAX } = opts;
   const head: string[] = [`trustbut verdict: ${r.verdict.toUpperCase()}`, ''];
   if (r.after) {
     const t = tally(r.after);
@@ -110,29 +137,35 @@ export function renderForAgent(r: Receipt, receiptPath: string | undefined, maxC
     head.push('Tests: not run');
   }
 
+  // Each entry is one item; an item may span lines (the output block) and is kept or dropped whole.
   const body: string[] = [];
-  const fails = r.findings.filter((f) => f.severity === 'fail');
-  if (fails.length) body.push('', '### Must fix', ...fails.map(agentFinding));
   const failing = failingCases(r);
+  // A changed test that fails at head is also in the failing tests below; list it once.
+  const fails = r.findings.filter((f) => f.severity === 'fail' && !(failing.length && f.id === 'test-failing'));
+  if (fails.length) body.push('', '### Must fix', ...fails.map(agentFinding));
   if (failing.length) {
     body.push('', '### Failing tests');
-    for (const c of failing.slice(0, MAX_FAILING)) body.push(clip(`- ${c.file ? `${code(c.file)} › ` : ''}${oneLine(c.name)}`));
+    for (const c of failing.slice(0, MAX_FAILING)) {
+      body.push(clip(`- ${c.file ? `${code(c.file)} › ` : ''}${oneLine(c.name)}${c.message ? `: ${oneLine(c.message)}` : ''}`));
+    }
     if (failing.length > MAX_FAILING) body.push(more(failing.length - MAX_FAILING, 'failing test'));
   }
+  const tail = r.findings.some((f) => f.id === 'suite-failing') && r.after ? outputTail(r.after.output) : '';
+  if (tail) body.push('', '### Test output (last lines)', fenced(tail));
   const warns = r.findings.filter((f) => f.severity === 'warn');
   if (warns.length) {
     body.push('', '### Warnings', ...warns.slice(0, AGENT_MAX_WARN).map(agentFinding));
     if (warns.length > AGENT_MAX_WARN) body.push(more(warns.length - AGENT_MAX_WARN, 'warning'));
   }
 
-  const where = receiptPath ? `Full receipt: ${code(receiptPath)}` : 'Full receipt: not written (run `trustbut verify --working` to see it)';
-  const footer = ['', RECHECK, clip(where, 1000)];
+  const where = receiptPath ? `Full receipt: ${code(receiptPath)}` : `Full receipt: not written (run ${code(recheck)} to see it)`;
+  const footer = ['', `Fix these and finish again; run ${code(recheck)} to check.`, clip(where, 1000)];
   const join = (lines: string[]) => `${lines.join('\n')}\n`;
   const full = join([...head, ...body, ...footer]);
   if (full.length <= maxChars) return full;
-  // Too long: drop body lines from the end and say how many were left out.
+  // Too long: drop items from the end and say how many lines were left out.
   for (let keep = body.length - 1; keep >= 0; keep--) {
-    const cut = body.length - keep;
+    const cut = body.slice(keep).reduce((n, item) => n + item.split('\n').length, 0);
     const out = join([...head, ...body.slice(0, keep), `- … ${cut} more line${cut === 1 ? '' : 's'} not shown; see the full receipt`, ...footer]);
     if (out.length <= maxChars) return out;
   }

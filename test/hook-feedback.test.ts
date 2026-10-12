@@ -34,7 +34,6 @@ describe('renderForAgent', () => {
         '',
         '### Must fix',
         '- Test suite fails at head (clean checkout): exit code 1',
-        '- Test fails at head · `test/lib.test.js`: lib > works',
         "- Test focused (other tests will not run) · `test/a.test.js:3`: it.only('x', () => {})",
         '',
         '### Failing tests',
@@ -71,11 +70,38 @@ describe('renderForAgent', () => {
   it(`stays within ${AGENT_FEEDBACK_MAX} characters, keeping the instruction and the receipt path`, () => {
     expect(AGENT_FEEDBACK_MAX).toBe(6000);
     const fails: Finding[] = Array.from({ length: 60 }, (_, i) => ({ id: 'test-focused', severity: 'fail', title: `Test focused ${i}`, file: 'test/a.test.js', line: i, detail: 'y'.repeat(150) }));
-    const out = renderForAgent(receipt(fails), '/repo/.git/trustbut/last-receipt.md');
+    const out = renderForAgent(receipt(fails), '/repo/.git/trustbut/last-receipt.md', {});
     expect(out.length).toBeLessThanOrEqual(AGENT_FEEDBACK_MAX);
     expect(out).toMatch(/\n- … \d+ more lines not shown; see the full receipt\n\nFix these and finish again; run `trustbut verify --working` to check\.\nFull receipt: `\/repo\/\.git\/trustbut\/last-receipt\.md`\n$/);
     expect(out).toContain('Test focused 0 ');
     expect(out).not.toContain('Test focused 59 ');
+  });
+
+  it("adds the runner's failure messages and the end of the test output, in a safe fence", () => {
+    const output = [...Array.from({ length: 30 }, (_, i) => `line ${i}`), '\u001b[31m```danger```\u001b[0m', ''].join('\n');
+    const r = receipt(
+      [{ id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' }],
+      { exitCode: 1, durationMs: 1, output, cases: [{ ...tc('adds', 'fail'), message: 'expected 5, got -1' }] },
+    );
+    const out = renderForAgent(r, '/r.md');
+    expect(out).toContain('### Failing tests\n- `test/lib.test.js` › adds: expected 5, got -1\n');
+    expect(out).toContain('### Test output (last lines)\n````\nline 11\n');
+    expect(out).toContain('line 29\n```danger```\n````\n');
+    expect(out).not.toContain('line 10\n');
+  });
+
+  it('caps the output tail at 1,500 characters', () => {
+    const output = Array.from({ length: 20 }, (_, i) => `${i}`.padEnd(200, 'z')).join('\n');
+    const r = receipt([{ id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)' }], { exitCode: 1, durationMs: 1, output, cases: [] });
+    const block = renderForAgent(r, '/r.md').split('```\n')[1]!;
+    expect(block.length).toBeLessThanOrEqual(1500);
+    expect(block.startsWith('13')).toBe(true);
+  });
+
+  it('uses the given recheck command', () => {
+    const out = renderForAgent(failReceipt(), undefined, { recheck: 'trustbut verify --working --quick --base origin/develop' });
+    expect(out).toContain('\nFix these and finish again; run `trustbut verify --working --quick --base origin/develop` to check.\n');
+    expect(out).toContain('\nFull receipt: not written (run `trustbut verify --working --quick --base origin/develop` to see it)\n');
   });
 
   it('says when the full receipt could not be written', () => {
