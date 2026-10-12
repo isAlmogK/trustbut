@@ -19,6 +19,26 @@ describe('classify', () => {
     ['.coveragerc', 'test-config'],
     ['tests/fixtures/data.json', 'other'],
     ['README.md', 'other'],
+    // trustbut's own config decides what is run and how
+    ['.trustbut.json', 'test-config'],
+    // test runner configs beyond JS/Python
+    ['phpunit.xml', 'test-config'],
+    ['phpunit.xml.dist', 'test-config'],
+    ['phpunit.dist.xml', 'test-config'],
+    ['.mocharc.js', 'test-config'],
+    ['.mocharc.yml', 'test-config'],
+    ['.mocharc.json', 'test-config'],
+    ['.rspec', 'test-config'],
+    ['jest.config.json', 'test-config'],
+    ['jest.config.mts', 'test-config'],
+    ['jest.config.cts', 'test-config'],
+    ['dart_test.yaml', 'test-config'],
+    ['.config/nextest.toml', 'test-config'],
+    ['tests/unit.runsettings', 'test-config'],
+    ['App.Tests/xunit.runner.json', 'test-config'],
+    ['karma.conf.js', 'test-config'],
+    ['karma.conf.cjs', 'test-config'],
+    ['playwright.config.ts', 'source'],
   ])('%s → %s', (path, kind) => {
     expect(classify(path)).toBe(kind);
   });

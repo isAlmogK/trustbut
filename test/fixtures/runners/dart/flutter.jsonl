@@ -1,0 +1,27 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":62794,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/work/pkg/test/calc_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /work/pkg/test/calc_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"suite":{"id":2,"platform":"vm","path":"/work/pkg/test/broken_test.dart"},"type":"suite","time":10}
+{"test":{"id":3,"name":"loading /work/pkg/test/broken_test.dart","suiteID":2,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":10}
+{"count":2,"time":11,"type":"allSuites"}
+
+[{"event":"test.startedProcess","params":{"vmServiceUri":null,"observatoryUri":null}}]
+{"testID":3,"error":"Failed to load \"/work/pkg/test/broken_test.dart\": Compilation failed for testPath=/work/pkg/test/broken_test.dart","stackTrace":"","isFailure":false,"type":"error","time":1732}
+{"testID":3,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":1738}
+{"testID":1,"error":"Error: the Dart compiler exited unexpectedly.","stackTrace":"package:flutter_tools/src/base/common.dart 10:3  throwToolExit\npackage:flutter_tools/src/compile.dart 898:9     DefaultResidentCompiler._compile.<fn>\ndart:async/zone.dart 1407:47                     _rootRunUnary\ndart:async/zone.dart 1308:19                     _CustomZone.runUnary\ndart:async/future_impl.dart 847:45               Future._propagateToListeners.handleValueCallback\ndart:async/future_impl.dart 876:13               Future._propagateToListeners\ndart:async/future_impl.dart 772:9                Future._propagateToListeners\ndart:async/future_impl.dart 652:5                Future._completeWithValue\ndart:async/future_impl.dart 722:7                Future._asyncCompleteWithValue.<fn>\ndart:async/zone.dart 1399:13                     _rootRun\ndart:async/zone.dart 1301:19                     _CustomZone.run\ndart:async/zone.dart 1209:7                      _CustomZone.runGuarded\ndart:async/zone.dart 1249:23                     _CustomZone.bindCallbackGuarded.<fn>\ndart:async/schedule_microtask.dart 40:21         _microtaskLoop\ndart:async/schedule_microtask.dart 49:5          _startMicrotaskLoop\ndart:isolate-patch/isolate_patch.dart 118:13     _runPendingImmediateCallback\ndart:isolate-patch/isolate_patch.dart 185:5      _RawReceivePort._handleMessage\n","isFailure":false,"type":"error","time":1767}
+{"testID":1,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":2588}
+{"group":{"id":4,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":5,"line":null,"column":null,"url":null},"type":"group","time":2591}
+{"test":{"id":5,"name":"top level","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":5,"column":3,"url":"file:///work/pkg/test/calc_test.dart"},"type":"testStart","time":2592}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2630}
+{"group":{"id":6,"suiteID":0,"parentID":4,"name":"Calc","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":6,"column":3,"url":"file:///work/pkg/test/calc_test.dart"},"type":"group","time":2631}
+{"test":{"id":7,"name":"Calc adds","suiteID":0,"groupIDs":[4,6],"metadata":{"skip":false,"skipReason":null},"line":7,"column":5,"url":"file:///work/pkg/test/calc_test.dart"},"type":"testStart","time":2631}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2635}
+{"test":{"id":8,"name":"Calc fails","suiteID":0,"groupIDs":[4,6],"metadata":{"skip":false,"skipReason":null},"line":8,"column":5,"url":"file:///work/pkg/test/calc_test.dart"},"type":"testStart","time":2636}
+{"testID":8,"error":"Expected: <6>\n  Actual: <5>\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 474:18  expect\ntest/calc_test.dart 8:25                            main.<fn>.<fn>\n","isFailure":true,"type":"error","time":2665}
+{"testID":8,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":2666}
+{"test":{"id":9,"name":"Calc skipped","suiteID":0,"groupIDs":[4,6],"metadata":{"skip":true,"skipReason":"later"},"line":9,"column":5,"url":"file:///work/pkg/test/calc_test.dart"},"type":"testStart","time":2666}
+{"testID":9,"messageType":"skip","message":"Skip: later","type":"print","time":2667}
+{"testID":9,"result":"success","skipped":true,"hidden":false,"type":"testDone","time":2667}
+{"test":{"id":10,"name":"widget","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":165,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":11,"root_column":3,"root_url":"file:///work/pkg/test/calc_test.dart"},"type":"testStart","time":2668}
+{"testID":10,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3008}
+{"success":false,"type":"done","time":3031}

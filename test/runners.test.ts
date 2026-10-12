@@ -1,15 +1,15 @@
-import { execaSync } from 'execa';
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { detectRunner } from '../src/runners/detect.js';
+import { RUNNERS, detectRunner, getRunner } from '../src/runners/registry.js';
 import { parseJUnit } from '../src/runners/junit.js';
 import { pytest } from '../src/runners/pytest.js';
 import { vitest } from '../src/runners/vitest.js';
 import { linkNodeModules, makeRepo } from './helpers/repo.js';
+import { hasTool, requiredTools } from './helpers/toolchain.js';
 
-const hasPytest = execaSync('python3', ['-m', 'pytest', '--version'], { reject: false }).exitCode === 0;
+const hasPytest = hasTool('python3', ['-m', 'pytest', '--version']) || requiredTools().has('pytest');
 
 describe('parseJUnit', () => {
   it('parses vitest-style output', () => {
@@ -54,6 +54,42 @@ describe('detectRunner', () => {
 
     const none = await mkdtemp(join(tmpdir(), 'ar-detect-'));
     expect(await detectRunner(none)).toBeNull();
+  });
+});
+
+describe('runner registry', () => {
+  it('registers vitest, jest, mocha, node-test, pytest, go, cargo, dotnet, phpunit, maven, gradle, rspec, dart, flutter, swift and the generic command runner', () => {
+    expect(RUNNERS.map((r) => r.name)).toEqual(['vitest', 'jest', 'mocha', 'node-test', 'pytest', 'go', 'cargo', 'dotnet', 'phpunit', 'maven', 'gradle', 'rspec', 'dart', 'flutter', 'swift', 'command']);
+  });
+
+  it('looks runners up by name and lists the supported ones for an unknown name', () => {
+    expect(getRunner('pytest')).toBe(pytest);
+    expect(() => getRunner('nope')).toThrow('Unknown runner: nope. Supported: vitest, jest, mocha, node-test, pytest, go, cargo, dotnet, phpunit, maven, gradle, rspec, dart, flutter, swift, command');
+  });
+
+  it('scores detection: 10 for a vitest dependency or config, 10 for pytest config, 0 otherwise', async () => {
+    const js = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(js, 'package.json'), JSON.stringify({ dependencies: { vitest: '^3' } }));
+    expect(await vitest.detect(js)).toBe(10);
+    expect(await pytest.detect(js)).toBe(0);
+
+    for (const f of ['pytest.ini', 'conftest.py', 'tox.ini']) {
+      const py = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+      await writeFile(join(py, f), '');
+      expect(await pytest.detect(py)).toBe(10);
+      expect(await vitest.detect(py)).toBe(0);
+    }
+    const noPytest = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(noPytest, 'pyproject.toml'), '[tool.black]\n');
+    expect(await pytest.detect(noPytest)).toBe(0);
+    expect(await getRunner('command').detect(noPytest)).toBe(0);
+  });
+
+  it('prefers the first registered runner on a tie', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-detect-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ devDependencies: { vitest: '^3' } }));
+    await writeFile(join(dir, 'pytest.ini'), '[pytest]\n');
+    expect((await detectRunner(dir))?.name).toBe('vitest');
   });
 });
 
@@ -104,6 +140,19 @@ describe.skipIf(!hasPytest)('pytest runner', () => {
   });
 });
 
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+async function gone(pid: number): Promise<boolean> {
+  for (let i = 0; i < 60 && alive(pid); i += 1) await new Promise((r) => setTimeout(r, 50));
+  return !alive(pid);
+}
+
 describe('pytest adapter without pytest installed', () => {
   const saved = process.env.TRUSTBUT_PYTHON;
   const savedPath = process.env.PYTHONPATH;
@@ -135,6 +184,59 @@ describe('pytest adapter without pytest installed', () => {
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
   });
 
+  it('appends config args before the files and passes config env', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(tools, 'fake-python');
+    await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > "${tools}/args"\nprintf '%s' "$EXTRA" > "${tools}/extra"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    await pytest.run({ cwd, files: ['tests/test_a.py'], args: ['-x', '--tb=short'], env: { EXTRA: 'yes' } });
+    const args = (await readFile(join(tools, 'args'), 'utf8')).trim().split('\n');
+    expect(args.slice(-3)).toEqual(['-x', '--tb=short', 'tests/test_a.py']);
+    expect(await readFile(join(tools, 'extra'), 'utf8')).toBe('yes');
+  });
+
+  it('stops a run that exceeds the timeout, including processes it started', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const fake = join(dir, 'fake-python');
+    // Not exec: sleep is a grandchild that holds the output pipe open.
+    await writeFile(fake, `#!/bin/sh\nsleep 31 &\necho $! > "${dir}/child.pid"\nsleep 30\ntrue\n`);
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    const start = Date.now();
+    // Long enough for the fresh script to start (macOS checks new executables on first run).
+    const result = await pytest.run({ cwd: dir, timeoutMs: 8000 });
+    expect(Date.now() - start).toBeLessThan(20_000);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toMatch(/timed out/i);
+    expect(result.timedOut).toBe(true);
+    expect(await gone(Number(await readFile(join(dir, 'child.pid'), 'utf8')))).toBe(true);
+  });
+
+  it('finds a workspace venv above the package root, up to the worktree top', async () => {
+    const top = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    await mkdir(join(top, '.venv', 'bin'), { recursive: true });
+    await mkdir(join(top, 'packages', 'api'), { recursive: true });
+    const fake = join(top, '.venv', 'bin', 'python');
+    await writeFile(fake, `#!/bin/sh\npwd > "${top}/ran-in"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = join(top, 'no-such-python');
+    const result = await pytest.run({ cwd: join(top, 'packages', 'api'), worktree: top });
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(join(top, 'ran-in'), 'utf8')).toContain('packages/api');
+  });
+
+  it('does not look for a venv above the worktree top', async () => {
+    const outer = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    await mkdir(join(outer, '.venv', 'bin'), { recursive: true });
+    await writeFile(join(outer, '.venv', 'bin', 'python'), '#!/bin/sh\nexit 5\n');
+    await chmod(join(outer, '.venv', 'bin', 'python'), 0o755);
+    await mkdir(join(outer, 'wt', 'pkg'), { recursive: true });
+    process.env.TRUSTBUT_PYTHON = join(outer, 'no-such-python');
+    await expect(pytest.run({ cwd: join(outer, 'wt', 'pkg'), worktree: join(outer, 'wt') })).rejects.toThrow(/Couldn't start .*no-such-python/);
+  });
+
   it('uses just the checkout on PYTHONPATH without src/ or an inherited PYTHONPATH', async () => {
     const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
     const cwd = await mkdtemp(join(tmpdir(), 'ar-py-'));
@@ -144,13 +246,10 @@ describe('pytest adapter without pytest installed', () => {
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe(cwd);
   });
 
-  it('surfaces start-up errors in output', async () => {
+  it('throws a start-up error when python cannot be started', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
     process.env.TRUSTBUT_PYTHON = join(dir, 'no-such-python');
-    const result = await pytest.run({ cwd: dir });
-    expect(result.exitCode).not.toBe(0);
-    expect(result.cases).toEqual([]);
-    expect(result.output).toMatch(/ENOENT|no-such-python/);
+    await expect(pytest.run({ cwd: dir })).rejects.toThrow(/^Couldn't start .*no-such-python: /);
   });
 
   it('normalizes exit code 5 (no tests collected) to 0', async () => {

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="default" tests="8" assertions="6" errors="1" failures="1" skipped="2" time="0.015432">
+    <testsuite name="Tests\CalcTest" file="/work/fx/tests/CalcTest.php" tests="7" assertions="5" errors="1" failures="1" skipped="1" time="0.012345">
+      <testcase name="testAdds" file="/work/fx/tests/CalcTest.php" line="12" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="1" time="0.001234"/>
+      <testcase name="testSubtracts" file="/work/fx/tests/CalcTest.php" line="18" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="1" time="0.002345">
+        <failure type="PHPUnit\Framework\ExpectationFailedException">Tests\CalcTest::testSubtracts
+Failed asserting that 5 matches expected 1.
+
+/work/fx/tests/CalcTest.php:20</failure>
+      </testcase>
+      <testcase name="testLater" file="/work/fx/tests/CalcTest.php" line="24" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="0" time="0.000100">
+        <skipped/>
+      </testcase>
+      <testcase name="testBoom" file="/work/fx/tests/CalcTest.php" line="30" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="0" time="0.000200">
+        <error type="RuntimeException">Tests\CalcTest::testBoom
+RuntimeException: boom
+
+/work/fx/tests/CalcTest.php:31</error>
+      </testcase>
+      <testsuite name="Tests\CalcTest::testSum" tests="2" assertions="2" errors="0" failures="0" skipped="0" time="0.000300">
+        <testcase name="testSum with data set #0" file="/work/fx/tests/CalcTest.php" line="38" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="1" time="0.000150"/>
+        <testcase name="testSum with data set &quot;zero&quot;" file="/work/fx/tests/CalcTest.php" line="38" class="Tests\CalcTest" classname="Tests.CalcTest" assertions="1" time="0.000150"/>
+      </testsuite>
+    </testsuite>
+    <testsuite name="Tests\Sub\ShapeTest" file="/work/fx/tests/Sub/ShapeTest.php" tests="1" assertions="1" errors="0" failures="0" skipped="1" time="0.003087">
+      <testcase name="testArea" file="/work/fx/tests/Sub/ShapeTest.php" line="9" class="Tests\Sub\ShapeTest" classname="Tests.Sub.ShapeTest" assertions="0" time="0.000087">
+        <skipped/>
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

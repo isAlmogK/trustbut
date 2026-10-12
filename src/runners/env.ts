@@ -1,14 +1,18 @@
 // Strip variables that make a nested test runner think it is a worker of ours.
-export function childEnv(): Record<string, string> {
+// `extra` (config env) is applied last.
+export function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (key.startsWith('VITEST') || key === 'NODE_ENV' || key === 'TEST') continue;
+    if (key.startsWith('VITEST') || key === 'NODE_ENV' || key === 'NODE_TEST_CONTEXT' || key === 'TEST') continue;
     env[key] = value;
   }
   env.CI = '1';
-  return env;
+  return { ...env, ...extra };
 }
+
+/** `{ timedOut: true }` when any of the runs hit the time limit, else nothing (keeps receipts unchanged). */
+export const timedOutFlag = (...runs: { timedOut: boolean }[]): { timedOut?: true } => (runs.some((r) => r.timedOut) ? { timedOut: true } : {});
 
 export const tail = (s: string | undefined, max = 4000) => (s ?? '').slice(-max);
 

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { execa } from 'execa';
-import { mkdtemp, readdir, rm, symlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
 import { buildProofs, caseInFile, proveTests } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
-import type { Runner } from '../src/runners/types.js';
+import type { RunOptions, Runner } from '../src/runners/types.js';
 import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
 import { commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 
@@ -55,6 +56,26 @@ describe('buildProofs', () => {
   });
 });
 
+describe('buildProofs with runner-provided leaf names', () => {
+  const any = () => true;
+  it('keeps a new .NET-style test added to an existing class, and drops untouched ones', () => {
+    const f = 'CalcTests.cs';
+    const mk = (method: string, args = ''): TestCaseResult => ({
+      id: `Ns.CalcTests.${method}${args}`, file: 'Ns.CalcTests', name: `Ns.CalcTests.${method}${args}`, outcome: 'pass', leaf: method,
+    });
+    const cases = [mk('Old'), mk('NewOne', '(a: 1)')];
+    const proofs = buildProofs([changed(f, 'modified', ['    public void NewOne(int a) { }'])], run(cases), run(cases), any);
+    expect(proofs.map((p) => [p.name, p.verdict])).toEqual([['Ns.CalcTests.NewOne(a: 1)', 'does-not-constrain']]);
+  });
+
+  it('keeps a new Rust-style nested test whose last path segment is on an added line', () => {
+    const mk = (name: string): TestCaseResult => ({ id: `fx:src/lib.rs::${name}`, file: 'src/lib.rs', name, outcome: 'pass', leaf: name.split('::').pop()! });
+    const cases = [mk('shapes::tests::old'), mk('shapes::tests::fresh')];
+    const proofs = buildProofs([changed('src/shapes.rs', 'modified', ['    fn fresh() {'])], run(cases), run(cases), any);
+    expect(proofs.map((p) => [p.name, p.verdict])).toEqual([['shapes::tests::fresh', 'does-not-constrain']]);
+  });
+});
+
 describe('buildProofs on modified test files', () => {
   it('skips untouched cases that already passed at base; keeps edited, fixed and failing ones', () => {
     const f = 'test/a.test.ts';
@@ -98,7 +119,7 @@ describe('buildProofs on modified test files', () => {
 /** A runner stub: the first call is the head run, the second the base run. */
 function stubRunner(head: RunResult, base?: RunResult): Runner {
   let calls = 0;
-  return { name: 'vitest', run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
+  return { name: 'vitest', detect: async () => 0, run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
 }
 
 async function repoWithNewTest() {
@@ -126,6 +147,22 @@ describe('proveTests evidence findings', () => {
     expect(result.findings.map((f) => [f.id, f.severity])).toEqual([['proofs-unmatched', 'warn']]);
   });
 
+  it('counts Minitest *_test.rb files as named tests, but not helpers, for proofs-unmatched', async () => {
+    const { dir, base } = await makeRepo({ 'app/user.rb': 'class User; end\n', 'test/test_helper.rb': '# helper\n' });
+    await writeFiles(dir, { 'app/user.rb': 'class User; def a = 1; end\n', 'test/models/user_test.rb': "class UserTest; def test_a; end; end\n" });
+    const head = await commitAll(dir, 'minitest');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const other = run([tc('spec/other_spec.rb', 'x', 'pass')]);
+    const unmatched = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(other, other) });
+    expect(unmatched.findings.map((f) => f.id)).toEqual(['proofs-unmatched']);
+
+    await writeFiles(dir, { 'test/test_helper.rb': '# helper v2\n' });
+    const head2 = await commitAll(dir, 'helper only');
+    const helperOnly = parseChanges(await diffText(dir, head, head2));
+    const quiet = await proveTests({ repo: dir, base: head, head: head2, changes: helperOnly, runner: stubRunner(other, other) });
+    expect(quiet.findings).toEqual([]);
+  });
+
   it('explains a runner that failed without reporting results', async () => {
     const { dir, base, head, changes } = await repoWithNewTest();
     const output = "npm error could not determine executable to run\nError: Cannot find module 'vitest'\n\n";
@@ -137,6 +174,49 @@ describe('proveTests evidence findings', () => {
       title: 'Test runner failed without reporting any test results',
       detail: "Error: Cannot find module 'vitest'",
     });
+  });
+
+  it('warns when the head run exits 0 with no test results, and the changed tests matched nothing', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([]), run([])) });
+    expect(result.findings).toEqual([
+      { id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' },
+      { id: 'proofs-unmatched', severity: 'warn', title: 'No test results matched the changed test files; fail-before/pass-after evidence unavailable' },
+    ]);
+  });
+
+  it('warns about no test results even when no tests changed', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n' });
+    const head = await commitAll(dir, 'source only');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([])) });
+    expect(result.findings.map((f) => f.id)).toEqual(['no-test-results']);
+  });
+
+  it('treats only synthetic error cases (a build or start-up failure) like no results', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const synthetic: TestCaseResult = { id: '[cargo]::[build]', file: '[cargo]', name: '[build or run failed]', outcome: 'error' };
+    const output = 'Compiling fx v0.1.0\nerror: could not compile `fx` due to 1 previous error\n';
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([synthetic], 101, output), run([synthetic], 101, output)) });
+    expect(result.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', detail: 'error: could not compile `fx` due to 1 previous error' },
+    ]);
+  });
+
+  it('says a run timed out, with and without partial results, at head and at base', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const timedOut = (cases: TestCaseResult[]): RunResult => ({ ...run(cases, 1, 'Command timed out after 5000 ms'), timedOut: true });
+    const runOptions = { timeoutMs: 5000 };
+    const empty = await proveTests({ repo: dir, base, head, changes, runOptions, runner: stubRunner(timedOut([]), timedOut([])) });
+    expect(empty.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', detail: 'timed out after 5 s' },
+      { id: 'base-run-failed', severity: 'warn', title: 'Changed tests could not run at base; fail-before evidence unavailable (exit 1)', detail: 'timed out after 5 s' },
+    ]);
+    const partial = await proveTests({ repo: dir, base, head, changes, runOptions, runner: stubRunner(timedOut([tc('test/a.test.js', 'a', 'pass')])) });
+    expect(partial.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'timed out after 5 s' },
+    ]);
   });
 
   it('keeps the plain suite-failing finding when tests ran and failed', async () => {
@@ -160,6 +240,21 @@ describe('proveTests copying test data into base', () => {
     const head = await commitAll(dir, 'real fixtures');
     const changes = parseChanges(await diffText(dir, linked, head));
     expect(changes.map((c) => c.path)).toContain('fixtures/x.json');
+    await proveTests({ repo: dir, base: linked, head, changes, runner: stubRunner(run([tc('test/a.test.js', 'a', 'pass')])) });
+    expect(await readdir(outside)).toEqual([]);
+  });
+});
+
+describe('proveTests copying test data into base (new folders)', () => {
+  it('never creates folders outside the base checkout through a symlinked ancestor', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'outside-'));
+    const { dir } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await symlink(outside, join(dir, 'fixtures'), 'dir');
+    const linked = await commitAll(dir, 'link fixtures');
+    await rm(join(dir, 'fixtures'));
+    await writeFiles(dir, { 'fixtures/deep/nested/x.json': '{}\n', 'test/a.test.js': "it('a', () => {});\n" });
+    const head = await commitAll(dir, 'real fixtures');
+    const changes = parseChanges(await diffText(dir, linked, head));
     await proveTests({ repo: dir, base: linked, head, changes, runner: stubRunner(run([tc('test/a.test.js', 'a', 'pass')])) });
     expect(await readdir(outside)).toEqual([]);
   });
@@ -199,4 +294,152 @@ describe('proveTests (vitest fixture)', () => {
     const wt = await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir });
     expect(wt.stdout.split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
   }, 120_000);
+});
+
+describe('proveTests in a package root', () => {
+  async function monorepo() {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n', 'other/x.js': '1;\n' });
+    await writeFiles(dir, {
+      'pkg/src/a.js': 'export const a = 2;\n',
+      'pkg/test/a.test.js': "// TestA lives here\nit('TestA', () => {});\n",
+      'other/test/b.test.js': "it('b', () => {});\n",
+    });
+    const head = await commitAll(dir, 'change');
+    return { dir, base, head, changes: parseChanges(await diffText(dir, base, head)) };
+  }
+
+  it('runs in <worktree>/<root> with root-relative files and config options; reports repo paths', async () => {
+    const { dir, base, head, changes } = await monorepo();
+    const calls: RunOptions[] = [];
+    const seen: [string, string][] = [];
+    const runner: Runner = {
+      name: 'stub',
+      detect: async () => 0,
+      run: async (opts) => {
+        calls.push(opts);
+        // Ids that do not carry a file path, as Go or JVM runners report them.
+        return run([{ id: 'pkg::TestA', file: 'pkg', name: 'TestA', outcome: calls.length === 1 ? 'pass' : 'fail' }], calls.length === 1 ? 0 : 1);
+      },
+      casesInFile: (c, file, readHead) => {
+        seen.push([file, readHead(file).split('\n')[0]]);
+        return readHead(file).includes(`it('${c.name}'`);
+      },
+    };
+    const result = await proveTests({
+      repo: dir, base, head, changes, runner, root: 'pkg',
+      runOptions: { args: ['-v'], env: { A: 'b' }, timeoutMs: 1234 },
+    });
+    expect(calls.every((c) => c.worktree !== undefined && c.cwd === join(c.worktree, 'pkg'))).toBe(true);
+    expect(calls.map((c) => [c.cwd.endsWith('/pkg'), c.files, c.args, c.env, c.timeoutMs])).toEqual([
+      [true, undefined, ['-v'], { A: 'b' }, 1234],
+      [true, ['test/a.test.js'], ['-v'], { A: 'b' }, 1234],
+    ]);
+    expect(seen).toContainEqual(['test/a.test.js', '// TestA lives here']);
+    expect(result.proofs.map((p) => [p.file, p.name, p.verdict])).toEqual([['pkg/test/a.test.js', 'TestA', 'proves-change']]);
+    expect(result.findings).toEqual([
+      { id: 'tests-outside-root', severity: 'info', title: '1 changed test file is outside the package root pkg and was not run: other/test/b.test.js' },
+    ]);
+  });
+
+  it('lists at most 3 changed tests outside the package root', async () => {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((n) => [`other/test/${n}.test.js`, `it('${n}', () => {});\n`])));
+    const head = await commitAll(dir, 'tests elsewhere');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const result = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([tc('x', 'x', 'pass')])), root: 'pkg' });
+    expect(result.findings).toEqual([
+      {
+        id: 'tests-outside-root',
+        severity: 'info',
+        title: '5 changed test files are outside the package root pkg and were not run: other/test/a.test.js, other/test/b.test.js, other/test/c.test.js and 2 more',
+      },
+    ]);
+  });
+
+  it('detects the runner in the head checkout of the package root when none is given', async () => {
+    const { dir, base } = await makeRepo({ 'pkg/src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'pkg/go.mod': 'module example.com/fx\n', 'pkg/src/a.js': 'export const a = 2;\n' });
+    const head = await commitAll(dir, 'go module');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const seen: string[] = [];
+    const detecting: Runner = { name: 'probe', detect: async (root) => (seen.push(root), existsSync(join(root, 'go.mod')) ? 10 : 0), run: async () => run([tc('x', 'x', 'pass')]) };
+    const result = await proveTests({ repo: dir, base, head, changes, root: 'pkg', detect: async (root) => ((await detecting.detect(root)) ? detecting : null) });
+    expect(result.runner?.name).toBe('probe');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).not.toBe(join(dir, 'pkg'));
+    expect(seen[0]!.endsWith('/pkg')).toBe(true);
+    const none = await proveTests({ repo: dir, base, head, changes, root: 'pkg', detect: async () => null });
+    expect(none.runner).toBeNull();
+    expect(none.after).toBeUndefined();
+  });
+
+  it('passes root-relative files to caseInFile when the runner has no hook', async () => {
+    const { dir, base } = await makeRepo({ 'pkg/calc.py': 'x = 1\n' });
+    await writeFiles(dir, { 'pkg/calc.py': 'x = 2\n', 'pkg/tests/test_a.py': 'def test_a():\n    pass\n' });
+    const head = await commitAll(dir, 'change');
+    const changes = parseChanges(await diffText(dir, base, head));
+    // pytest reports module names relative to its rootdir (the package root), not the repo.
+    const runner = stubRunner(run([tc('tests.test_a', 'test_a', 'pass')]), run([tc('tests.test_a', 'test_a', 'fail')], 1));
+    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg' });
+    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['pkg/tests/test_a.py', 'proves-change']]);
+  });
+
+  it('errors when the package root does not exist at head', async () => {
+    const { dir, base, head, changes } = await monorepo();
+    await expect(proveTests({ repo: dir, base, head, changes, runner: stubRunner(run([])), root: 'nope' })).rejects.toThrow(
+      'Package root "nope" does not exist at head',
+    );
+    const wt = await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir });
+    expect(wt.stdout.split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
+  });
+});
+
+describe('proveTests setup command', () => {
+  const pidsIn = async (file: string) => (await readFile(file, 'utf8')).trim().split('\n').map(Number);
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('starts setup in each package root before its run and kills it afterwards', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const marks = await mkdtemp(join(tmpdir(), 'ar-marks-'));
+    const sawSetup: boolean[] = [];
+    let calls = 0;
+    const runner: Runner = {
+      name: 'stub',
+      detect: async () => 0,
+      run: async ({ cwd }) => {
+        sawSetup.push(existsSync(join(cwd, 'setup-ran')));
+        return calls++ === 0 ? run([tc('test/a.test.js', 'a', 'pass')]) : run([tc('test/a.test.js', 'a', 'fail')], 1);
+      },
+    };
+    await proveTests({
+      repo: dir, base, head, changes, runner,
+      runOptions: { env: { MARKS: marks } },
+      setup: { command: 'echo $$ >> "$MARKS/pids"; touch setup-ran; echo up; exec sleep 300', waitMs: 20_000, readyPattern: '^up$' },
+    });
+    expect(sawSetup).toEqual([true, true]);
+    const pids = await pidsIn(join(marks, 'pids'));
+    expect(pids).toHaveLength(2);
+    expect(pids.filter(alive)).toEqual([]);
+  });
+
+  it('kills setup when the run throws', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const marks = await mkdtemp(join(tmpdir(), 'ar-marks-'));
+    const runner: Runner = { name: 'stub', detect: async () => 0, run: async () => { throw new Error('runner exploded'); } };
+    await expect(
+      proveTests({
+        repo: dir, base, head, changes, runner,
+        runOptions: { env: { MARKS: marks } },
+        setup: { command: 'echo $$ >> "$MARKS/pids"; exec sleep 300', waitMs: 200 },
+      }),
+    ).rejects.toThrow('runner exploded');
+    expect((await pidsIn(join(marks, 'pids'))).filter(alive)).toEqual([]);
+  });
 });

@@ -32,10 +32,13 @@ const RULES: Rule[] = [
   { weight: 3, why: 'database migration', hits: (p) => /(^|\/)migrations?\//i.test(p) },
   { weight: 3, why: 'CI pipeline', hits: (p) => /(^|\/)\.github\/workflows\/|\.gitlab-ci\.yml$|(^|\/)Jenkinsfile$/.test(p) },
   { weight: 3, why: 'secrets/env', hits: (p) => SECRET_BASENAME.test(basename(p)) },
+  // trustbut's own config is read from head: it decides what is run, where and how.
+  { weight: 3, why: 'verification config', hits: (p) => /(^|\/)\.trustbut\.json$/.test(p) },
   {
     weight: 2,
     why: 'dependencies',
-    hits: (p) => /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock)$/.test(p),
+    hits: (p) =>
+      /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|pom\.xml|(build|settings)\.gradle(\.kts)?|Gemfile|Gemfile\.lock|composer\.json|composer\.lock|pubspec\.yaml|pubspec\.lock|Package\.swift|Package\.resolved|Directory\.Packages\.props|packages\.lock\.json|[^/]+\.csproj)$/.test(p),
   },
   { weight: 2, why: 'infrastructure', hits: (p) => /(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml)$|\.tf$|(^|\/)(infra|terraform|k8s|helm)\//.test(p) },
   { weight: 2, why: 'agent config', hits: (p) => /(^|\/)(\.claude|\.codex|\.gemini|\.cursor)\/|(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/.test(p) },

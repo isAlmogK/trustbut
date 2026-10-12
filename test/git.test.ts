@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { parseChanges } from '../src/diff.js';
 import {
-  addWorktree, diffText, isDirty, mergeBase, removeWorktree, repoRoot, resolveRef, showFile, showFileBuffer,
+  addWorktree, diffText, isDirty, mergeBase, removeWorktree, repoRoot, resolveRef, showFile, showFileBuffer, snapshotWorkingTree,
 } from '../src/git.js';
 import { branch, commitAll, makeRepo, writeFiles } from './helpers/repo.js';
 
@@ -106,5 +106,45 @@ describe('worktree cleanup', () => {
       else process.env.TMPDIR = saved;
     }
     expect(await readdir(scratch)).toEqual([]);
+  });
+});
+
+describe('snapshotWorkingTree', () => {
+  const sh = async (dir: string, args: string[]) => (await execa('git', args, { cwd: dir })).stdout;
+
+  it('captures tracked edits and untracked files without touching index, HEAD or refs', async () => {
+    const { dir, base } = await makeRepo({ 'a.txt': 'one\n', '.gitignore': 'ignored.txt\n' });
+    await writeFiles(dir, { 'a.txt': 'two\n', 'new.txt': 'new\n', 'ignored.txt': 'x\n' });
+    const before = { status: await sh(dir, ['status', '--porcelain']), index: await sh(dir, ['ls-files', '-s']), refs: await sh(dir, ['for-each-ref']), head: await sh(dir, ['rev-parse', 'HEAD']) };
+    const snap = await snapshotWorkingTree(dir);
+    expect(await showFile(dir, snap, 'a.txt')).toBe('two\n');
+    expect(await showFile(dir, snap, 'new.txt')).toBe('new\n');
+    expect((await sh(dir, ['ls-tree', '-r', '--name-only', snap])).split('\n')).not.toContain('ignored.txt');
+    expect((await sh(dir, ['rev-parse', `${snap}^`]))).toBe(base);
+    expect({ status: await sh(dir, ['status', '--porcelain']), index: await sh(dir, ['ls-files', '-s']), refs: await sh(dir, ['for-each-ref']), head: await sh(dir, ['rev-parse', 'HEAD']) }).toEqual(before);
+    expect(existsSync(join(dir, '.git', 'trustbut-index'))).toBe(false);
+  });
+
+  it('works without a git identity', async () => {
+    const { dir } = await makeRepo({ 'a.txt': 'one\n' });
+    await execa('git', ['config', '--unset', 'user.email'], { cwd: dir });
+    await execa('git', ['config', '--unset', 'user.name'], { cwd: dir });
+    await writeFiles(dir, { 'a.txt': 'two\n' });
+    const env = { GIT_CONFIG_NOSYSTEM: '1', HOME: dir, XDG_CONFIG_HOME: dir, GIT_AUTHOR_NAME: '', GIT_AUTHOR_EMAIL: '', GIT_COMMITTER_NAME: '', GIT_COMMITTER_EMAIL: '' };
+    const saved = { ...process.env };
+    for (const k of Object.keys(env)) delete process.env[k];
+    Object.assign(process.env, { GIT_CONFIG_NOSYSTEM: '1', HOME: dir, XDG_CONFIG_HOME: dir });
+    try {
+      const snap = await snapshotWorkingTree(dir);
+      expect(await showFile(dir, snap, 'a.txt')).toBe('two\n');
+    } finally {
+      for (const k of Object.keys(env)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    }
+  });
+
+  it('errors clearly in a repo with no commits', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'trustbut-empty-'));
+    await execa('git', ['init', '-q'], { cwd: dir });
+    await expect(snapshotWorkingTree(dir)).rejects.toThrow(/no commits/i);
   });
 });

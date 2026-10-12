@@ -81,11 +81,11 @@ Review these first
 
 ### 1. Git layer
 - Resolves `base` (default: merge-base of `HEAD` with `origin/main`, `main`, `origin/master` or `master`) and `head` (default `HEAD`).
-- Creates **throwaway `git worktree`s**, so the user's checkout is never touched. Dependencies (`node_modules`, `.venv`) are symlinked from the main checkout instead of reinstalled.
+- Creates **throwaway `git worktree`s**, so the user's checkout is never touched. Dependencies (`node_modules`, `.venv`, `venv`) are symlinked from the main checkout instead of reinstalled, both at the repo root and inside the package root (see Configuration).
 
 ### 2. Diff parser
 - Parses the unified diff into `ChangedFile { path, status, kind, added[{line,text}], removed[] }`.
-- Classifies each file by path: test, snapshot, test-config, source, other.
+- Classifies each file by path: test, snapshot, test-config, source, other. Test-config covers test runner and coverage config (`vitest.config.*`, `jest.config.*`, `karma.conf.*`, `.mocharc.*`, `pytest.ini`, `tox.ini`, `setup.cfg`, `.coveragerc`, `codecov.yml`, `.nycrc`, `.c8rc`, `phpunit.xml(.dist)`, `phpunit.dist.xml`, `.rspec`, `dart_test.yaml`, `.config/nextest.toml`, `*.runsettings`, `xunit.runner.json`) and trustbut's own `.trustbut.json`. Source and test files are recognised through the **language registry** (`src/languages/`): each `Language` declares its file extensions, a test-file pattern (test helpers under test dirs included; nothing in a main source set such as `src/main/` or a Ruby/Dart `lib/`), an optional narrower test-file-name pattern (files that define tests, used for `proofs-unmatched`), its comment and string syntax (which drives the per-line lexer the static checks run on: raw, verbatim and character literals, Rust lifetimes, PHP `#[` attributes; one line at a time, so lines inside multi-line strings or block comments are not recognised), and its check rules (focus, skip, test definitions, assertions, escapes; a rule matches lexed code unless it names the comment part). Rust also runs the skip and test-definition checks on source files, where `#[cfg(test)]` modules live. Registered: `js` (`.js .jsx .ts .tsx .mjs .cjs .mts .cts`), `py`, `go`, `rust`, `csharp`, `php` (Blade `*.blade.php` templates are `other`), `java`, `kotlin` (`.kt .kts`; `*.gradle.kts` is `other`), `ruby`, `dart` and `swift`. Adding a language means adding one file and listing it in `src/languages/index.ts`.
 
 ### 3. Static checks (pattern-based, on the diff)
 | Check | Severity | Signal |
@@ -96,23 +96,103 @@ Review these first
 | Assertions removed (net) | WARN | |
 | Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
-| Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores) | WARN | |
+| Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores; per language e.g. `//nolint`, `#[allow(…)]`, `unsafe`, `@SuppressWarnings`, `@Suppress`, `#pragma warning disable`, `rubocop:disable`, `@phpstan-ignore`, `// ignore:`, `swiftlint:disable`, `@unchecked Sendable`) | WARN | Rust `.unwrap()`, Kotlin `!!`, C# `x!` and Swift `as!`/`try!` are not escapes |
 | Source changed, no tests changed | WARN | |
 
 ### 4. Proof engine (reruns)
-- **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL.
+- **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL; an exit 0 without any test result is WARN (`no-test-results`). A test tool that can't be started at all (not on `PATH`, not executable) is a runtime error, `Couldn't start <tool>: …` (exit 2).
 - **Fail-before / pass-after:** copy the head version of every new or changed test file into a worktree at `base` and run just those files. Then, for each test case:
   - fails at base, passes at head → **proves the change** ✅
   - passes at base and at head → **passes without the change** ⚠ (the test doesn't constrain the new behavior)
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
-- Runners in v0.1: **Vitest** and **pytest**, through JUnit XML, which is the universal interchange format. Jest, Go and Cargo follow as adapters.
+- Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry; detection runs on the package root of the head checkout, so it sees head's files, not the working tree's), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered, in tie-break order (score in parentheses):
+
+| Runner | Language | Detected by |
+|---|---|---|
+| `vitest` | JS/TS | `vitest` dependency, `vitest.config.*` / `vitest.workspace.*` (10) |
+| `jest` | JS/TS | `jest` dependency, `jest` key, `jest.config.*`, `jest-expo` / `react-native` preset (10; 9 when Vitest also matches) |
+| `mocha` | JS/TS | `mocha` dependency or `.mocharc.*` (9) |
+| `node-test` | JS/TS | `scripts.test` runs `node --test` (8) |
+| `pytest` | Python | `pytest.ini`, `conftest.py`, `tox.ini`, `[tool.pytest` in `pyproject.toml` (10) |
+| `go` | Go | `go.mod` (10) |
+| `cargo` | Rust | `Cargo.toml` (10); uses `cargo nextest` when installed, else `cargo test` |
+| `dotnet` | C# | `.sln`, `.slnx`, `.csproj` or `.fsproj` in the root (10) |
+| `phpunit` | PHP | `phpunit.xml(.dist)` or `phpunit/phpunit` in `composer.json` (10); runs `composer install` in the temporary checkout |
+| `maven` | Java/Kotlin | `pom.xml` (10) |
+| `gradle` | Java/Kotlin | `build.gradle(.kts)` or `settings.gradle(.kts)` (10) |
+| `rspec` | Ruby | `.rspec`, or `spec/` plus `rspec` in `Gemfile` / `Gemfile.lock` (10) |
+| `dart` | Dart | `pubspec.yaml` with a `test` dev dependency and no Flutter SDK (10); runs `dart pub get` when needed |
+| `flutter` | Dart | `pubspec.yaml` with the Flutter SDK (10) |
+| `swift` | Swift | `Package.swift` (10) |
+| `command` | any | never detected; chosen through config (`command`) |
+
+ `--runner <name>` accepts any registered name; an unknown name exits 2 and lists the supported ones. Adding a runner means adding one file and listing it in the registry.
+- **Matching results to changed test files.** By default a result belongs to a changed test file when its reported file equals the path, is a path suffix of it, or (pytest) is its dotted module name. Runners whose results don't carry file paths (Go, JVM) implement `casesInFile(c, file, readHead)`: `file` is the changed test file relative to the package root, and `readHead(path)` returns the head contents of a changed test file (relative to the package root; `''` if unreadable), read from the head worktree and cached, e.g. to find which `func TestX` a Go file defines. Results may carry an optional `leaf` (the test's own short name, e.g. the .NET method without parameters or the last Rust path segment); the proof engine looks for it on added lines to tell new tests from untouched ones, defaulting to the last segment of `name`. Proofs and findings report repo-relative paths; the raw test cases in `after` / `before` keep the runner's own `file`, which is relative to the package root (or a class/package name for runners without file paths).
+
+- **Nothing to verify:** when base and head are the same commit, or their trees don't differ (an empty commit, `--working` with no edits), `verify` exits 2 with a hint (`--base HEAD~1`, `--working`).
+- **`--working`** verifies uncommitted work: the tracked edits plus untracked, non-ignored files are snapshotted into an unreferenced commit on top of `HEAD`, built with a temporary index (the real index, HEAD and working tree are never touched), which is used as `head`. It is rejected together with `--head`; the receipt's `headRef` is `"working tree"`.
+
+### Configuration (`.trustbut.json`)
+
+Optional. Read from the repo root **as committed at head** (`git cat-file blob <head>:.trustbut.json`); if head has none, from the working-tree file; `--config <path>` (relative to the current directory) replaces both. Unknown keys and wrong types are errors (exit 2) that list the allowed keys; a `$schema` key (editor hint) is accepted and ignored.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `root` | string | `"."` | Package folder relative to the repo root; it must exist at head (else exit 2). Runner detection looks there, in the head checkout, the runner runs in `<worktree>/<root>`, only changed test files under it are rerun and they are passed relative to it, and `node_modules`/`.venv`/`venv` are linked from `<repo>/<root>` too. `--root <dir>` overrides it. Must stay inside the repo. |
+| `runner` | string | detected | Force a registered runner. `--runner` overrides it. |
+| `command` | string | — | Generic runner: shell command run with `sh -c` in the root. `{files}` is replaced with the shell-quoted test files (nothing for a full run). Setting `command` without `runner` selects the `command` runner. |
+| `junit` | string | — | Generic runner: JUnit XML file the command writes, relative to the root (deleted before each run). Without it, stdout is parsed when it starts with `<?xml` or `<testsuite`. Exit code semantics are the same as for other runners. |
+| `setup` | string | — | Shell command started in the background in the root of **each** worktree before its test run (e.g. a database emulator). It runs in its own process group, which is always killed after the run (SIGTERM, then SIGKILL after 3 s), also on errors and when trustbut is interrupted. If it exits non-zero before tests start, the run stops with exit 2; if it exits 0, tests start immediately. It gets `env`. |
+| `setupWaitSec` | number, 0 to 2,000,000 | `5` | How long to wait for `setup` before starting the tests. With `setupReadyPattern` this is the maximum wait, so raise it for slow services. |
+| `setupReadyPattern` | regex string | — | Tests start as soon as `setup` prints a matching line (stdout or stderr). |
+| `env` | object of strings | — | Extra environment for every test run and for `setup`. |
+| `args` | string[] | — | Extra arguments added to the runner's command: before the test files (or packages, selectors) for most runners; for Maven, Gradle and .NET at the end; for `swift` after the `--filter` options; for the `command` runner appended (shell-quoted) at the very end of the command. |
+| `timeoutSec` | number, > 0 and ≤ 2,000,000 | `900` | Time limit per test run. A run that hits it is stopped (its whole process group) and the finding says `timed out after N s`. |
+
+Example (Go service with a Firestore emulator in a subfolder):
+
+```json
+{
+  "root": "services/api",
+  "args": ["-p", "1"],
+  "setup": "firebase emulators:start --only firestore",
+  "setupReadyPattern": "All emulators ready",
+  "setupWaitSec": 60,
+  "env": { "FIRESTORE_EMULATOR_HOST": "127.0.0.1:8080" }
+}
+```
 
 ### 5. Risk ranking
-Path rules add weight for: auth or permissions, migrations, CI pipelines, dependencies and lockfiles, secrets and env, infrastructure, and agent config (`.claude/`, `AGENTS.md`, hooks). Files with findings and very large changes get extra weight. The output is an ordered "review these first" list.
+Path rules add weight for: auth or permissions, migrations, CI pipelines, verification config (`.trustbut.json`), dependencies and lockfiles (npm/pnpm/yarn, Python, `go.mod`, `Cargo.toml`, `pom.xml`, Gradle build/settings scripts, `Gemfile`, `composer.json`, `pubspec.yaml`, `Package.swift`, `*.csproj`, `Directory.Packages.props` and their lockfiles), secrets and env, infrastructure, and agent config (`.claude/`, `AGENTS.md`, hooks). Files with findings and very large changes get extra weight. The output is an ordered "review these first" list.
 
 ### 6. Receipt
+- **Fields (JSON, `version: 1`; additive changes keep the version):** `base`, `head`, `headRef?` (human label for head when it is not a plain commit, e.g. `"working tree"`), `runner` (registry name or `null`), `languages` (registry ids of the languages of the changed files: sorted, unique), `root` (package root relative to the repo, `"."` by default), `scope` (`full` or `changed`), `verdict`, `after?`, `before?`, `proofs`, `findings`, `risks`. The Markdown header reads `runner: X`, plus ` · root: Y` when `root` is not `.`. A proof's test case may also carry `leaf`, the test's own short name used to tell new tests from untouched ones.
+- **Finding ids** (stable, kebab-case; severity in parentheses):
+
+  | Id | Severity | Meaning |
+  |---|---|---|
+  | `test-focused` | FAIL | A focus marker was added (`.only`, `fit`, `solo: true`, …) |
+  | `test-skipped` | WARN | A skip marker was added |
+  | `tests-removed` | WARN | Net test definitions removed |
+  | `assertions-removed` | WARN | Net assertions removed |
+  | `snapshot-changed` | WARN | A snapshot was changed or deleted |
+  | `test-config-changed` | WARN | Test or coverage config changed |
+  | `escape-added` | WARN | A type, lint, coverage, warning or safety escape was added |
+  | `no-tests-changed` | WARN | Source changed but no tests were added or changed |
+  | `suite-failing` | FAIL | The suite fails at head, or the runner failed without reporting any test (a build or start-up failure: the detail is the last output line) |
+  | `no-test-results` | WARN | The head run exited 0 but reported no test results (e.g. args that filter out every test, a `junit` path the command never writes, a test task whose reports trustbut doesn't read) |
+  | `test-failing` | FAIL | A changed test fails at head |
+  | `test-passes-without-change` | WARN | A changed test passes at base too |
+  | `no-runner` | WARN | No runner detected; the message lists the supported runners |
+  | `base-run-failed` | WARN | The changed tests could not run at base (nothing reported, nonzero exit), so there is no fail-before evidence |
+  | `proofs-unmatched` | WARN | The suite ran (or exited 0 with no results) but no result matched the changed test files, so there is no fail-before/pass-after evidence. Not emitted when the head run only reports a build or start-up failure |
+  | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Only for the JS runners (vitest, jest, mocha, node-test): not for Python or the `command` runner |
+  | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
+  | `tests-outside-root` | info | Changed test files outside the package root were not run; gives the count and the first 3 paths |
+  | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |
+
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
 - **Output:** Markdown (terminal and PR comment) and JSON (`--json`). Exit code is 1 on FAIL, and also on WARN with `--strict`; 2 on a usage or runtime error.
 
@@ -133,9 +213,9 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
 All surfaces consume the receipt JSON (`trustbut verify --json`, `version: 1`), so the engine stays the single source of truth.
 
 ## Security model
-- The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`.
+- The tool **runs the repository's tests, which means running its code.** Locally that is the same trust as running `npm test`. The same holds for `.trustbut.json`, which is read from the head commit: its `command` and `setup` run as shell commands, just as a changed `package.json` test script would.
 - In CI the Action runs on `pull_request` (not `pull_request_target`) with a read-only token. Posting the comment happens in a separate `workflow_run` job that never executes PR code.
 - Transcripts stay local, and the receipt never includes transcript text unless asked (`--include-transcript`).
 
 ## Non-goals (v0.1)
-GUI, hosted service, accounts, LLM-written review comments, capturing transcripts (Entire and git-ai already do that), monorepo-aware runner selection (`--cwd` comes in v0.2).
+GUI, hosted service, accounts, LLM-written review comments, capturing transcripts (Entire and git-ai already do that), automatic monorepo package discovery (set `root` or `--root` per package).

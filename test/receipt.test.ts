@@ -32,6 +32,20 @@ describe('rankRisks', () => {
   });
 });
 
+describe('rankRisks: verification config and dependency manifests', () => {
+  it('weights a .trustbut.json change as verification config', () => {
+    expect(rankRisks([file('.trustbut.json', 'test-config')], [])).toEqual([{ file: '.trustbut.json', score: 3, reasons: ['verification config'] }]);
+  });
+
+  it.each([
+    'go.mod', 'go.sum', 'Cargo.toml', 'Cargo.lock', 'pom.xml', 'build.gradle', 'app/build.gradle.kts', 'settings.gradle', 'settings.gradle.kts',
+    'Gemfile', 'Gemfile.lock', 'composer.json', 'composer.lock', 'pubspec.yaml', 'pubspec.lock', 'Package.swift', 'Package.resolved',
+    'src/App/App.csproj', 'Directory.Packages.props', 'packages.lock.json',
+  ])('%s is a dependency change', (path) => {
+    expect(rankRisks([file(path, 'other')], []).map((r) => r.reasons)).toEqual([['dependencies']]);
+  });
+});
+
 describe('derived findings and verdict', () => {
   it('turns proofs into findings', () => {
     expect(proofFindings([proof('a', 'proves-change'), proof('b', 'does-not-constrain'), proof('c', 'failing')]).map((f) => [f.id, f.severity])).toEqual([
@@ -102,6 +116,24 @@ describe('factual receipt wording', () => {
   });
 });
 
+describe('languages and root', () => {
+  const after = { exitCode: 0, durationMs: 1, output: '', cases: [] };
+  const base = { base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'go', after, proofs: [], findings: [] };
+
+  it('lists the sorted, unique registry ids of the changed files and defaults root to "."', () => {
+    const r = buildReceipt({ ...base, changes: [file('b.go', 'source'), file('a_test.go', 'test'), file('x.ts', 'source'), file('README.md', 'other')] });
+    expect(r.languages).toEqual(['go', 'js']);
+    expect(r.root).toBe('.');
+    expect(renderMarkdown(r)).not.toContain('root:');
+  });
+
+  it('shows the root in the header only when it is not the repo root', () => {
+    const r = buildReceipt({ ...base, root: 'services/api', changes: [file('services/api/a.go', 'source')] });
+    expect(r.root).toBe('services/api');
+    expect(renderMarkdown(r)).toContain('· runner: go · root: `services/api`');
+  });
+});
+
 describe('path-word risk matching', () => {
   const reasonsFor = (path: string, kind: ChangedFile['kind'] = 'source') =>
     rankRisks([file(path, kind)], []).flatMap((r) => r.reasons);
@@ -145,5 +177,38 @@ describe('markdown escaping', () => {
       changes: [],
     });
     expect(renderMarkdown(receipt)).toContain('- ⚠ **t** · `` src/a`b.ts ``');
+  });
+});
+
+describe('failing tests list', () => {
+  const mk = (n: number, findings = [{ id: 'suite-failing', severity: 'fail' as const, title: 'Test suite fails at head (clean checkout)' }]) =>
+    renderMarkdown(buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings, changes: [], proofs: [],
+      after: {
+        exitCode: 1, durationMs: 1, output: '',
+        cases: [
+          { id: 'ok', file: 'ok.test.ts', name: 'fine', outcome: 'pass' },
+          ...Array.from({ length: n }, (_, i) => ({ id: `f${i}`, file: 'src/a_b.test.ts', name: `case <${i}>`, outcome: (i % 2 ? 'error' : 'fail') as 'fail' | 'error' })),
+        ],
+      },
+    }));
+
+  it('lists failing and erroring cases after the findings, escaped', () => {
+    const md = mk(2);
+    expect(md).toContain('### Failing tests');
+    expect(md).toContain('- `src/a_b.test.ts` › case \\<0\\>');
+    expect(md).toContain('case \\<1\\>');
+    expect(md).not.toContain('fine\n');
+    expect(md.indexOf('### Findings')).toBeLessThan(md.indexOf('### Failing tests'));
+  });
+
+  it('caps at 10 with "and N more"', () => {
+    const md = mk(13);
+    expect(md).toContain('- and 3 more');
+    expect(md).not.toContain('case \\<10\\>');
+  });
+
+  it('is absent when the suite is not failing', () => {
+    expect(mk(2, [])).not.toContain('Failing tests');
   });
 });
