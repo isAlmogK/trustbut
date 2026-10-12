@@ -1,3 +1,4 @@
+import { ANSI } from './runners/cases.js';
 import type { Finding, Receipt, RunResult, TestCaseResult } from './types.js';
 
 const ICON = { fail: '✖', warn: '⚠', info: 'ℹ' } as const;
@@ -106,8 +107,7 @@ export interface AgentFeedbackOptions {
 
 /** The last lines (at most 20 and 1,500 characters) of a run's output, without colour codes. */
 export function outputTail(output: string): string {
-  // eslint-disable-next-line no-control-regex
-  const lines = output.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').replace(/\s+$/, '').split(/\r?\n/).slice(-OUTPUT_LINES);
+  const lines = output.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/).slice(-OUTPUT_LINES);
   while (lines.length > 1 && lines.join('\n').length > OUTPUT_MAX) lines.shift();
   const text = lines.join('\n');
   return text.length > OUTPUT_MAX ? text.slice(-OUTPUT_MAX) : text;
