@@ -1,9 +1,10 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { anyExists, fileContains } from './detect.js';
 import { childEnv, runOutput } from './env.js';
 import { parseJUnit } from './junit.js';
@@ -26,15 +27,7 @@ function findPhpunit(cwd: string, worktree?: string): string {
  * made relative to `root` so ids are identical between the base and head checkouts.
  */
 export function parsePhpunitJUnit(xml: string, root: string): TestCaseResult[] {
-  const real = existsSync(root) ? realpathSync(root) : root;
-  return parseJUnit(xml).map((c) => {
-    let file = c.file;
-    if (isAbsolute(file)) {
-      const rel = relative(real, file);
-      file = (rel.startsWith('..') ? relative(root, file) : rel).split(sep).join('/');
-    }
-    return { ...c, id: `${file}::${c.name}`, file, leaf: c.name.replace(/ with data set .*$/s, '') };
-  });
+  return parseJUnit(xml, root).map((c) => ({ ...c, leaf: c.name.replace(/ with data set .*$/s, '') }));
 }
 
 /** `Ns\Class` names of the classes declared in a PHP file. */
@@ -83,19 +76,14 @@ export const phpunit: Runner = {
       const tests = files?.filter((f) => /Test\.php$/.test(f) && existsSync(join(cwd, f)));
       const targets: (string | undefined)[] = tests?.length ? tests : [undefined];
       const cases: TestCaseResult[] = [];
-      const seen = new Set<string>();
+      const index = new Map<string, number>();
       let exitCode = 0;
       for (const [i, target] of targets.entries()) {
         const out = join(dir, `junit-${i}.xml`);
         const res = await runInGroup(bin, phpunitArgs(out, args, target), { cwd, env, timeoutMs });
         output.push(runOutput(res));
         if (existsSync(out)) {
-          for (const c of parsePhpunitJUnit(await readFile(out, 'utf8'), cwd)) {
-            if (!seen.has(c.id)) {
-              seen.add(c.id);
-              cases.push(c);
-            }
-          }
+          for (const c of parsePhpunitJUnit(await readFile(out, 'utf8'), cwd)) addCase(cases, index, c);
         }
         if (exitCode === 0) exitCode = res.exitCode ?? 1;
       }

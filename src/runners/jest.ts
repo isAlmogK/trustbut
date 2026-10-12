@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
+import { addCase } from './cases.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
 import { childEnv, runOutput } from './env.js';
 import type { Runner } from './types.js';
@@ -49,16 +50,17 @@ export function parseJestJson(json: string, cwd: string): TestCaseResult[] {
   const root = existsSync(cwd) ? realpathSync(cwd) : cwd; // Jest reports real paths (macOS /var -> /private/var)
   const data = JSON.parse(json) as { testResults?: JestSuite[] };
   const cases: TestCaseResult[] = [];
+  const index = new Map<string, number>();
   for (const suite of data.testResults ?? []) {
     const file = relative(root, suite.name).split(sep).join('/');
     const assertions = suite.assertionResults ?? [];
     if (assertions.length === 0) {
-      if (suite.status === 'failed') cases.push({ id: `${file}::${file}`, file, name: file, outcome: 'error' });
+      if (suite.status === 'failed') addCase(cases, index, { id: `${file}::${file}`, file, name: file, outcome: 'error' });
       continue;
     }
     for (const a of assertions) {
       const name = a.fullName || a.title || '';
-      cases.push({ id: `${file}::${name}`, file, name, outcome: OUTCOMES[a.status ?? ''] ?? 'error' });
+      addCase(cases, index, { id: `${file}::${name}`, file, name, outcome: OUTCOMES[a.status ?? ''] ?? 'error' });
     }
   }
   return cases;

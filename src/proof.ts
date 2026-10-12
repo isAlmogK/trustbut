@@ -3,6 +3,7 @@ import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/prom
 import { dirname, join, sep } from 'node:path';
 import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
+import { SEVERITY } from './runners/cases.js';
 import { isNamedTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
 import { startSetup, type SetupOptions } from './setup.js';
@@ -61,7 +62,12 @@ export function buildProofs(
   after: RunResult,
   inFile: CaseMatcher = (c, f) => caseInFile(c, f.path),
 ): TestProof[] {
-  const beforeById = new Map(before.cases.map((c) => [c.id, c.outcome]));
+  // A repeated id keeps its worst outcome (error > fail > skip > pass).
+  const beforeById = new Map<string, TestCaseResult['outcome']>();
+  for (const c of before.cases) {
+    const prev = beforeById.get(c.id);
+    if (prev === undefined || SEVERITY[c.outcome] > SEVERITY[prev]) beforeById.set(c.id, c.outcome);
+  }
   const proofs: TestProof[] = [];
   for (const c of after.cases) {
     const file = testFiles.find((f) => inFile(c, f));

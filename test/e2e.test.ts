@@ -333,6 +333,17 @@ describe('trustbut verify with the generic command runner', () => {
     expect(pids.filter(alive)).toEqual([]);
   }, 120_000);
 
+  it('WARN: absolute JUnit file paths still pair base and head results (a test passing at base is caught)', async () => {
+    const script = 'echo "<testsuite name=\\"s\\"><testcase name=\\"v\\" file=\\"$PWD/tests/test_v.py\\"/></testsuite>"';
+    const { dir } = await makeRepo({ 'src/value.txt': 'old\n', 'tests/test_old.py': '# old\n', '.trustbut.json': JSON.stringify({ command: script }) });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/value.txt': 'new\n', 'tests/test_v.py': '# always passes\n' });
+    await commitAll(dir, 'change value');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.file, p.before, p.verdict, p.weak])).toEqual([['tests/test_v.py', 'pass', 'does-not-constrain', false]]);
+    expect(receipt.verdict).toBe('warn');
+  });
+
   it('WARN: the command exits 0 without writing results (no-test-results), even though tests changed', async () => {
     const { dir } = await makeRepo({ 'src/value.txt': 'old\n', 'tests/test_existing.py': '# EXPECT=old\n', '.trustbut.json': JSON.stringify({ command: 'true', junit: 'out/junit.xml' }) });
     await branch(dir, 'agent-change');

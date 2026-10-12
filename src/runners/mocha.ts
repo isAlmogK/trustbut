@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
 import { childEnv, runOutput } from './env.js';
 import type { Runner } from './types.js';
@@ -33,10 +34,11 @@ export function parseMochaJson(json: string, cwd: string): TestCaseResult[] {
   const root = existsSync(cwd) ? realpathSync(cwd) : cwd;
   const data = JSON.parse(json) as { passes?: MochaTest[]; failures?: MochaTest[]; pending?: MochaTest[] };
   const cases: TestCaseResult[] = [];
+  const index = new Map<string, number>();
   const add = (t: MochaTest, outcome: TestCaseResult['outcome']) => {
     const file = t.file ? relative(root, t.file).split(sep).join('/') : '';
     const name = t.fullTitle ?? t.title ?? '';
-    cases.push({ id: `${file}::${name}`, file, name, outcome });
+    addCase(cases, index, { id: `${file}::${name}`, file, name, outcome });
   };
   for (const t of data.passes ?? []) add(t, 'pass');
   for (const t of data.pending ?? []) add(t, 'skip');

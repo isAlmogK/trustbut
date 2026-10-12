@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { readPackageJson } from './detect.js';
 import { childEnv, runOutput } from './env.js';
 import type { Runner } from './types.js';
@@ -46,6 +47,7 @@ const SCRIPT = /\b(?:node|tsx)\b[^&|;]*\s--test\b/;
 export function parseNodeTestEvents(jsonl: string, cwd: string): TestCaseResult[] {
   const root = existsSync(cwd) ? realpathSync(cwd) : cwd;
   const cases: TestCaseResult[] = [];
+  const index = new Map<string, number>();
   const stacks = new Map<string, string[]>(); // per file: names of the open ancestors
   const childCount = new Map<string, number>(); // per "file\0suite path": leaf tests seen below it
 
@@ -72,7 +74,7 @@ export function parseNodeTestEvents(jsonl: string, cwd: string): TestCaseResult[
     if (e.kind === 'suite') {
       // A suite that failed without any test below it (e.g. a failing before-hook) couldn't run.
       if (e.type === 'test:fail' && !childCount.get(`${file}\0${full}`)) {
-        cases.push({ id: `${file}::${full}`, file, name: full, outcome: 'error' });
+        addCase(cases, index, { id: `${file}::${full}`, file, name: full, outcome: 'error' });
       }
       continue;
     }
@@ -83,7 +85,7 @@ export function parseNodeTestEvents(jsonl: string, cwd: string): TestCaseResult[
     // A file that fails to load or crashes is reported as a top-level "test" named after the file.
     const loadError = e.type === 'test:fail' && e.nesting === 0 && file !== '' && (e.name === file || abs.endsWith(e.name));
     const outcome = loadError ? 'error' : e.type === 'test:fail' ? 'fail' : e.skip || e.todo ? 'skip' : 'pass';
-    cases.push({ id: `${file}::${full}`, file, name: full, outcome });
+    addCase(cases, index, { id: `${file}::${full}`, file, name: full, outcome });
   }
   return cases;
 }

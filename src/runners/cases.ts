@@ -1,6 +1,6 @@
 import type { TestCaseResult } from '../types.js';
 
-const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
+export const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
 
 /** Adds `c`; if the id repeats the worst outcome wins (error > fail > skip > pass), so a failure is never hidden. */
 export function addCase(cases: TestCaseResult[], index: Map<string, number>, c: TestCaseResult): void {

@@ -5,6 +5,7 @@ import { join, sep } from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
+import { addCase } from './cases.js';
 import { childEnv, runOutput } from './env.js';
 import type { ReadHead, Runner } from './types.js';
 
@@ -68,18 +69,16 @@ export function parseTrx(xml: string): TestCaseResult[] {
   const results = run?.Results?.UnitTestResult ?? [];
   const parents = new Set(results.map((r) => r.parentExecutionId).filter(Boolean));
   const cases: TestCaseResult[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
   for (const r of results) {
     if (r.executionId && parents.has(r.executionId)) continue; // data-driven parent; its rows are reported
     const testName = String(r.testName ?? '');
     const className = (r.testId ? classOf.get(r.testId) : undefined) ?? classFromName(testName);
     const name = className && !testName.startsWith(`${className}.`) ? `${className}.${testName}` : testName;
     const outcome = OUTCOMES[r.outcome ?? ''] ?? 'error';
-    const id = name;
-    if (seen.has(id)) continue;
-    seen.add(id);
     const leaf = (className && name.startsWith(`${className}.`) ? name.slice(className.length + 1) : name).split('(')[0]!.trim();
-    cases.push({ id, file: className, name, outcome, leaf });
+    // Multi-targeted projects report a test once per framework: the worst outcome wins.
+    addCase(cases, index, { id: name, file: className, name, outcome, leaf });
   }
   return cases;
 }
@@ -184,8 +183,10 @@ export const dotnet: Runner = {
       const env = childEnv({ DOTNET_NOLOGO: '1', DOTNET_CLI_TELEMETRY_OPTOUT: '1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1', ...extraEnv });
       const res = await runInGroup('dotnet', dotnetTestArgs(dir, args, filter, target), { cwd, env, timeoutMs });
       const cases: TestCaseResult[] = [];
+      const index = new Map<string, number>();
+      // One TRX per test project and target framework.
       for (const f of (await readdir(dir)).filter((n) => n.endsWith('.trx')).sort()) {
-        cases.push(...parseTrx(await readFile(join(dir, f), 'utf8')));
+        for (const c of parseTrx(await readFile(join(dir, f), 'utf8'))) addCase(cases, index, c);
       }
       const exitCode = res.exitCode ?? 1;
       // A build/restore failure writes no results: surface it as one error case instead of "no tests".

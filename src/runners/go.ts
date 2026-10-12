@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
+import { addCase } from './cases.js';
 import { childEnv, runOutput } from './env.js';
 import type { ReadHead, Runner } from './types.js';
 
@@ -43,7 +44,7 @@ export function packageDir(pkg: string, modulePath: string | undefined): string 
  */
 export function parseGoJson(output: string, dirOf: (pkg: string) => string = (p) => p): TestCaseResult[] {
   const cases: TestCaseResult[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
   const pkgs = new Map<string, { failedTest: boolean; failed: boolean; output: string }>();
   const pkgState = (name: string) => {
     let s = pkgs.get(name);
@@ -69,10 +70,7 @@ export function parseGoJson(output: string, dirOf: (pkg: string) => string = (p)
     const outcome = ev.Action === 'pass' ? 'pass' : ev.Action === 'fail' ? 'fail' : ev.Action === 'skip' ? 'skip' : undefined;
     if (!outcome) continue;
     if (outcome === 'fail') state.failedTest = true;
-    const id = `${pkg}::${ev.Test}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    cases.push({ id, file: dirOf(pkg), name: ev.Test, outcome, leaf: ev.Test.split('/')[0]! });
+    addCase(cases, index, { id: `${pkg}::${ev.Test}`, file: dirOf(pkg), name: ev.Test, outcome, leaf: ev.Test.split('/')[0]! });
   }
   for (const [pkg, s] of pkgs) {
     if (s.failed && !s.failedTest) {

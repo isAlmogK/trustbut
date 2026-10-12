@@ -31,6 +31,6 @@ export const command: Runner = {
     let xml = '';
     if (junitPath) xml = existsSync(junitPath) ? await readFile(junitPath, 'utf8') : '';
     else if (LOOKS_LIKE_JUNIT.test(res.stdout)) xml = res.stdout;
-    return { exitCode: res.exitCode ?? 1, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res) };
+    return { exitCode: res.exitCode ?? 1, cases: xml ? parseJUnit(xml, cwd) : [], durationMs: Date.now() - start, output: runOutput(res) };
   },
 };
