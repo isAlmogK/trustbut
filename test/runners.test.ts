@@ -1,4 +1,3 @@
-import { execaSync } from 'execa';
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -8,8 +7,9 @@ import { parseJUnit } from '../src/runners/junit.js';
 import { pytest } from '../src/runners/pytest.js';
 import { vitest } from '../src/runners/vitest.js';
 import { linkNodeModules, makeRepo } from './helpers/repo.js';
+import { hasTool, requiredTools } from './helpers/toolchain.js';
 
-const hasPytest = execaSync('python3', ['-m', 'pytest', '--version'], { reject: false }).exitCode === 0;
+const hasPytest = hasTool('python3', ['-m', 'pytest', '--version']) || requiredTools().has('pytest');
 
 describe('parseJUnit', () => {
   it('parses vitest-style output', () => {

@@ -6,12 +6,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # pull-requests: write lets the sticky-comment step create/update the PR comment.
-    # issues: write is needed because PR comments go through the issues comments API.
+    # pull-requests: write is enough to create/update the sticky PR comment: GitHub accepts either
+    # pull-requests: write or issues: write for the issue-comments endpoints on a pull request,
+    # so we grant only the one that names what we touch.
     permissions:
       contents: read
       pull-requests: write
-      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,6 +27,9 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install pytest
       - run: npm test
+        env:
+          # node:test/mocha/jest suites and pytest (installed above) must run here, never skip.
+          TRUSTBUT_REQUIRE: node,pytest
       - run: npm run build
       - name: Receipt for this PR (dogfood)
         if: github.event_name == 'pull_request'
@@ -35,11 +38,13 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: node dist/cli.js verify --base "origin/${BASE_REF}" | tee receipt.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post receipt as sticky PR comment
+        # Same-repo PRs only (forks get a read-only token; they still get the job summary).
+        # Dependabot PRs also get a read-only token.
         if: >-
           always() &&
           github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          hashFiles('receipt.md') != ''
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,16 +52,140 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ ! -s receipt.md ]; then
+            echo 'receipt.md is missing or empty; not posting a comment.'
+            exit 0
+          fi
+          MAX=60000   # GitHub rejects comment bodies over 65,536 characters
           {
             echo '<!-- trustbut-receipt -->'
-            cat receipt.md
+            if [ "$(wc -c < receipt.md)" -gt "$MAX" ]; then
+              head -c "$MAX" receipt.md | iconv -f UTF-8 -t UTF-8 -c
+              echo
+              echo
+              echo "_Receipt truncated: the full receipt is in the job summary of the [run](${RUN_URL})._"
+            else
+              cat receipt.md
+            fi
             echo
             echo "<sub>Posted by trustbut CI · [run log](${RUN_URL})</sub>"
           } > comment.md
+          # Only adopt a comment authored by the Actions bot, never one a user planted with our marker.
           COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq '[.[] | select(.body | contains("<!-- trustbut-receipt -->"))][0].id // empty' | head -n1)
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- trustbut-receipt -->")))][0].id // empty' | head -n1)
           if [ -n "$COMMENT_ID" ]; then
             gh api --method PATCH "repos/${REPO}/issues/comments/${COMMENT_ID}" -F body=@comment.md
           else
             gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" -F body=@comment.md
           fi
+
+  # Real-toolchain integration tests: one job per toolchain. TRUSTBUT_REQUIRE makes the suites
+  # fail (instead of skip) when the tool is missing, so a broken setup step can't pass silently.
+  adapters:
+    name: adapters (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: go, os: ubuntu-latest, require: go, tests: test/runners/go.test.ts }
+          - { name: rust, os: ubuntu-latest, require: cargo, tests: test/runners/cargo.test.ts }
+          - { name: rust-plain, os: ubuntu-latest, require: cargo, tests: test/runners/cargo.test.ts }
+          - { name: java-maven, os: ubuntu-latest, require: mvn, tests: test/runners/jvm.test.ts }
+          - { name: java-gradle, os: ubuntu-latest, require: gradle, tests: test/runners/jvm.test.ts }
+          - { name: dotnet, os: ubuntu-latest, require: dotnet, tests: test/runners/dotnet.test.ts }
+          - { name: ruby, os: ubuntu-latest, require: rspec, tests: test/runners/rspec.test.ts }
+          - { name: php, os: ubuntu-latest, require: php, tests: test/runners/phpunit.test.ts }
+          - { name: dart, os: ubuntu-latest, require: dart, tests: test/runners/dart.test.ts }
+          - { name: flutter, os: ubuntu-latest, require: 'dart,flutter', tests: test/runners/dart.test.ts }
+          - { name: swift, os: macos-latest, require: swift, tests: test/runners/swift.test.ts }
+          - { name: python, os: ubuntu-latest, require: pytest, tests: 'test/runners.test.ts test/e2e.test.ts' }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - if: matrix.name == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - if: startsWith(matrix.name, 'rust')
+        uses: dtolnay/rust-toolchain@stable
+      # `rust` has nextest (JSON parser path); `rust-plain` has only `cargo test` (libtest text path).
+      - if: matrix.name == 'rust'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - if: startsWith(matrix.name, 'java-')
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - if: matrix.name == 'java-gradle'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - if: matrix.name == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.x
+
+      - if: matrix.name == 'ruby'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - if: matrix.name == 'ruby'
+        run: gem install rspec bundler
+
+      - if: matrix.name == 'php'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+
+      - if: matrix.name == 'dart'
+        uses: dart-lang/setup-dart@v1
+      - if: matrix.name == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # Swift: macos-latest ships Xcode's Swift (XCTest parity with local runs); no setup action.
+
+      - if: matrix.name == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - if: matrix.name == 'python'
+        run: python -m pip install pytest
+
+      - name: Toolchain versions
+        shell: bash
+        run: |
+          case "${{ matrix.name }}" in
+            go) go version ;;
+            rust*) cargo --version; cargo nextest --version || echo 'no nextest' ;;
+            java-maven) mvn --version ;;
+            java-gradle) gradle --version ;;
+            dotnet) dotnet --version ;;
+            ruby) rspec --version ;;
+            php) php --version; composer --version ;;
+            dart) dart --version ;;
+            flutter) flutter --version; dart --version ;;
+            swift) swift --version ;;
+            python) python -m pytest --version ;;
+          esac
+      - name: Integration tests (${{ matrix.name }})
+        env:
+          TRUSTBUT_REQUIRE: ${{ matrix.require }}
+        run: npx vitest run ${{ matrix.tests }}

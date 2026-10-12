@@ -2,13 +2,14 @@ import { mkdtemp, readFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execa, execaSync } from 'execa';
+import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../src/commands/verify.js';
 import { buildProgram } from '../src/program.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
+import { hasTool, requiredTools } from './helpers/toolchain.js';
 
-const hasPytest = execaSync('python3', ['-m', 'pytest', '--version'], { reject: false }).exitCode === 0;
+const hasPytest = hasTool('python3', ['-m', 'pytest', '--version']) || requiredTools().has('pytest');
 
 const BASE_FILES = {
   '.gitignore': 'node_modules\n',

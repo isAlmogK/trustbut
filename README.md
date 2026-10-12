@@ -294,7 +294,7 @@ npm run build
 npm run receipt   # trustbut's receipt for your branch; run before opening a PR
 ```
 
-Every pull request gets a trustbut receipt posted as a comment (and in the CI job summary). Run `npm run receipt` locally first so there are no surprises.
+Every pull request gets a trustbut receipt in the CI job summary, and pull requests from this repository also get it as a sticky comment (fork PRs get the job summary only, since GitHub gives them a read-only token). Run `npm run receipt` locally first so there are no surprises.
 
 trustbut is built with AI coding agents and verified by itself: every pull request gets its own trustbut receipt in CI. The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
 
