@@ -25,7 +25,7 @@ describe('parseJUnit', () => {
 </testsuites>`;
     expect(parseJUnit(xml)).toEqual([
       { id: 'test/sum.test.ts::adds', file: 'test/sum.test.ts', name: 'adds', outcome: 'pass' },
-      { id: 'test/sum.test.ts::math > subtracts', file: 'test/sum.test.ts', name: 'math > subtracts', outcome: 'fail' },
+      { id: 'test/sum.test.ts::math > subtracts', file: 'test/sum.test.ts', name: 'math > subtracts', outcome: 'fail', message: 'expected 1 to be 2' },
       { id: 'test/sum.test.ts::later', file: 'test/sum.test.ts', name: 'later', outcome: 'skip' },
     ]);
   });
