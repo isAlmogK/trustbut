@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
-import { addCase } from './cases.js';
+import { addCase, cleanMessage, withMessage } from './cases.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
 import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
@@ -17,6 +17,7 @@ interface JestAssertion {
   fullName?: string;
   title?: string;
   status?: string;
+  failureMessages?: string[];
 }
 interface JestSuite {
   name: string;
@@ -55,12 +56,14 @@ export function parseJestJson(json: string, cwd: string): TestCaseResult[] {
     const file = relative(root, suite.name).split(sep).join('/');
     const assertions = suite.assertionResults ?? [];
     if (assertions.length === 0) {
-      if (suite.status === 'failed') addCase(cases, index, { id: `${file}::${file}`, file, name: file, outcome: 'error' });
+      if (suite.status === 'failed') addCase(cases, index, { id: `${file}::${file}`, file, name: file, outcome: 'error', ...withMessage(cleanMessage(suite.message)) });
       continue;
     }
     for (const a of assertions) {
       const name = a.fullName || a.title || '';
-      addCase(cases, index, { id: `${file}::${name}`, file, name, outcome: OUTCOMES[a.status ?? ''] ?? 'error' });
+      const outcome = OUTCOMES[a.status ?? ''] ?? 'error';
+      const message = outcome === 'fail' || outcome === 'error' ? cleanMessage(a.failureMessages?.[0]) : undefined;
+      addCase(cases, index, { id: `${file}::${name}`, file, name, outcome, ...withMessage(message) });
     }
   }
   return cases;

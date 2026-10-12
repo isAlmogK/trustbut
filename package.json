@@ -1,8 +1,9 @@
 {
   "name": "trustbut",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "description": "Verifiable receipts for code written by AI coding agents",
   "keywords": [
+    "agent-receipts",
     "ai-agents",
     "claude-code",
     "codex",
@@ -16,6 +17,7 @@
     "pytest",
     "cli"
   ],
+  "author": "Almog Koren (https://almog.io)",
   "homepage": "https://github.com/isAlmogK/trustbut#readme",
   "repository": {
     "type": "git",
@@ -29,7 +31,8 @@
     "trustbut": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "integrations/claude-code/scripts/run.mjs"
   ],
   "engines": {
     "node": ">=22"
@@ -41,7 +44,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "receipt": "npm run build && node dist/cli.js verify",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "release:bump": "node scripts/release/bump.mjs",
+    "check:versions": "node scripts/release/check-versions.mjs",
+    "check:plugin-version": "vitest run test/plugin.test.ts -t \"plugin.json matches package.json\""
   },
   "dependencies": {
     "commander": "^15.0.0",

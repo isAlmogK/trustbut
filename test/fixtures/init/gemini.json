@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "trustbut-verify",
+            "type": "command",
+            "command": "node \"$GEMINI_PROJECT_DIR/.gemini/hooks/trustbut-run.mjs\" gemini",
+            "timeout": 600000
+          }
+        ]
+      }
+    ]
+  }
+}

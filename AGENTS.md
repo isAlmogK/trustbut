@@ -14,6 +14,7 @@ trustbut is a local CLI that produces a deterministic evidence report ("receipt"
 - `npm run dev -- verify` — run the CLI from source
 
 ## Rules
+- `.trustbut.json` sets `TRUSTBUT_NO_TOOLCHAIN_E2E=1` so `trustbut verify` on this repo skips the real-toolchain e2e tests (`hasTool()` in `test/helpers/toolchain.ts` returns false unless the tool is in `TRUSTBUT_REQUIRE`); `npm test` and the CI adapters matrix still run them.
 - Test first. Every behavior change starts with a failing test; every new finding type needs a fixture scenario in `test/fixtures/` or `test/e2e.test.ts`.
 - No LLM calls in the core. Checks must be deterministic and reproducible.
 - Never touch the user's working tree: all runs happen in temporary `git worktree`s that are always removed in a `finally`.

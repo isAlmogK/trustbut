@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # The PR comment step uses GH_TOKEN with gh; no later step needs git credentials.
+          # The trustbut action posts its comment with the job token via gh; no step needs git credentials.
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -36,56 +36,14 @@ jobs:
           # node:test/mocha/jest suites and pytest (installed above) must run here, never skip.
           TRUSTBUT_REQUIRE: node,pytest
       - run: npm run build
-      - name: Receipt for this PR (dogfood)
+      - name: Receipt for this PR (dogfood the trustbut action)
+        # Posts/updates the sticky PR comment, writes the job summary, and fails the job on a FAIL verdict.
+        # `version: local` builds and runs this checkout until the matching version is on npm.
         if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: node dist/cli.js verify --base "origin/${BASE_REF}" | tee receipt.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Post receipt as sticky PR comment
-        # Same-repo PRs only (forks get a read-only token; they still get the job summary).
-        # Dependabot PRs also get a read-only token.
-        if: >-
-          always() &&
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.user.login != 'dependabot[bot]' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          if [ ! -s receipt.md ]; then
-            echo 'receipt.md is missing or empty; not posting a comment.'
-            exit 0
-          fi
-          MAX=60000   # GitHub rejects comment bodies over 65,536 characters
-          {
-            echo '<!-- trustbut-receipt -->'
-            if [ "$(wc -c < receipt.md)" -gt "$MAX" ]; then
-              head -c "$MAX" receipt.md | iconv -f UTF-8 -t UTF-8 -c > cut.md
-              cat cut.md
-              echo
-              # an odd number of ``` lines means the cut fell inside a code block: close it
-              if [ $(( $(grep -c '^```' cut.md) % 2 )) -eq 1 ]; then echo '```'; fi
-              echo
-              echo "_Receipt truncated: the full receipt is in the job summary of the [run](${RUN_URL})._"
-            else
-              cat receipt.md
-            fi
-            echo
-            echo "<sub>Posted by trustbut CI · [run log](${RUN_URL})</sub>"
-          } > comment.md
-          # Only adopt a comment authored by the Actions bot, never one a user planted with our marker.
-          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- trustbut-receipt -->")))][0].id // empty' | head -n1)
-          if [ -n "$COMMENT_ID" ]; then
-            gh api --method PATCH "repos/${REPO}/issues/comments/${COMMENT_ID}" -F body=@comment.md
-          else
-            gh api --method POST "repos/${REPO}/issues/${PR_NUMBER}/comments" -F body=@comment.md
-          fi
+        uses: ./
+        with:
+          base: ${{ github.base_ref }}
+          version: local
 
   # Real-toolchain integration tests: one job per toolchain. TRUSTBUT_REQUIRE makes the suites
   # fail (instead of skip) when the tool is missing, so a broken setup step can't pass silently.

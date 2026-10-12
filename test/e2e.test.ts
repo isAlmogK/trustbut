@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -461,5 +461,95 @@ describe('trustbut verify --working', () => {
   it('rejects --working together with --head', async () => {
     const { dir } = await makeRepo(BASE_FILES);
     await expect(runVerify({ cwd: dir, working: true, head: 'main' })).rejects.toThrow(/--working.*--head/);
+  });
+});
+
+describe('--receipt-json / --receipt-md', () => {
+  it('writes both receipts (creating parent dirs) alongside normal output', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    const jsonPath = join(out, 'a/b/receipt.json');
+    const mdPath = join(out, 'c/receipt.md');
+    const { receipt, output } = await runVerify({ cwd: dir, receiptJson: jsonPath, receiptMd: mdPath });
+    expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(JSON.parse(JSON.stringify(receipt)));
+    expect(await readFile(mdPath, 'utf8')).toBe(output);
+  });
+
+  it('writes the markdown file even with --json, and still writes on FAIL', async () => {
+    const dir = await scenario({
+      'test/old.test.js': "import { it, expect } from 'vitest';\nit.only('truth', () => expect(1).toBe(1));\n",
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    const mdPath = join(out, 'r.md');
+    const jsonPath = join(out, 'r.json');
+    const r = await runVerify({ cwd: dir, json: true, receiptMd: mdPath, receiptJson: jsonPath });
+    expect(r.exitCode).toBe(1);
+    expect(r.receipt.verdict).toBe('fail');
+    expect(await readFile(mdPath, 'utf8')).toContain('FAIL');
+    expect(JSON.parse(await readFile(jsonPath, 'utf8')).verdict).toBe('fail');
+  });
+
+  it('does not write files on a usage error', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    const jsonPath = join(out, 'r.json');
+    const { dir } = await makeRepo(BASE_FILES);
+    await expect(runVerify({ cwd: dir, base: 'nope', receiptJson: jsonPath })).rejects.toThrow();
+    await expect(readFile(jsonPath, 'utf8')).rejects.toThrow();
+  });
+
+  it('reports write failures in writeErrors, keeping the receipt and verdict exit code', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    await writeFile(join(out, 'file'), 'x');
+    const bad = join(out, 'file', 'r.json');
+    const r = await runVerify({ cwd: dir, receiptJson: bad });
+    expect(r.exitCode).toBe(0);
+    expect(r.receipt.verdict).toBe('pass');
+    expect(r.writeErrors).toHaveLength(1);
+    expect(r.writeErrors[0]!.path).toBe(bad);
+  });
+
+  it('CLI: verify --receipt-json writes the file; a failed write prints the receipt first, then exits 2', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+    });
+    const out = await mkdtemp(join(tmpdir(), 'ar-out-'));
+    const good = join(out, 'sub/r.json');
+    await writeFile(join(out, 'file'), 'x');
+    const bad = join(out, 'file', 'r.json');
+    const cap = { out: '', err: '' };
+    const so = process.stdout.write.bind(process.stdout);
+    const se = process.stderr.write.bind(process.stderr);
+    const prevCwd = process.cwd();
+    const prevCode = process.exitCode;
+    process.chdir(dir);
+    process.stdout.write = ((c: string) => ((cap.out += c), true)) as typeof process.stdout.write;
+    process.stderr.write = ((c: string) => ((cap.err += c), true)) as typeof process.stderr.write;
+    try {
+      await buildProgram().parseAsync(['node', 'trustbut', 'verify', '--receipt-json', good, '--receipt-md', bad]);
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.stdout.write = so;
+      process.stderr.write = se;
+      process.chdir(prevCwd);
+      process.exitCode = prevCode;
+    }
+    expect(cap.out).toContain('Receipt: PASS');
+    expect(cap.err).toContain(`trustbut: couldn't write receipt to ${bad}:`);
+    expect(JSON.parse(await readFile(good, 'utf8')).verdict).toBe('pass');
+  });
+
+  it('CLI flags are registered on verify', () => {
+    const verify = buildProgram().commands.find((c) => c.name() === 'verify')!;
+    const flags = verify.options.map((o) => o.long);
+    expect(flags).toContain('--receipt-json');
+    expect(flags).toContain('--receipt-md');
   });
 });

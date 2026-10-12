@@ -1,9 +1,24 @@
 // Child processes that run in their own process group, so that a timeout or a stop reaches
 // everything they started (test workers, servers), not just the direct child.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execa } from 'execa';
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// An abort signal for everything started inside `withAbort` (e.g. the hook's time budget), so that
+// every runner's processes are stopped without passing the signal through each runner by hand.
+const abortScope = new AsyncLocalStorage<AbortSignal>();
+
+/** Runs `fn` so that every `runInGroup` and `startSetup` inside it is stopped when `signal` aborts. */
+export function withAbort<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+  return signal ? abortScope.run(signal, fn) : fn();
+}
+
+/** The signal of the enclosing `withAbort`, if any. */
+export function currentAbortSignal(): AbortSignal | undefined {
+  return abortScope.getStore();
+}
 
 /** Default time between SIGTERM and SIGKILL. */
 export const GRACE_MS = 3000;
@@ -86,17 +101,24 @@ export interface GroupRunResult {
  * Runs `file args` in its own process group with combined output. On timeout the whole group is
  * stopped (SIGTERM, then SIGKILL); processes left behind after a normal exit are stopped too.
  * Throws `Couldn't start <file>: …` when the program cannot be spawned at all (e.g. not on PATH).
+ * Inside `withAbort`, an abort stops the group the same way and rejects with the signal's reason.
  */
 export async function runInGroup(
   file: string,
   args: string[],
   { cwd, env, timeoutMs, graceMs = GRACE_MS }: GroupRunOptions,
 ): Promise<GroupRunResult> {
+  const signal = currentAbortSignal();
+  signal?.throwIfAborted();
   const sub = execa(file, args, { cwd, env, extendEnv: false, reject: false, all: true, detached: true, stdin: 'ignore' });
   const pid = sub.pid;
   const release = pid !== undefined ? guardGroup(pid) : () => {};
   let timedOut = false;
   let killing: Promise<void> | undefined;
+  const onAbort = () => {
+    if (pid !== undefined) killing = killGroup(pid, graceMs);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
   const timer =
     pid !== undefined && timeoutMs !== undefined
       ? setTimeout(() => {
@@ -108,6 +130,7 @@ export async function runInGroup(
     const res = await sub;
     clearTimeout(timer);
     await killing;
+    signal?.throwIfAborted();
     // No exit code, no signal, no timeout: the program never started (not found, not executable).
     if (res.failed && res.exitCode === undefined && res.signal === undefined && !timedOut) {
       const reason = String(res.shortMessage ?? '').split('\n').pop() || 'could not be spawned';
@@ -124,6 +147,7 @@ export async function runInGroup(
     };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
     // Anything the tool left running (workers, servers) goes with it.
     if (pid !== undefined) await killGroup(pid, graceMs);
     release();

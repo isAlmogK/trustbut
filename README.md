@@ -12,20 +12,20 @@
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/ROADMAP.md)
 [![Languages](https://img.shields.io/badge/languages-11-blueviolet.svg)](#supported-languages)
 
-🧾 *Verified by trustbut: every pull request to this repo carries its own trustbut receipt.*
+🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
-[Languages](#supported-languages) · [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
 
 ---
 
-trustbut is a local command-line tool that produces a **receipt** for any change an AI coding agent makes. It reruns your tests from scratch, checks whether the agent's new tests actually prove anything, and flags skipped tests, deleted assertions and silenced type checks. Then it gives you a **PASS / WARN / FAIL** verdict you can read in 30 seconds.
+trustbut is a local command-line tool that produces a **receipt** for any change an AI coding agent makes. It reruns your tests from scratch, checks whether the agent's new tests actually prove anything, and flags skipped tests, deleted assertions and silenced type checks. Then it gives you a **PASS / WARN / FAIL** verdict you can read in 30 seconds. Wired into your agent, it can also stop the agent from finishing while the receipt is FAIL, so it keeps fixing until the evidence holds up ([details](#use-it-with-your-agent)).
 
 It works with **any agent** (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) and **every major language** (JavaScript/TypeScript, Python, Go, Rust, Java, Kotlin, C#, Ruby, PHP, Dart/Flutter and Swift) because it only needs git and your test runner. No LLM, no server, no account. Your code never leaves your machine.
 
 ```console
-$ npx github:isAlmogK/trustbut verify
+$ npx trustbut verify
 
 ## 🧾 Receipt: WARN
 
@@ -85,21 +85,21 @@ So I want something **independent, deterministic and local**: evidence, not opin
 
 ## Install
 
-> [!NOTE]
-> trustbut is in early alpha and **not on npm yet**. Until the first release, run it straight from GitHub; the build happens automatically.
-
 **Requirements:** Node.js 22 or newer, git, and a repository with tests in one of the [supported languages and test runners](#supported-languages-and-test-runners), or any runner that can write JUnit XML. The toolchain of your project (Go, Cargo, Maven, .NET, Composer, …) must be installed, as it is when you run the tests yourself.
 
 **Run without installing (recommended):**
 
 ```bash
-npx github:isAlmogK/trustbut verify
+npx trustbut verify
 ```
+
+> [!NOTE]
+> trustbut 0.3.0 is being published to npm. Until 0.3.0 is on npm, run it straight from GitHub instead (the build happens automatically): `npx github:isAlmogK/trustbut verify`.
 
 **Install globally:**
 
 ```bash
-npm install -g github:isAlmogK/trustbut
+npm i -g trustbut
 trustbut verify
 ```
 
@@ -112,7 +112,7 @@ npm ci
 npm link
 ```
 
-Once it's published, `npx trustbut verify` will work too.
+To have your agent verify its own work after every turn, see [Use it with your agent](#use-it-with-your-agent).
 
 ## Usage
 
@@ -162,6 +162,8 @@ trustbut verify --json > receipt.json
 | `--quick` | At head, rerun only the new and changed test files | off (full suite) |
 | `--strict` | Exit with `1` on WARN as well as FAIL | off |
 | `--json` | Print the receipt as JSON instead of Markdown | off |
+| `--receipt-json <path>` | Also write the JSON receipt to this file (relative to the current directory; parent folders are created) | off |
+| `--receipt-md <path>` | Also write the Markdown receipt to this file | off |
 
 ### Verdicts and exit codes
 
@@ -170,10 +172,99 @@ trustbut verify --json > receipt.json
 | ✅ **PASS** | Tests are green from a clean checkout, the new tests prove the change, and nothing suspicious was found | `0` |
 | ⚠️ **WARN** | Something deserves a human look: a test that passes without the change, a skipped test, a silenced check | `0` (`1` with `--strict`) |
 | ✖️ **FAIL** | Tests fail from a clean checkout, a changed test fails, or a test was focused (`.only`) | `1` |
-| — | Usage or runtime error, e.g. an unknown ref or option | `2` |
+| — | Usage or runtime error, e.g. an unknown ref or option, or a `--receipt-json` / `--receipt-md` file that couldn't be written | `2` |
 
 > [!TIP]
 > By default trustbut only looks at **committed** changes. If you have uncommitted work, the receipt says so. Commit first, or pass `--working` to include it.
+
+## Use it with your agent
+
+trustbut can run itself at the end of every agent turn, so a FAIL receipt never reaches you as "done".
+
+> [!NOTE]
+> The commands below assume `trustbut` is installed globally (`npm i -g trustbut`). Until 0.3.0 is on npm, the plugin and the `init` hooks need `trustbut` on your PATH: install it with `npm i -g github:isAlmogK/trustbut`, or run `npx github:isAlmogK/trustbut init <agent>` instead of `trustbut init <agent>`.
+
+**What happens**
+
+1. When the agent finishes a turn, trustbut quickly verifies its work: your uncommitted changes plus the commits on your branch. By default it reruns only the new and changed test files (the whole suite when none changed).
+2. **FAIL:** the agent gets the receipt (failing tests with their messages, focused tests, and so on) and keeps fixing. This repeats up to `hook.maxRetries` times in a row (default 3), then the agent is allowed to stop and you see the FAIL.
+3. **WARN or PASS:** you get a one-line note and the agent finishes.
+4. trustbut never blocks on its own errors: a timeout, a crash or a missing tool lets the agent finish with a "couldn't verify" note.
+5. A tree already verified isn't rerun. A FAIL is sent back once per tree: if the agent stops again without changing anything, or you start a new turn with nothing changed, it is allowed to finish and you see the FAIL with the receipt path.
+
+After each completed check, the full Markdown receipt is at `.git/trustbut/last-receipt.md` (per worktree; inside `.git`, so it is never committed).
+
+Things to know:
+
+- The hooks run on macOS and Linux (POSIX) for now; Windows isn't supported yet.
+- Use either the Claude Code plugin or `trustbut init claude`, not both: with both, every turn is checked twice.
+- The hook runs your tests outside the agent's sandbox; see [Is it safe to run?](#faq).
+
+### Claude Code
+
+Install the plugin from this repository's marketplace:
+
+```
+/plugin marketplace add isAlmogK/trustbut
+/plugin install trustbut@trustbut
+```
+
+Or write the hook into your project without the plugin: `trustbut init claude` (use one or the other, not both). The plugin uses the `trustbut` on your PATH when it is recent enough, and otherwise runs `npx trustbut@<version>`. Both run the hook in exec form (`args`), which needs a recent Claude Code (2.1 or later).
+
+When trustbut sends a FAIL back, Claude Code labels it "Stop hook error occurred". This is expected: it is how Claude Code shows a blocking Stop hook, and the receipt is still delivered to the agent.
+
+### Codex
+
+```bash
+trustbut init codex
+```
+
+Codex asks you to approve new hooks: open `/hooks` and approve **trustbut verify** (needs Codex 0.129 or later). Project hooks load only in trusted projects.
+
+### Gemini CLI
+
+```bash
+trustbut init gemini
+```
+
+Project hooks run only in trusted folders, so trust the folder in Gemini CLI if the hook doesn't fire. Needs Gemini CLI 0.35 or later.
+
+### OpenCode
+
+```bash
+trustbut init opencode
+```
+
+This writes a plugin for the OpenCode V1 plugin API (`opencode-ai` 1.x; V2 support is a follow-up). OpenCode can't block "done", so on a FAIL the receipt is sent back to the agent as a follow-up prompt instead.
+
+### Init options
+
+`trustbut init <claude|codex|gemini|opencode>` copies a small runner script next to the agent's config and, for Claude Code, Codex and Gemini CLI, merges one hook entry into it, leaving your other hooks alone. For OpenCode it writes a plugin file instead. It is safe to rerun: it updates its own entry in place.
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | Print what would change and write nothing |
+| `--user` | Set up your user-level config (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.config/opencode`) instead of the project |
+
+Project files are written at the git root, and agents read project settings from the directory they were started in, so start the agent from the repo root. A settings file that contains comments is refused (exit `2`) with the snippet to add by hand.
+
+### Skip it or tune it
+
+Set `TRUSTBUT_SKIP=1` in the environment to skip the check for a session (for example `TRUSTBUT_SKIP=1 claude`). To change how it behaves, add a `hook` object to [`.trustbut.json`](#configuration-trustbutjson). It is read as committed at `HEAD`, so an uncommitted edit by the agent can't switch it off.
+
+```json
+{ "hook": { "mode": "full", "maxRetries": 2 } }
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | boolean | `true` | `false` lets every stop through without verifying |
+| `mode` | `"quick"` or `"full"` | `"quick"` | `quick` reruns only the new and changed test files at head; `full` reruns the whole suite |
+| `maxRetries` | whole number, 0 to 100 | `3` | How many times in a row a FAIL is sent back to the agent. `0` reports a FAIL without ever blocking |
+| `timeoutSec` | number above 0 | `540` | Time budget for one check, kept under the agents' 600 s hook timeout. When it runs out the agent is allowed to finish |
+| `base` | ref name | origin's default branch, then `origin/main`, `main`, `origin/master`, `master`, then the branch's upstream, else `HEAD` | What to compare against |
+
+The hook protocols, exit codes and environment variables are in the [spec](docs/SPEC.md#7-agent-hooks-trustbut-hook-agent).
 
 ## Supported languages and test runners
 
@@ -335,7 +426,10 @@ A ranked list of the files that deserve your attention: auth and permissions, da
 
 ## Use it in CI
 
-Add a receipt to every pull request, shown in the job summary. A FAIL fails the job:
+The trustbut GitHub Action adds a receipt to your pull requests: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
+
+> [!NOTE]
+> `@v0` resolves after the first release (until 0.3.0 is on npm and the `v0.3.0` Release exists). Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists). Before anything is published, `isAlmogK/trustbut@main` works only with `version: local`, which builds the action's own checkout.
 
 ```yaml
 # .github/workflows/trustbut.yml
@@ -343,25 +437,46 @@ name: trustbut
 on: pull_request
 permissions:
   contents: read
+  pull-requests: write   # for the sticky comment
 jobs:
   receipt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # trustbut needs history to find the merge-base
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm ci
-      - name: trustbut receipt
-        shell: bash               # keeps trustbut's exit code through the pipe
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: npx github:isAlmogK/trustbut verify --base "origin/${BASE_REF}" | tee -a "$GITHUB_STEP_SUMMARY"
+          fetch-depth: 0   # trustbut needs history to find the merge-base
+      # add your language's setup and dependency install here (setup-node + npm ci, setup-go, ...)
+      - uses: isAlmogK/trustbut@v0
 ```
 
-The example uses Node because trustbut does; add your own language's `setup-*` step and dependency install (for example `actions/setup-go`) before the trustbut step, and a `.trustbut.json` in the repo if your tests need setup. A dedicated GitHub Action that posts the receipt as a PR comment is on the [roadmap](docs/ROADMAP.md).
+The action installs Node 22 if the runner has none or one older than 22; that Node stays on the PATH for later steps in the job. Add your own language's `setup-*` step and dependency install before it, and a `.trustbut.json` in the repo if your tests need setup.
+
+**Inputs** (all optional)
+
+| Input | Default | Description |
+|---|---|---|
+| `base` | the PR base branch, else the repo default branch | Base branch to compare against |
+| `strict` | `false` | Fail on WARN as well as FAIL |
+| `config` | none | Path to a trustbut config file |
+| `root` | none | Package folder to run tests in, relative to the repo root |
+| `working-directory` | `.` | Directory to run trustbut from |
+| `version` | the version matching the action's ref | npm version of trustbut to run, or `local` to build and run the action's own checkout |
+| `node-version` | none | Force a Node version (by default Node 22 is installed only if the runner has no Node 22 or newer) |
+| `comment` | `true` | Post or update the sticky PR comment |
+| `comment-key` | `default` | Tell several comments on one PR apart, for example one per monorepo package |
+| `github-token` | `${{ github.token }}` | Token for the comment (needs `pull-requests: write`) |
+| `comment-author` | `github-actions[bot]` | Login whose comment is updated in place; set it when `github-token` is a PAT or GitHub App token |
+
+**Outputs**
+
+| Output | Description |
+|---|---|
+| `verdict` | `pass`, `warn`, `fail` or `error` |
+| `exit-code` | trustbut's exit code: `0`, `1` for FAIL (or WARN with `strict`), `2` for an error |
+| `receipt-path` | Path to the Markdown receipt |
+| `comment-url` | URL of the sticky comment (empty if none was posted) |
+
+**Pull requests from forks** get the receipt in the job summary only: GitHub gives them a read-only token, so no comment is posted. Always use the `pull_request` event, **never `pull_request_target`**: trustbut runs the PR's tests, and `pull_request_target` would run them with a write token and your secrets (the action prints a warning if you do).
 
 ## How it works
 
@@ -392,7 +507,7 @@ No. trustbut runs entirely on your machine with git and your own test runner. Th
 <details>
 <summary><b>Which agents does it work with?</b></summary>
 
-All of them. trustbut verifies the *result* (your git history and your tests), so it doesn't matter whether Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot or a human wrote the change. Deeper integrations that read agent transcripts are on the roadmap.
+All of them. trustbut verifies the *result* (your git history and your tests), so it doesn't matter whether Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot or a human wrote the change. Agents with a turn-end hook (Claude Code, Codex, Gemini CLI, OpenCode) can also run trustbut automatically: see [Use it with your agent](#use-it-with-your-agent). Deeper integrations that read agent transcripts are on the roadmap.
 </details>
 
 <details>
@@ -410,7 +525,9 @@ The base run only executes the new and changed test files, not the whole suite. 
 <details>
 <summary><b>Is it safe to run?</b></summary>
 
-trustbut runs your repository's tests, which means running your code, the same trust as running `npm test` or `pytest`. It does this in temporary worktrees and never modifies your checkout. In CI, use `pull_request` (not `pull_request_target`) with read-only permissions, as in the example above.
+trustbut runs your repository's tests, which means running your code, the same trust as running `npm test` or `pytest`. It does this in temporary worktrees and never modifies your checkout. In CI, use `pull_request` (not `pull_request_target`), as in the example above.
+
+With an agent hook, keep in mind that the check runs **outside the agent's sandbox**: at the end of each turn your tests, including ones the agent just wrote, and the `command`/`setup` in `.trustbut.json` run with your permissions and network access. Where that matters (an untrusted repo, an agent you run sandboxed), turn the hook off with `"hook": { "enabled": false }` in `.trustbut.json` or `TRUSTBUT_SKIP=1`, and run `trustbut verify` yourself in a sandbox.
 </details>
 
 <details>
@@ -421,9 +538,10 @@ From "trust, but verify." Agents are genuinely useful, so keep trusting them, bu
 
 ## Roadmap
 
-- **v0.2 (done, in review):** every language, a runner registry and `.trustbut.json`, `--working`
-- **v0.3:** GitHub Action with PR comments, hooks that stop an agent from saying "done" on a red receipt, npm release
-- **v0.4:** the receipt format as an open spec
+- **v0.2 (done):** every language, a runner registry and `.trustbut.json`, `--working`
+- **v0.3 (done, in review):** the GitHub Action with a sticky PR comment, hooks that stop an agent from saying "done" on a red receipt (Claude Code, Codex, Gemini CLI, OpenCode), and the npm release
+- **v0.4 (next):** the receipt format as an open spec with stable finding ids
+- **v0.5:** an agent test-honesty index, measured on real agent pull requests
 - **Later:** transcripts and claim checks, mutation testing on changed lines, `trustbut compare`, a local web UI
 
 See the full [roadmap](docs/ROADMAP.md) and the [design spec](docs/SPEC.md).
@@ -442,7 +560,7 @@ npm run receipt   # trustbut's receipt for your branch; run before opening a PR
 
 Every pull request gets a trustbut receipt in the CI job summary, and pull requests from this repository also get it as a sticky comment (fork PRs get the job summary only, since GitHub gives them a read-only token). Run `npm run receipt` locally first so there are no surprises.
 
-trustbut is built with AI coding agents and verified by itself: every pull request gets its own trustbut receipt in CI. The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
+trustbut is built with AI coding agents and verified by itself: every pull request gets a trustbut receipt in CI (a sticky comment for branches in this repo; the job summary for forks). The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
 
 ## License
 
@@ -452,6 +570,6 @@ trustbut is built with AI coding agents and verified by itself: every pull reque
 
 <div align="center">
 
-Built by [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it.
+Built by **Almog Koren** · [almog.io](https://almog.io) · [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it.
 
 </div>

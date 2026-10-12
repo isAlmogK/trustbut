@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CONFIG_KEYS, loadConfig, normalizeRoot, validateConfig } from '../src/config.js';
+import { CONFIG_KEYS, hookSettings, loadConfig, normalizeRoot, validateConfig } from '../src/config.js';
 import { commitAll, makeRepo, writeFiles } from './helpers/repo.js';
 
 describe('loadConfig', () => {
@@ -58,6 +58,7 @@ describe('validateConfig', () => {
       env: { FIRESTORE_EMULATOR_HOST: 'localhost:8080' },
       args: ['-p', '1'],
       timeoutSec: 600,
+      hook: { enabled: true, mode: 'full', maxRetries: 0, timeoutSec: 300, base: 'origin/develop' },
     };
     expect(validateConfig(config, '.trustbut.json')).toEqual(config);
     expect(Object.keys(config).sort()).toEqual([...CONFIG_KEYS].sort());
@@ -88,8 +89,30 @@ describe('validateConfig', () => {
     [{ timeoutSec: 2_000_001 }, '"timeoutSec" must be a positive number up to 2000000'],
     [{ setupWaitSec: 2_000_001 }, '"setupWaitSec" must be a number >= 0 and up to 2000000'],
     [{ setupReadyPattern: '(' }, '"setupReadyPattern" is not a valid regular expression'],
+    [{ hook: true }, '"hook" must be an object'],
+    [{ hook: [] }, '"hook" must be an object'],
+    [{ hook: { enable: false } }, 'Unknown keys in "hook" in .trustbut.json: enable. Allowed keys: enabled, mode, maxRetries, timeoutSec, base'],
+    [{ hook: { enabled: 'no' } }, '"hook.enabled" must be true or false'],
+    [{ hook: { mode: 'fast' } }, '"hook.mode" must be "quick" or "full"'],
+    [{ hook: { maxRetries: -1 } }, '"hook.maxRetries" must be a whole number from 0 to 100'],
+    [{ hook: { maxRetries: 1.5 } }, '"hook.maxRetries" must be a whole number from 0 to 100'],
+    [{ hook: { maxRetries: 101 } }, '"hook.maxRetries" must be a whole number from 0 to 100'],
+    [{ hook: { timeoutSec: 0 } }, '"hook.timeoutSec" must be a positive number up to 2000000'],
+    [{ hook: { timeoutSec: '60' } }, '"hook.timeoutSec" must be a positive number up to 2000000'],
+    [{ hook: { base: '' } }, '"hook.base" must be a non-empty ref name'],
+    [{ hook: { base: 3 } }, '"hook.base" must be a non-empty ref name'],
+    [{ hook: { base: '--output=x' } }, '"hook.base" must be a non-empty ref name'],
   ])('rejects %j', (value, message) => {
     expect(() => validateConfig(value, '.trustbut.json')).toThrow(message);
+  });
+});
+
+describe('hookSettings', () => {
+  it('fills in the defaults', () => {
+    expect(hookSettings({})).toEqual({ enabled: true, mode: 'quick', maxRetries: 3, timeoutSec: 540 });
+    expect(hookSettings({ hook: { mode: 'full', maxRetries: 0 } })).toEqual({ enabled: true, mode: 'full', maxRetries: 0, timeoutSec: 540 });
+    expect(hookSettings({ hook: { enabled: false, timeoutSec: 0.5 } })).toEqual({ enabled: false, mode: 'quick', maxRetries: 3, timeoutSec: 0.5 });
+    expect(hookSettings({ hook: { base: 'develop' } }).base).toBe('develop');
   });
 });
 

@@ -3,7 +3,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import { languageOf } from '../languages/index.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
-import { addCase } from './cases.js';
+import { addCase, cleanMessage, withMessage } from './cases.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -36,6 +36,17 @@ function underRoot(file: string, root: string | undefined, real: string | undefi
   return file;
 }
 
+/** `message` attribute of a <failure>/<error> element, else the first non-empty line of its text. */
+function junitMessage(node: unknown): string | undefined {
+  const first = Array.isArray(node) ? node[0] : node;
+  if (typeof first === 'string') return cleanMessage(first.split(/\r?\n/).find((l) => l.trim()));
+  if (typeof first !== 'object' || first === null) return undefined;
+  const el = first as { message?: unknown; '#text'?: unknown };
+  const fromAttr = cleanMessage(el.message);
+  if (fromAttr) return fromAttr;
+  return typeof el['#text'] === 'string' ? cleanMessage(el['#text'].split(/\r?\n/).find((l) => l.trim())) : undefined;
+}
+
 /**
  * Parses JUnit XML. With `root` (the package root the tool ran in), absolute `file` paths below it are made
  * relative to it, so ids are identical between the base and head checkouts. A repeated id keeps the worst outcome.
@@ -54,7 +65,8 @@ export function parseJUnit(xml: string, root?: string): TestCaseResult[] {
       const suiteName = suite.name ?? '';
       const file = underRoot(languageOf(suiteName) !== undefined ? suiteName : (tc.file ?? tc.classname ?? ''), root, real);
       const name = String(tc.name ?? '');
-      addCase(out, index, { id: `${file}::${name}`, file, name, outcome });
+      const message = outcome === 'fail' ? junitMessage(tc.failure) : outcome === 'error' ? junitMessage(tc.error) : undefined;
+      addCase(out, index, { id: `${file}::${name}`, file, name, outcome, ...withMessage(message) });
     }
     for (const child of suite.testsuite ?? []) walk(child);
   };

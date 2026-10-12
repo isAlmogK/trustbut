@@ -35,6 +35,8 @@ export interface TestCaseResult {
   outcome: TestOutcome;
   /** The test's own short name (e.g. the method), for matching against added lines; defaults to the last segment of `name`. */
   leaf?: string;
+  /** The runner's failure message for a failing case (one line, at most 300 characters), when it reports one. */
+  message?: string;
 }
 
 export interface RunResult {
