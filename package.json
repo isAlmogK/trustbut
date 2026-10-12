@@ -1,8 +1,9 @@
 {
   "name": "trustbut",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "description": "Verifiable receipts for code written by AI coding agents",
   "keywords": [
+    "agent-receipts",
     "ai-agents",
     "claude-code",
     "codex",
@@ -16,6 +17,7 @@
     "pytest",
     "cli"
   ],
+  "author": "Almog Koren (https://almog.io)",
   "homepage": "https://github.com/isAlmogK/trustbut#readme",
   "repository": {
     "type": "git",

@@ -1,12 +1,15 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { buildProgram } from '../src/program.js';
+import { VERSION } from '../src/version.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const PKG_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 const cli = (...args: string[]) => execa('npx', ['--no-install', 'tsx', 'src/cli.ts', ...args], { cwd: ROOT, reject: false });
 
 describe('cli', () => {
@@ -16,7 +19,8 @@ describe('cli', () => {
       .exitOverride()
       .configureOutput({ writeOut: (s) => { out += s; } });
     expect(() => program.parse(['node', 'trustbut', '--version'])).toThrow();
-    expect(out.trim()).toBe('0.0.1');
+    expect(out.trim()).toBe(PKG_VERSION);
+    expect(VERSION).toBe(PKG_VERSION);
   });
 
   it('subcommands inherit exitOverride, so usage errors reach the caller', async () => {
@@ -55,11 +59,19 @@ describe('cli process exit codes', () => {
     expect(help.stdout).toContain('Usage: trustbut');
     const version = await cli('--version');
     expect(version.exitCode).toBe(0);
-    expect(version.stdout.trim()).toBe('0.0.1');
+    expect(version.stdout.trim()).toBe(PKG_VERSION);
     const sub = await cli('verify', '--help');
     expect(sub.exitCode).toBe(0);
     expect(sub.stdout).toContain('--strict');
     expect(sub.stdout).toContain('--config <path>');
     expect(sub.stdout).toContain('--root <dir>');
   }, 60_000);
+});
+
+describe('built cli', () => {
+  it('node dist/cli.js --version equals package.json (after build)', async () => {
+    await execa('npm', ['run', 'build'], { cwd: ROOT });
+    const r = await execa('node', ['dist/cli.js', '--version'], { cwd: ROOT });
+    expect(r.stdout.trim()).toBe(PKG_VERSION);
+  }, 120_000);
 });

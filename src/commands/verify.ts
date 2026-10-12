@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { checkEscapes } from '../checks/escapes.js';
 import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
@@ -24,6 +25,10 @@ export interface VerifyOptions {
   quick?: boolean;
   strict?: boolean;
   json?: boolean;
+  /** Also write the JSON receipt to this file (parent dirs created; relative to cwd). */
+  receiptJson?: string;
+  /** Also write the Markdown receipt to this file (parent dirs created; relative to cwd). */
+  receiptMd?: string;
 }
 
 export interface VerifyResult {
@@ -123,6 +128,13 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
     changes,
   });
   const output = opts.json ? `${JSON.stringify(receipt, null, 2)}\n` : renderMarkdown(receipt);
+  const cwdPath = (p: string) => resolve(cwd, p);
+  const write = async (path: string, text: string) => {
+    await mkdir(dirname(cwdPath(path)), { recursive: true });
+    await writeFile(cwdPath(path), text);
+  };
+  if (opts.receiptJson) await write(opts.receiptJson, `${JSON.stringify(receipt, null, 2)}\n`);
+  if (opts.receiptMd) await write(opts.receiptMd, opts.json ? renderMarkdown(receipt) : output);
   const exitCode = receipt.verdict === 'fail' || (opts.strict && receipt.verdict === 'warn') ? 1 : 0;
   return { receipt, output, exitCode };
 }

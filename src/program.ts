@@ -34,6 +34,8 @@ export function buildProgram(): Command {
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
     .option('--json', 'print the receipt as JSON')
+    .option('--receipt-json <path>', 'also write the JSON receipt to this file')
+    .option('--receipt-md <path>', 'also write the Markdown receipt to this file')
     .action(async (opts: VerifyOptions) => {
       try {
         const result = await runVerify(opts);
