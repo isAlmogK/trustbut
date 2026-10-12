@@ -1,0 +1,170 @@
+name: trustbut receipt
+description: Verifiable receipt for AI-written changes - reruns your tests at base and head, summarises the result, and posts a sticky PR comment.
+author: Almog Koren
+branding:
+  icon: check-square
+  color: green
+
+inputs:
+  base:
+    description: Base branch to compare against (default - the PR base branch, else the repo default branch).
+    required: false
+    default: ''
+  strict:
+    description: Exit 1 on WARN as well as FAIL.
+    required: false
+    default: 'false'
+  config:
+    description: Path to a trustbut config file.
+    required: false
+    default: ''
+  root:
+    description: Package folder to run tests in, relative to the repo root.
+    required: false
+    default: ''
+  working-directory:
+    description: Directory to run trustbut from.
+    required: false
+    default: '.'
+  version:
+    description: trustbut version to run - an npm version, or "local" to build and run this action's own checkout (default - the version matching this action's ref).
+    required: false
+    default: ''
+  node-version:
+    description: Force a Node version. By default Node 22 is installed only if the runner has no Node >= 22.
+    required: false
+    default: ''
+  comment:
+    description: Post or update a sticky PR comment with the receipt.
+    required: false
+    default: 'true'
+  comment-key:
+    description: Distinguishes several trustbut comments on one PR (for example monorepo packages).
+    required: false
+    default: 'default'
+  github-token:
+    description: Token used for the PR comment (needs pull-requests write).
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: pass | warn | fail | error
+    value: ${{ steps.verify.outputs.verdict }}
+  exit-code:
+    description: trustbut exit code (0 ok, 1 fail or strict warn, 2 error)
+    value: ${{ steps.verify.outputs.exit-code }}
+  receipt-path:
+    description: Path to the Markdown receipt
+    value: ${{ steps.verify.outputs.receipt-path }}
+  comment-url:
+    description: URL of the sticky comment (empty if not posted)
+    value: ${{ steps.comment.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - name: trustbut - check Node
+      id: node
+      shell: bash
+      env:
+        WANT: ${{ inputs.node-version }}
+      run: |
+        major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+        if [ -n "$WANT" ] || [ "$major" -lt 22 ]; then echo "setup=true" >> "$GITHUB_OUTPUT"; fi
+
+    - name: trustbut - set up Node
+      if: steps.node.outputs.setup == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version || '22' }}
+
+    - name: trustbut - warn on pull_request_target
+      if: github.event_name == 'pull_request_target'
+      shell: bash
+      run: echo "::warning title=trustbut::trustbut runs the PR's tests; use the pull_request event, not pull_request_target (it runs with a write token and secrets)."
+
+    - name: trustbut - build local checkout
+      if: inputs.version == 'local'
+      shell: bash
+      run: cd "$GITHUB_ACTION_PATH" && npm ci --ignore-scripts=false && npm run build
+
+    - name: trustbut - verify
+      id: verify
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_BASE: ${{ inputs.base }}
+        PR_BASE: ${{ github.base_ref }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_ROOT: ${{ inputs.root }}
+        INPUT_VERSION: ${{ inputs.version }}
+        KEY: ${{ inputs.comment-key }}
+      run: |
+        set -uo pipefail   # no -e: trustbut's exit code is captured and re-raised by the last step
+        base="${INPUT_BASE:-${PR_BASE:-$DEFAULT_BRANCH}}"
+        # trustbut needs a merge-base with origin/<base>
+        if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+          echo "::notice title=trustbut::Shallow clone; fetching full history (use fetch-depth: 0 to skip this)."
+          git fetch --no-tags --quiet --unshallow origin || true
+        fi
+        git rev-parse --verify --quiet "refs/remotes/origin/${base}" >/dev/null \
+          || git fetch --no-tags --quiet origin "+refs/heads/${base}:refs/remotes/origin/${base}" || true
+
+        safe_key="${KEY//[^A-Za-z0-9_-]/_}"
+        receipt="${RUNNER_TEMP}/trustbut-receipt-${safe_key}.md"
+        receipt_json="${RUNNER_TEMP}/trustbut-receipt-${safe_key}.json"
+        : > "$receipt"; : > "$receipt_json"   # start empty so a stale file can never be mistaken for this run's
+
+        args=(verify --base "origin/${base}" --receipt-json "$receipt_json" --receipt-md "$receipt")
+        [ "$INPUT_STRICT" = "true" ] && args+=(--strict)
+        [ -n "$INPUT_CONFIG" ] && args+=(--config "$INPUT_CONFIG")
+        [ -n "$INPUT_ROOT" ] && args+=(--root "$INPUT_ROOT")
+
+        if [ "$INPUT_VERSION" = "local" ]; then
+          node "$GITHUB_ACTION_PATH/dist/cli.js" "${args[@]}"
+        else
+          version="${INPUT_VERSION:-$(node -p "require(process.env.GITHUB_ACTION_PATH + '/package.json').version")}"
+          npx --yes "trustbut@${version}" "${args[@]}"
+        fi
+        code=$?
+
+        verdict=error
+        if [ -s "$receipt_json" ]; then
+          verdict=$(RECEIPT_JSON="$receipt_json" node -p "require(process.env.RECEIPT_JSON).verdict" 2>/dev/null || echo error)
+        fi
+        [ -s "$receipt" ] && cat "$receipt" >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "verdict=${verdict}"
+          echo "exit-code=${code}"
+          [ -s "$receipt" ] && echo "receipt-path=${receipt}"
+        } >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: trustbut - sticky PR comment
+      id: comment
+      if: >-
+        always() && inputs.comment == 'true' &&
+        github.event_name == 'pull_request' &&
+        steps.verify.outputs.receipt-path != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        EVENT_NAME: ${{ github.event_name }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        RECEIPT: ${{ steps.verify.outputs.receipt-path }}
+        COMMENT_KEY: ${{ inputs.comment-key }}
+        SERVER_URL: ${{ github.server_url }}
+        RUN_ID: ${{ github.run_id }}
+      run: node "$GITHUB_ACTION_PATH/scripts/action/comment.mjs"
+
+    - name: trustbut - result (fails the job on FAIL)
+      if: always()
+      shell: bash
+      env:
+        CODE: ${{ steps.verify.outputs.exit-code }}
+      run: exit "${CODE:-2}"
