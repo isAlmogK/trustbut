@@ -104,9 +104,43 @@ describe('jvm test targets', () => {
     await writeFile(join(d, 'PayIT.java'), 'package com.x;\nclass PayIT { @Test void a() {} }\n');
     await mkdir(join(dir, 'src', 'main', 'java'), { recursive: true });
     await writeFile(join(dir, 'src', 'main', 'java', 'M.java'), 'class M { @Test void a() {} }\n');
-    expect(jvmTestClasses(dir, [...files, 'src/test/kotlin/com/y/CalcTests.kt', 'src/test/java/com/x/PayIT.java', 'src/main/java/M.java'])).toEqual(['com.x.CalcTest', 'com.y.KtTest', 'com.y.CalculatorTest', 'com.y.SecondTest']);
+    expect(jvmTestClasses(dir, [...files, 'src/test/kotlin/com/y/CalcTests.kt', 'src/test/java/com/x/PayIT.java', 'src/main/java/M.java'], true)).toEqual(['com.x.CalcTest', 'com.y.KtTest', 'com.y.CalculatorTest', 'com.y.SecondTest']);
     expect(jvmTestClasses(dir, ['src/test/java/com/x/TestUtils.java'])).toEqual([]);
     expect(jvmTestClasses(dir, undefined)).toEqual([]);
+  });
+});
+
+describe('jvm test target edge cases', () => {
+  async function srcDir(files: Record<string, string>) {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-jvm-'));
+    for (const [rel, text] of Object.entries(files)) {
+      await mkdir(join(dir, rel, '..'), { recursive: true });
+      await writeFile(join(dir, rel), text);
+    }
+    return dir;
+  }
+
+  it('drops Failsafe integration tests (*IT, *ITCase) only when asked (Maven), and never ITest/ITokenizerTest', async () => {
+    const files = {
+      'src/test/java/com/x/PayIT.java': 'package com.x;\nclass PayIT { @Test void a() {} }\n',
+      'src/test/java/com/x/PayITCase.java': 'package com.x;\nclass PayITCase { @Test void a() {} }\n',
+      'src/test/java/com/x/ITest.java': 'package com.x;\nclass ITest { @Test void a() {} }\n',
+      'src/test/java/com/x/ITokenizerTest.java': 'package com.x;\nclass ITokenizerTest { @Test void a() {} }\n',
+    };
+    const dir = await srcDir(files);
+    expect(jvmTestClasses(dir, Object.keys(files), true)).toEqual(['com.x.ITest', 'com.x.ITokenizerTest']);
+    expect(jvmTestClasses(dir, Object.keys(files))).toEqual(['com.x.PayIT', 'com.x.PayITCase', 'com.x.ITest', 'com.x.ITokenizerTest']);
+  });
+
+  it('falls back to the file name when same-line annotations hide the class, unless the class is abstract', async () => {
+    const files = {
+      'src/test/java/com/x/TaggedTest.java': 'package com.x;\n\n@Tag("slow") class TaggedTest {\n  @Test void a() {}\n}\n',
+      'src/test/kotlin/com/y/KTaggedTest.kt': 'package com.y\n\n@Tag("slow") class KTaggedTest {\n  @Test fun a() {}\n}\n',
+      'src/test/java/com/x/BaseTaggedTest.java': 'package com.x;\n@Tag("x") public abstract class BaseTaggedTest {\n  @Test void a() {}\n}\n',
+      'src/test/java/com/x/TaggedUtil.java': 'package com.x;\n@Tag("x") class TaggedUtil { static int one() { return 1; } }\n',
+    };
+    const dir = await srcDir(files);
+    expect(jvmTestClasses(dir, Object.keys(files))).toEqual(['com.x.TaggedTest', 'com.y.KTaggedTest']);
   });
 });
 

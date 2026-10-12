@@ -91,20 +91,28 @@ export function casesInJvmFile(c: TestCaseResult, file: string, readHead: ReadHe
 }
 
 const SOURCE_SET_FILE = /(?:^|\/)src\/test\/(?:java|kotlin)\/.+\.(?:java|kt)$/;
-// Integration tests (Failsafe) are not part of `test`.
-const INTEGRATION = /(?:^IT|IT$|ITCase$)/;
+// Maven Failsafe's default integration-test names (`**/*IT`, `**/*ITCase`); Surefire's `test` phase does not run them.
+// (Failsafe's `IT*` prefix is left out: it would drop `ITest` or `ITokenizerTest`, which Surefire does run.)
+const INTEGRATION = /(?:IT|ITCase)$/;
 const TEST_MARKER = /@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate|Nested)\b|extends\s+TestCase\b/;
+const ABSTRACT_CLASS = /\babstract\s+(?:\w+\s+)*class\b/;
 
-/** Fully qualified names of the test classes among `files`; helpers without tests are left out (empty = run everything). */
-export function jvmTestClasses(cwd: string, files: string[] | undefined): string[] {
+/**
+ * Fully qualified names of the test classes among `files`; helpers without tests are left out (empty = run everything).
+ * `skipIntegration` (Maven) leaves out Failsafe integration tests, which `mvn test` does not run.
+ */
+export function jvmTestClasses(cwd: string, files: string[] | undefined, skipIntegration = false): string[] {
   const out: string[] = [];
   for (const file of files ?? []) {
     const f = file.split(sep).join('/');
     if (!SOURCE_SET_FILE.test(f) || !existsSync(join(cwd, f))) continue;
     const src = readFileSync(join(cwd, f), 'utf8');
     if (!TEST_MARKER.test(src)) continue;
-    for (const fq of declaredJvmClasses(f, src, true)) {
-      if (!INTEGRATION.test(fq.split('.').pop()!) && !out.includes(fq)) out.push(fq);
+    let classes = declaredJvmClasses(f, src, true);
+    // `@Tag("x") class FooTest` hides the class from the column-0 match: the file name is the class then, unless it is abstract.
+    if (!classes.length && !ABSTRACT_CLASS.test(src)) classes = declaredJvmClasses(f, src);
+    for (const fq of classes) {
+      if (!(skipIntegration && INTEGRATION.test(fq.split('.').pop()!)) && !out.includes(fq)) out.push(fq);
     }
   }
   return out;
@@ -178,13 +186,15 @@ export interface JvmTool {
   initScript?: string;
   /** The tool is told to carry on after failing tests; the exit code is then derived from the reports. */
   ignoresTestFailures?: boolean;
+  /** Its test task does not run integration tests (`*IT`, `*ITCase`: Maven Failsafe), so they are not selected. */
+  skipsIntegrationTests?: boolean;
 }
 
 export async function runJvm(tool: JvmTool, { cwd, worktree, files, args = [], env: extraEnv, timeoutMs }: RunOptions): Promise<RunResult> {
   const start = Date.now();
   // Reports left over from an earlier build must not pass for this run.
   for (const dir of findReportDirs(cwd, tool.kind)) rmSync(dir, { recursive: true, force: true });
-  const classes = jvmTestClasses(cwd, files);
+  const classes = jvmTestClasses(cwd, files, tool.skipsIntegrationTests);
   const { cmd, prefix } = resolveLauncher(cwd, worktree, tool.wrapper, tool.bin);
   const tmp = tool.initScript ? await mkdtemp(join(tmpdir(), 'trustbut-jvm-')) : undefined;
   let res;

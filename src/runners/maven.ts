@@ -16,7 +16,7 @@ export function mavenArgs(classes: string[], args: string[]): string[] {
   ];
 }
 
-const tool: JvmTool = { name: 'maven', wrapper: 'mvnw', bin: 'mvn', kind: 'surefire', ignoresTestFailures: true, buildArgs: mavenArgs };
+const tool: JvmTool = { name: 'maven', wrapper: 'mvnw', bin: 'mvn', kind: 'surefire', ignoresTestFailures: true, skipsIntegrationTests: true, buildArgs: mavenArgs };
 
 export const maven: Runner = {
   name: 'maven',
