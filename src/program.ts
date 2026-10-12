@@ -1,7 +1,8 @@
+import { writeSync } from 'node:fs';
 import { Argument, Command, InvalidArgumentError, Option } from 'commander';
 import { runHook } from './commands/hook.js';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
-import { AGENTS, type Agent } from './hook/protocols.js';
+import { AGENTS, respond, type Agent } from './hook/protocols.js';
 import { getRunner } from './runners/registry.js';
 import { VERSION } from './version.js';
 
@@ -62,18 +63,41 @@ export function buildProgram(): Command {
         'Set TRUSTBUT_SKIP=1 to skip. Settings: "hook" in .trustbut.json (enabled, mode, maxRetries, timeoutSec).',
     )
     .action(async (agent: Agent) => {
-      const result = await runHook({ agent, stdin: await readStdin() });
-      await write(process.stdout, result.stdout);
-      await write(process.stderr, result.stderr);
-      process.exitCode = result.exitCode;
-      // The timed-out verify run would not stop: don't let it hold the agent past its own hook timeout.
-      if (result.forceExit) process.exit(result.exitCode);
+      // An agent that kills the hook (its own timeout, Ctrl-C) gets the test processes stopped and the
+      // worktrees removed first: abort, give cleanup up to 2 s, then exit without blocking.
+      const ctl = new AbortController();
+      const onSignal = (signal: NodeJS.Signals) => {
+        if (ctl.signal.aborted) return;
+        ctl.abort(new Error(`interrupted by ${signal}`));
+        setTimeout(() => {
+          try {
+            writeSync(1, respond(agent, { kind: 'allow', message: `trustbut couldn't verify: interrupted by ${signal}` }).stdout);
+          } catch {
+            // stdout already closed
+          }
+          process.exit(0);
+        }, INTERRUPT_GRACE_MS).unref();
+      };
+      process.on('SIGTERM', onSignal);
+      process.on('SIGINT', onSignal);
+      try {
+        const result = await runHook({ agent, stdin: await readStdin(), signal: ctl.signal });
+        await write(process.stdout, result.stdout);
+        await write(process.stderr, result.stderr);
+        process.exitCode = result.exitCode;
+        // A timed-out verify run that would not stop, or an interrupt: don't linger.
+        if (result.forceExit || ctl.signal.aborted) process.exit(result.exitCode);
+      } finally {
+        process.off('SIGTERM', onSignal);
+        process.off('SIGINT', onSignal);
+      }
     });
 
   return program;
 }
 
 const STDIN_WAIT_MS = 5000;
+const INTERRUPT_GRACE_MS = 2000;
 
 /** All of stdin, or what arrived within a few seconds if the agent leaves it open; '' for a terminal. */
 async function readStdin(stream: NodeJS.ReadStream = process.stdin): Promise<string> {

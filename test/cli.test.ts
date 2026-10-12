@@ -114,3 +114,28 @@ describe('cli: trustbut hook', () => {
     expect(r.stdout).toContain('Usage: trustbut hook [options] <agent>');
   }, 60_000);
 });
+
+describe('cli: trustbut hook interrupted', () => {
+  it.each(['SIGTERM', 'SIGINT'] as const)('on %s stops the tests, removes its worktrees and exits without blocking', async (signal) => {
+    const { dir } = await makeRepo({ '.trustbut.json': JSON.stringify({ command: 'sleep 60' }), 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('a', () => {});\n" });
+    const worktrees = async () => (await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir })).stdout.split('\n').filter((l) => l.startsWith('worktree ')).length;
+    // node directly (not npx), so the signal reaches trustbut itself.
+    const sub = execa('node', ['--import', 'tsx', 'src/cli.ts', 'hook', 'codex'], {
+      cwd: ROOT,
+      reject: false,
+      input: JSON.stringify({ session_id: `int-${signal}-${Date.now()}`, cwd: dir }),
+      env: { TRUSTBUT_SKIP: '' },
+    });
+    for (let i = 0; i < 400 && (await worktrees()) < 2; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(await worktrees()).toBe(2);
+    const sent = Date.now();
+    sub.kill(signal);
+    const r = await sub;
+    expect(Date.now() - sent).toBeLessThan(5000);
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(JSON.parse(r.stdout)).toEqual({ systemMessage: `trustbut couldn't verify: interrupted by ${signal}` });
+    expect(await worktrees()).toBe(1);
+  }, 60_000);
+});
