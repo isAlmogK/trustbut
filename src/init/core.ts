@@ -50,24 +50,37 @@ export function runnerFiles(dir: string): PlannedFile[] {
 type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Parses an existing JSON config ('' or missing = `{}`); anything else unparsable is refused. */
-export function parseConfig(path: string, text: string | undefined): Json {
-  if (text === undefined || text.trim() === '') return {};
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch (err) {
-    throw new InitError(`${path} is not valid JSON (${(err as Error).message}); fix or remove it, then run init again. Nothing was changed.`);
-  }
-  if (!isObject(value)) throw new InitError(`${path} is not a JSON object; nothing was changed.`);
-  return value;
+/** The indent of the first indented line ("\t" or 2/4/other spaces); two spaces when there is none. */
+export function detectIndent(text: string): string {
+  const m = /^([ \t]+)\S/m.exec(text);
+  return m ? m[1] : '  ';
 }
 
+const COMMENT = /^\s*\/\/|\/\*|[,{[]\s*\/\//m;
+
 /**
- * Puts `hook` under `config.hooks[event]`, replacing in place the hook `isOurs` recognises (idempotent),
- * else adding `group` to the event. Every other hook is left alone. Returns the serialized config.
+ * Puts `hook` under `hooks[event]` of the JSON config in `text` (undefined or blank = new file), replacing in place
+ * the hook `isOurs` recognises (idempotent), else adding `group`. Every other hook is left alone and the file's
+ * indent is kept. Returns the new text. Refuses (InitError) a file it can't parse, with the snippet to add by hand
+ * when the cause is comments (JSONC), which can't be preserved.
  */
-export function mergeHook(path: string, config: Json, event: string, isOurs: (hook: Json) => boolean, group: Json, hook: Json): string {
+export function mergeHook(path: string, text: string | undefined, event: string, isOurs: (hook: Json) => boolean, group: Json, hook: Json): string {
+  const indent = text ? detectIndent(text) : '  ';
+  let config: Json = {};
+  if (text !== undefined && text.trim() !== '') {
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch (err) {
+      if (COMMENT.test(text)) {
+        const snippet = JSON.stringify({ hooks: { [event]: [{ ...group, hooks: [hook] }] } }, null, 2);
+        throw new InitError(`${path} has comments, which init can't preserve. Nothing was changed. Add this to it by hand (merge it into any existing "hooks"):\n${snippet}`);
+      }
+      throw new InitError(`${path} is not valid JSON (${(err as Error).message}); fix or remove it, then run init again. Nothing was changed.`);
+    }
+    if (!isObject(value)) throw new InitError(`${path} is not a JSON object; nothing was changed.`);
+    config = value;
+  }
   const hooks = config.hooks ?? {};
   if (!isObject(hooks)) throw new InitError(`${path}: "hooks" is not an object; nothing was changed.`);
   const groups = hooks[event] ?? [];
@@ -82,7 +95,7 @@ export function mergeHook(path: string, config: Json, event: string, isOurs: (ho
     });
   }
   if (!replaced) groups.push({ ...group, hooks: [hook] });
-  return `${JSON.stringify({ ...config, hooks: { ...hooks, [event]: groups } }, null, 2)}\n`;
+  return `${JSON.stringify({ ...config, hooks: { ...hooks, [event]: groups } }, null, indent)}\n`;
 }
 
 /** True when the hook runs our runner (command string or exec-form args). */

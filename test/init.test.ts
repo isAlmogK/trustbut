@@ -176,6 +176,29 @@ describe('init: unparsable config', () => {
   });
 });
 
+describe('init: comments, indent, atomic writes', () => {
+  it('refuses a settings file with comments (exit 2 path) and prints the snippet to add by hand', async () => {
+    write(dir, '.claude/settings.json', '{\n  // my notes\n  "model": "x"\n}\n');
+    await expect(init('claude')).rejects.toThrow(/has comments, which init can't preserve[\s\S]*"Stop"[\s\S]*trustbut-run\.mjs/);
+    expect(tree(dir)).toEqual(['.claude/settings.json']);
+  });
+
+  it.each([['\t'], ['    '], ['  ']])('keeps the existing indent %j', async (indent) => {
+    write(dir, '.gemini/settings.json', JSON.stringify({ theme: 'dark' }, null, indent));
+    await init('gemini');
+    expect(read(dir, '.gemini/settings.json')).toContain(`\n${indent}"theme"`);
+  });
+
+  it('leaves no temp files behind', async () => {
+    await init('codex');
+    expect(tree(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('says where project files went and that agents read them from their launch dir', async () => {
+    expect(await init('claude', { dryRun: true })).toMatch(/git root[\s\S]*launched in/);
+  });
+});
+
 describe('init --user', () => {
   it('claude: user settings with an absolute runner path', async () => {
     await init('claude', { user: true });
@@ -195,7 +218,8 @@ describe('init --user', () => {
   it('opencode: plugin under ~/.config/opencode/plugins', async () => {
     await init('opencode', { user: true });
     expect(existsSync(join(home, '.config/opencode/plugins/trustbut.js'))).toBe(true);
-    expect(read(home, '.config/opencode/plugins/trustbut.js')).toContain(JSON.stringify(join(home, '.config/opencode/hooks/trustbut-run.mjs')));
+    expect(read(home, '.config/opencode/plugins/trustbut.js')).toContain("new URL('../hooks/trustbut-run.mjs', import.meta.url)");
+    expect(existsSync(join(home, '.config/opencode/hooks/trustbut-run.mjs'))).toBe(true);
   });
 });
 
@@ -220,8 +244,10 @@ describe('opencode plugin behaviour (fake client, fake trustbut)', () => {
     chmodSync(bin, 0o755);
     process.env.TRUSTBUT_BIN = bin;
   };
-  const load = async () => {
+  const load = async (fromSubdir = false) => {
     await init('opencode');
+    const sub = join(dir, 'packages', 'app');
+    mkdirSync(sub, { recursive: true });
     const mod = await import(`${join(dir, '.opencode/plugins/trustbut.js')}?${Math.random()}`);
     const prompts: { path: { id: string }; body: { parts: { type: string; text: string }[] } }[] = [];
     const client = {
@@ -230,9 +256,9 @@ describe('opencode plugin behaviour (fake client, fake trustbut)', () => {
         prompt: async (arg: (typeof prompts)[number]) => void prompts.push(arg),
       },
     };
-    const hooks = await mod.Trustbut({ client, directory: dir });
+    const hooks = await mod.Trustbut({ client, directory: fromSubdir ? sub : dir });
     const idle = (sessionID: string) => hooks.event({ event: { type: 'session.idle', properties: { sessionID } } });
-    return { prompts, idle, hooks, mod };
+    return { prompts, idle, hooks, mod, sub: fromSubdir ? sub : undefined };
   };
 
   it('exports a single plugin function', async () => {
@@ -257,14 +283,46 @@ describe('opencode plugin behaviour (fake client, fake trustbut)', () => {
     expect(prompts).toEqual([]);
   });
 
-  it('stops after 3 retries in a row and resets on a pass', async () => {
-    fakeTrustbut(['fail', 'fail', 'fail', 'fail', 'fail', 'pass', 'fail']);
+  it('has a defensive cap of 10 in a row and resets on a pass (hook.maxRetries governs below that)', async () => {
+    fakeTrustbut([...Array(12).fill('fail'), 'pass', 'fail']);
     const { prompts, idle } = await load();
-    for (let i = 0; i < 5; i++) await idle('s1');
-    expect(prompts).toHaveLength(3);
+    for (let i = 0; i < 12; i++) await idle('s1');
+    expect(prompts).toHaveLength(10);
     await idle('s1'); // pass: counter resets
     await idle('s1'); // fail again
-    expect(prompts).toHaveLength(4);
+    expect(prompts).toHaveLength(11);
+  });
+
+  it('works when OpenCode runs from a subdirectory of the repo', async () => {
+    fakeTrustbut(['fail']);
+    const { prompts, hooks, sub } = await load(true);
+    expect(sub).toBeTruthy();
+    await hooks.event({ event: { type: 'session.idle', properties: { sessionID: 's1' } } });
+    expect(prompts).toHaveLength(1);
+  });
+
+  it('skips the idle that follows a user abort', async () => {
+    fakeTrustbut(['fail']);
+    const { prompts, idle, hooks } = await load();
+    await hooks.event({ event: { type: 'session.error', properties: { sessionID: 's1', error: { name: 'MessageAbortedError' } } } });
+    await idle('s1');
+    expect(prompts).toEqual([]);
+    await idle('s1'); // only that one idle is skipped
+    expect(prompts).toHaveLength(1);
+  });
+
+  it('tells trustbut whether this is a retry via stop_hook_active', async () => {
+    const bin = join(dir, 'fake-trustbut');
+    const log = join(dir, 'stdin.log');
+    writeFileSync(bin, `#!/bin/sh\ncat >> "${log}"; echo >> "${log}"\necho FB; exit 1\n`);
+    chmodSync(bin, 0o755);
+    process.env.TRUSTBUT_BIN = bin;
+    const { idle } = await load();
+    await idle('s1');
+    await idle('s1');
+    const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    expect(lines.map((l) => l.stop_hook_active)).toEqual([false, true]);
+    expect(lines[0].session_id).toBe('s1');
   });
 
   it('never throws or prompts when trustbut is missing', async () => {

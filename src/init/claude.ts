@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mergeHook, parseConfig, runnerFiles, runsRunner, RUNNER_NAME, type InitContext, type InitPlan } from './core.js';
+import { mergeHook, runnerFiles, runsRunner, RUNNER_NAME, type InitContext, type InitPlan } from './core.js';
 
 /** `.claude/settings.json` Stop hook running the copied runner in exec form (no shell quoting). */
 export function planClaude(ctx: InitContext): InitPlan {
@@ -13,9 +13,9 @@ export function planClaude(ctx: InitContext): InitPlan {
     args: [ctx.user ? runner : `\${CLAUDE_PROJECT_DIR}/.claude/hooks/${RUNNER_NAME}`, 'claude'],
     timeout: 600,
   };
-  const config = parseConfig(settings, existsSync(settings) ? readFileSync(settings, 'utf8') : undefined);
+  const text = existsSync(settings) ? readFileSync(settings, 'utf8') : undefined;
   return {
-    files: [...runnerFiles(join(base, 'hooks')), { path: settings, content: mergeHook(settings, config, 'Stop', runsRunner, {}, hook) }],
+    files: [...runnerFiles(join(base, 'hooks')), { path: settings, content: mergeHook(settings, text, 'Stop', runsRunner, {}, hook) }],
     notes: ['Or install it as a plugin instead: /plugin marketplace add isAlmogK/trustbut, then /plugin install trustbut@trustbut'],
   };
 }

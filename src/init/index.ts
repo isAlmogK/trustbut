@@ -1,5 +1,5 @@
 // `trustbut init <agent>`: installs the turn-end hook for an agent, merging into its existing config.
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { execa } from 'execa';
@@ -49,6 +49,7 @@ export async function runInit(opts: InitOptions): Promise<string> {
   const user = opts.user ?? false;
   const ctx: InitContext = { root: user ? cwd : await projectRoot(cwd), home: opts.home ?? homedir(), user };
   const plan = PLANNERS[opts.agent](ctx);
+  if (!user) plan.notes.push(`Project files were written at the git root (${ctx.root}). Agents read project settings from the directory they are launched in, so start ${opts.agent} from there.`);
   const lines: string[] = [];
   const pending: { path: string; content: string | Buffer }[] = [];
   for (const file of plan.files) {
@@ -67,7 +68,9 @@ export async function runInit(opts: InitOptions): Promise<string> {
   if (!opts.dryRun) {
     for (const file of pending) {
       mkdirSync(dirname(file.path), { recursive: true });
-      writeFileSync(file.path, file.content);
+      const tmp = `${file.path}.${process.pid}.tmp`;
+      writeFileSync(tmp, file.content);
+      renameSync(tmp, file.path);
     }
   }
   if (pending.length === 0) lines.push('Nothing to change: already set up.');

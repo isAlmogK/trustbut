@@ -97,8 +97,14 @@ async function fakeBin(dir: string, name: string, script: string): Promise<strin
   return file;
 }
 
-const run = (env: Record<string, string>, input = '{"session_id":"s"}') =>
-  execa(process.execPath, [RUN, 'claude'], { env, extendEnv: false, input, reject: false });
+// Each run gets its own version-cache dir (a shared one is overwritten by concurrent tests) and a generous probe timeout.
+const run = async (env: Record<string, string>, input = '{"session_id":"s"}') =>
+  execa(process.execPath, [RUN, 'claude'], {
+    env: { CLAUDE_PLUGIN_DATA: await mkdtemp(join(tmpdir(), 'tb-data-')), TRUSTBUT_VERSION_PROBE_MS: '60000', ...env },
+    extendEnv: false,
+    input,
+    reject: false,
+  });
 
 // Prints what it got so a test can see the arguments, stdin and exit code travel through unchanged.
 const ECHO = (version: string, code = 0) =>

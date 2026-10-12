@@ -89,6 +89,9 @@ function findOnPath(env) {
   return undefined;
 }
 
+/** How long the `trustbut --version` probe may take (TRUSTBUT_VERSION_PROBE_MS, default 10 s; a cold first start can be slow). */
+const probeMs = (env) => (Number(env.TRUSTBUT_VERSION_PROBE_MS) > 0 ? Number(env.TRUSTBUT_VERSION_PROBE_MS) : 10000);
+
 /**
  * The version `trustbut --version` prints, or undefined if there is no working `trustbut` on PATH.
  * Cached per binary path and mtime in CLAUDE_PLUGIN_DATA (else the temp dir), so Stop doesn't probe every time.
@@ -107,7 +110,7 @@ export function pathVersion(env) {
     // no cache yet
   }
   try {
-    const r = spawnSync(file, ['--version'], { env, encoding: 'utf8', timeout: 5000 });
+    const r = spawnSync(file, ['--version'], { env, encoding: 'utf8', timeout: probeMs(env) });
     if (r.status !== 0) return undefined;
     const version = r.stdout.trim();
     try {
