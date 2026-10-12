@@ -114,6 +114,13 @@ npm link
 
 Once it's published, `npx trustbut verify` will work too.
 
+**Claude Code plugin** (a `Stop` hook: Claude can't finish on a FAIL receipt; needs `trustbut` on PATH or, once published, `npx`):
+
+```
+/plugin marketplace add isAlmogK/trustbut
+/plugin install trustbut --marketplace isAlmogK/trustbut
+```
+
 ## Usage
 
 Run it in your repository after an agent finishes:

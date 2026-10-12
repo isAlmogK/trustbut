@@ -1,0 +1,14 @@
+{
+  "name": "trustbut",
+  "description": "Verifiable receipts for code written by AI coding agents",
+  "owner": {
+    "name": "Almog Koren"
+  },
+  "plugins": [
+    {
+      "name": "trustbut",
+      "source": "./integrations/claude-code",
+      "description": "Verifiable receipts for code written by AI coding agents: a Stop hook that keeps Claude Code working while the receipt is FAIL"
+    }
+  ]
+}

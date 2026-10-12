@@ -43,7 +43,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "receipt": "npm run build && node dist/cli.js verify",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "check:plugin-version": "vitest run test/plugin.test.ts -t \"plugin.json matches package.json\""
   },
   "dependencies": {
     "commander": "^15.0.0",
