@@ -119,10 +119,13 @@ describe('cargo helpers', () => {
     expect(testSelectors(['src/tests/x.rs'])).toBeUndefined();
   });
 
-  it('recognises only test-binary entry points as test files', () => {
+  it('treats everything under tests/ as test files, but only test-binary entry points as named test files', () => {
     const t = rust.testFile;
-    expect([t.test('tests/a.rs'), t.test('crates/x/tests/b/main.rs')]).toEqual([true, true]);
-    expect([t.test('tests/common/mod.rs'), t.test('tests/b/helpers.rs'), t.test('src/tests/x.rs'), t.test('src/lib.rs')]).toEqual([false, false, false, false]);
+    const named = rust.testFileName!;
+    expect([t.test('tests/a.rs'), t.test('crates/x/tests/b/main.rs'), t.test('tests/common/mod.rs'), t.test('tests/b/helpers.rs')]).toEqual([true, true, true, true]);
+    expect([t.test('src/tests/x.rs'), t.test('src/lib.rs')]).toEqual([false, false]);
+    expect([named.test('tests/a.rs'), named.test('crates/x/tests/b/main.rs')]).toEqual([true, true]);
+    expect([named.test('tests/common/mod.rs'), named.test('tests/b/helpers.rs'), named.test('src/tests/x.rs'), named.test('src/lib.rs')]).toEqual([false, false, false, false]);
   });
 
   it('finds declared functions', () => {
