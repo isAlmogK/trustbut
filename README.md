@@ -12,7 +12,7 @@
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/ROADMAP.md)
 [![Languages](https://img.shields.io/badge/languages-11-blueviolet.svg)](#supported-languages)
 
-🧾 *Verified by trustbut: every pull request to this repo carries its own trustbut receipt.*
+🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
 [Languages](#supported-languages) · [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
@@ -181,15 +181,18 @@ trustbut verify --json > receipt.json
 
 trustbut can run itself at the end of every agent turn, so a FAIL receipt never reaches you as "done".
 
+> [!NOTE]
+> The commands below assume `trustbut` is installed globally (`npm i -g trustbut`). Until 0.3.0 is on npm, the plugin and the `init` hooks need `trustbut` on your PATH: install it with `npm i -g github:isAlmogK/trustbut`, or run `npx github:isAlmogK/trustbut init <agent>` instead of `trustbut init <agent>`.
+
 **What happens**
 
 1. When the agent finishes a turn, trustbut quickly verifies its work: your uncommitted changes plus the commits on your branch. By default it reruns only the new and changed test files (the whole suite when none changed).
 2. **FAIL:** the agent gets the receipt (failing tests with their messages, focused tests, and so on) and keeps fixing. This repeats up to **3 times in a row**, then the agent is allowed to stop and you see the FAIL.
 3. **WARN or PASS:** you get a one-line note and the agent finishes.
 4. trustbut never blocks on its own errors: a timeout, a crash or a missing tool lets the agent finish with a "couldn't verify" note.
-5. If the code hasn't changed since the last check, it isn't verified again.
+5. A tree already verified as PASS or WARN isn't rerun, and an unchanged FAIL is reported, not sent back again, on a new turn.
 
-The full Markdown receipt of the last check is always at `.git/trustbut/last-receipt.md` (inside `.git`, so it is never committed).
+After each completed check, the full Markdown receipt is at `.git/trustbut/last-receipt.md` (per worktree; inside `.git`, so it is never committed).
 
 ### Claude Code
 
@@ -228,7 +231,7 @@ This writes a plugin for the OpenCode V1 plugin API (`opencode-ai` 1.x; V2 suppo
 
 ### Init options
 
-`trustbut init <claude|codex|gemini|opencode>` copies a small runner script next to the agent's config and merges one hook entry into it, leaving your other hooks alone. It is safe to rerun: it updates its own entry in place.
+`trustbut init <claude|codex|gemini|opencode>` copies a small runner script next to the agent's config and, for Claude Code, Codex and Gemini CLI, merges one hook entry into it, leaving your other hooks alone. For OpenCode it writes a plugin file instead. It is safe to rerun: it updates its own entry in place.
 
 | Option | What it does |
 |---|---|
@@ -415,10 +418,10 @@ A ranked list of the files that deserve your attention: auth and permissions, da
 
 ## Use it in CI
 
-The trustbut GitHub Action adds a receipt to every pull request: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
+The trustbut GitHub Action adds a receipt to your pull requests: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
 
 > [!NOTE]
-> `@v0` resolves after the first release. Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists) or `isAlmogK/trustbut@main`.
+> `@v0` resolves after the first release. Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists). Before anything is published, `isAlmogK/trustbut@main` works only with `version: local`, which builds the action's own checkout.
 
 ```yaml
 # .github/workflows/trustbut.yml
@@ -438,7 +441,7 @@ jobs:
       - uses: isAlmogK/trustbut@v0
 ```
 
-The action installs Node 22 if the runner has none. Add your own language's `setup-*` step and dependency install before it, and a `.trustbut.json` in the repo if your tests need setup.
+The action installs Node 22 if the runner has none or one older than 22. Add your own language's `setup-*` step and dependency install before it, and a `.trustbut.json` in the repo if your tests need setup.
 
 **Inputs** (all optional)
 
@@ -557,6 +560,6 @@ trustbut is built with AI coding agents and verified by itself: every pull reque
 
 <div align="center">
 
-Built by [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it.
+Built by **Almog Koren** · [almog.io](https://almog.io) · [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it.
 
 </div>
