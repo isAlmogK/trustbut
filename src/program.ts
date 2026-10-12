@@ -1,5 +1,7 @@
-import { Command, InvalidArgumentError, Option } from 'commander';
+import { Argument, Command, InvalidArgumentError, Option } from 'commander';
+import { runHook } from './commands/hook.js';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
+import { AGENTS, type Agent } from './hook/protocols.js';
 import { getRunner } from './runners/registry.js';
 import { VERSION } from './version.js';
 
@@ -49,5 +51,54 @@ export function buildProgram(): Command {
       }
     });
 
+  program
+    .command('hook')
+    .description("Run from an agent's turn-end hook: verify the working tree and keep the agent working on a FAIL")
+    .addArgument(new Argument('<agent>', 'the agent whose hook protocol to answer in').choices(AGENTS))
+    .addHelpText(
+      'after',
+      '\nReads the hook input (JSON) on stdin. Exit codes follow the agent\'s protocol, not trustbut\'s:\n' +
+        'only a FAIL within hook.maxRetries blocks; errors, timeouts and "nothing to verify" never do.\n' +
+        'Set TRUSTBUT_SKIP=1 to skip. Settings: "hook" in .trustbut.json (enabled, mode, maxRetries, timeoutSec).',
+    )
+    .action(async (agent: Agent) => {
+      const result = await runHook({ agent, stdin: await readStdin() });
+      await write(process.stdout, result.stdout);
+      await write(process.stderr, result.stderr);
+      process.exitCode = result.exitCode;
+      // The timed-out verify run would not stop: don't let it hold the agent past its own hook timeout.
+      if (result.forceExit) process.exit(result.exitCode);
+    });
+
   return program;
+}
+
+const STDIN_WAIT_MS = 5000;
+
+/** All of stdin, or what arrived within a few seconds if the agent leaves it open; '' for a terminal. */
+async function readStdin(stream: NodeJS.ReadStream = process.stdin): Promise<string> {
+  if (stream.isTTY) return '';
+  let text = '';
+  await new Promise<void>((done) => {
+    const timer = setTimeout(done, STDIN_WAIT_MS);
+    const finish = () => {
+      clearTimeout(timer);
+      done();
+    };
+    stream.setEncoding('utf8');
+    stream.on('data', (chunk: string) => (text += chunk));
+    stream.once('end', finish);
+    stream.once('error', finish);
+  });
+  stream.destroy();
+  return text;
+}
+
+/** Writes and waits until it is flushed; a closed pipe (the agent went away) is ignored. */
+function write(stream: NodeJS.WriteStream, text: string): Promise<void> {
+  if (!text) return Promise.resolve();
+  return new Promise((done) => {
+    stream.once('error', () => done());
+    stream.write(text, () => done());
+  });
 }

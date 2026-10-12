@@ -7,10 +7,13 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { buildProgram } from '../src/program.js';
 import { VERSION } from '../src/version.js';
+import { makeRepo, writeFiles } from './helpers/repo.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PKG_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 const cli = (...args: string[]) => execa('npx', ['--no-install', 'tsx', 'src/cli.ts', ...args], { cwd: ROOT, reject: false });
+const hookCli = (agent: string, input: string, env: Record<string, string> = {}) =>
+  execa('npx', ['--no-install', 'tsx', 'src/cli.ts', 'hook', agent], { cwd: ROOT, reject: false, input, env: { ...env, TRUSTBUT_SKIP: '' } });
 
 describe('cli', () => {
   it('reports its version', () => {
@@ -74,4 +77,40 @@ describe('version injection', () => {
     expect(config.define?.__TRUSTBUT_VERSION__).toBe(JSON.stringify(PKG_VERSION));
     expect(readFileSync(new URL('../src/version.ts', import.meta.url), 'utf8')).toContain('__TRUSTBUT_VERSION__');
   });
+});
+
+describe('cli: trustbut hook', () => {
+  it('exits 1 (never 2, which agents read as "block") on an unknown agent', async () => {
+    const r = await hookCli('cursor', '{}');
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toMatch(/'cursor' is invalid for argument 'agent'\. Allowed choices are claude, codex, gemini/);
+  }, 60_000);
+
+  it('allows the stop silently outside a git repository, reading the input from stdin', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-hook-'));
+    const r = await hookCli('codex', JSON.stringify({ session_id: 's', cwd: dir, hook_event_name: 'Stop', stop_hook_active: false }));
+    expect(r).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+  }, 60_000);
+
+  it('blocks a FAIL in the Claude Code protocol', async () => {
+    const { dir } = await makeRepo({
+      '.trustbut.json': JSON.stringify({ command: 'echo \'<testsuite name="s"><testcase name="works" file="test/a.test.js"><failure/></testcase></testsuite>\'; exit 1' }),
+      'src/a.js': 'export const a = 1;\n',
+    });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('works', () => {});\n" });
+    const r = await hookCli('claude', JSON.stringify({ session_id: `cli-${Date.now()}`, cwd: dir, hook_event_name: 'Stop', stop_hook_active: false }));
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toBe('');
+    const out = JSON.parse(r.stdout) as { decision: string; reason: string; systemMessage: string };
+    expect(out.decision).toBe('block');
+    expect(out.reason).toContain('trustbut verdict: FAIL');
+    expect(out.systemMessage).toMatch(/^trustbut FAIL: 1 failing test — sent back to the agent \(attempt 1\/3\)$/);
+  }, 60_000);
+
+  it('documents the hook in --help', async () => {
+    const r = await cli('hook', '--help');
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Usage: trustbut hook [options] <agent>');
+  }, 60_000);
 });
