@@ -4,7 +4,7 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (key.startsWith('VITEST') || key === 'NODE_ENV' || key === 'TEST') continue;
+    if (key.startsWith('VITEST') || key === 'NODE_ENV' || key === 'NODE_TEST_CONTEXT' || key === 'TEST') continue;
     env[key] = value;
   }
   env.CI = '1';
