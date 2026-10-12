@@ -38,9 +38,26 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
       - run: npm pack --dry-run
+      - name: Skip publishing when this exact version is already on npm
+        # The first release (0.3.0) is published by hand; its GitHub Release must still succeed so major-tag runs.
+        id: exists
+        run: |
+          if npm view "trustbut@${VERSION#v}" version >/dev/null 2>&1; then
+            echo "trustbut@${VERSION#v} is already published, skipping publish"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
       - name: Install npm 11 (OIDC needs >= 11.5.1; stay off npm 12 for now)
-        run: npm install -g npm@11 && npm --version
+        if: steps.exists.outputs.published != 'true'
+        run: |
+          npm install -g npm@11
+          npm --version
+          node -e "const v=process.argv[1].split('.').map(Number),m=[11,5,1];for(let i=0;i<3;i++){if(v[i]>m[i])process.exit(0);if(v[i]<m[i]){console.error('npm '+process.argv[1]+' < 11.5.1');process.exit(1)}}" "$(npm --version)"
       - name: Publish
+        if: steps.exists.outputs.published != 'true'
         run: |
           if [ "$PRERELEASE" = "true" ]; then npm publish --tag next; else npm publish; fi
           # If the trusted publisher is staging-only, use `npm stage publish` instead and approve with 2FA on npmjs.com.
@@ -55,9 +72,16 @@ jobs:
       contents: write        # force-move v0 (a plain tag, never a release, so it stays movable)
     steps:
       - uses: actions/checkout@v4
-      - name: Move the major tag
+        with:
+          fetch-depth: 0
+      - name: Move the major tag (only if this is the highest stable release of its major)
         run: |
           major="${TAG%%.*}"                       # v0.3.0 -> v0
+          highest=$(git tag -l "$major.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ "$highest" != "$TAG" ]; then
+            echo "$TAG is not the highest stable $major release ($highest); leaving $major alone"
+            exit 0
+          fi
           git tag -f "$major" "${TAG}^{commit}"
           git push -f origin "refs/tags/${major}"
         env:

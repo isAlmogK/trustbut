@@ -19,5 +19,13 @@ function edit(path, fn) {
 }
 edit('package.json', (j) => { j.version = version; });
 edit('package-lock.json', (j) => { j.version = version; if (j.packages?.['']) j.packages[''].version = version; });
-edit('integrations/claude-code/.claude-plugin/plugin.json', (j) => { j.version = version; });
+{
+  const path = 'integrations/claude-code/.claude-plugin/plugin.json';
+  const file = resolve(root, path);
+  const text = readFileSync(file, 'utf8');
+  const next = text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`);
+  if (next === text && !text.includes(`"${version}"`)) { console.error('no version field in ' + path); process.exit(1); }
+  writeFileSync(file, next);
+  console.log(`updated ${path} -> ${version}`);
+}
 console.log('Next: add a CHANGELOG.md entry, run "npm run build && node scripts/release/check-versions.mjs v' + version + '", commit, merge.');

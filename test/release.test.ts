@@ -64,6 +64,16 @@ describe('release: release.yml', () => {
     expect(y).toMatch(/TRUSTBUT_NO_TOOLCHAIN_E2E: '1'/);
   });
 
+  it('skips publishing when the version already exists on npm, but still lets major-tag run', async () => {
+    const y = await read('.github/workflows/release.yml');
+    expect(y).toMatch(/npm view "trustbut@\$\{VERSION#v\}" version/);
+    expect((y.match(/steps\.exists\.outputs\.published != 'true'/g) ?? []).length).toBe(2);
+    expect(y).toMatch(/needs: npm/);
+    expect(y).toMatch(/fetch-depth: 0/);
+    expect(y).toMatch(/sort -V/);
+    expect(y).toMatch(/npm 11\.5\.1|< 11\.5\.1/);
+  });
+
   it('runs check-versions with the release tag, before publishing', async () => {
     const y = await read('.github/workflows/release.yml');
     expect(y).toMatch(/node scripts\/release\/check-versions\.mjs "\$TAG"/);
