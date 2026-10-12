@@ -61,7 +61,18 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   const chosen = forced ?? (configRunner ? getRunner(configRunner) : undefined);
   if (chosen?.name === 'command' && !config.command) throw new Error('The command runner needs a "command" in .trustbut.json');
   const base = await resolveBase(repo, head, opts.base);
-  if (base === head) throw new Error('No changes between base and head. Commit your changes or pass --base <ref>.');
+  if (base === head) {
+    let baseName = opts.base;
+    for (const ref of baseName ? [] : DEFAULT_BASES) {
+      if (await resolveRef(repo, ref)) {
+        baseName = ref;
+        break;
+      }
+    }
+    throw new Error(
+      `No changes between base and head (this branch may already be merged into ${baseName ?? 'the base branch'}). Try --base HEAD~1 to verify the latest commit, or --working for uncommitted changes.`,
+    );
+  }
 
   const changes = parseChanges(await diffText(repo, base, head));
   const findings: Finding[] = [...checkTestIntegrity(changes), ...checkEscapes(changes)];

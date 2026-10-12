@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
+import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import { isNamedTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
@@ -153,6 +154,9 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
   if (changes.some((c) => LOCKFILE.test(c.path))) {
     findings.push({ id: 'deps-changed', severity: 'info', title: 'Dependencies changed; both runs use the currently installed dependencies' });
   }
+
+  const notInstalled = checkDepsInstalled(repo, root, runner.name);
+  if (notInstalled) findings.push(notInstalled);
 
   const headDir = await addWorktree(repo, head);
   let baseDir: string | undefined;

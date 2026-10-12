@@ -2,6 +2,8 @@ import type { Finding, Receipt, RunResult } from './types.js';
 
 const ICON = { fail: '✖', warn: '⚠', info: 'ℹ' } as const;
 
+const MAX_FAILING = 10;
+
 // Characters that would start Markdown syntax, HTML, entities, or @mentions in plain text.
 const MD_SPECIAL = /[\\`*_[\]<>|#&~@]/g;
 
@@ -57,6 +59,13 @@ export function renderMarkdown(r: Receipt): string {
   lines.push('', '### Findings');
   if (!r.findings.length) lines.push('None.');
   for (const f of r.findings) lines.push(findingLine(f));
+
+  const failing = r.findings.some((f) => f.id === 'suite-failing') ? (r.after?.cases ?? []).filter((c) => c.outcome === 'fail' || c.outcome === 'error') : [];
+  if (failing.length) {
+    lines.push('', '### Failing tests');
+    for (const c of failing.slice(0, MAX_FAILING)) lines.push(`- ${c.file ? `${code(c.file)} › ` : ''}${text(c.name)}`);
+    if (failing.length > MAX_FAILING) lines.push(`- and ${failing.length - MAX_FAILING} more`);
+  }
 
   if (r.risks.length) {
     lines.push('', '### Review these first');

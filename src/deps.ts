@@ -1,0 +1,46 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import type { Finding } from './types.js';
+
+const JS_RUNNERS = new Set(['vitest', 'jest', 'node-test', 'mocha', 'command']);
+const LOCAL_SPEC = /^(workspace|link|file|portal):/;
+const SHOWN = 5;
+
+/**
+ * Warns when package.json (in the user's checkout, at the package root) declares dependencies that
+ * are not installed in node_modules (this root or any parent up to the repo top). Direct
+ * dependencies only. Returns undefined when nothing is wrong or this is not a package.json project.
+ */
+export function checkDepsInstalled(repo: string, root: string, runnerName: string): Finding | undefined {
+  if (!JS_RUNNERS.has(runnerName)) return undefined;
+  const top = resolve(repo);
+  const pkgDir = resolve(top, root);
+  let pkg: { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+  try {
+    pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
+  } catch {
+    return undefined;
+  }
+  const declared = Object.entries({ ...pkg.devDependencies, ...pkg.dependencies })
+    .filter(([, spec]) => typeof spec !== 'string' || !LOCAL_SPEC.test(spec))
+    .map(([name]) => name);
+  if (!declared.length) return undefined;
+
+  const dirs: string[] = [];
+  for (let d = pkgDir; ; d = dirname(d)) {
+    dirs.push(join(d, 'node_modules'));
+    if (d === top || dirname(d) === d) break;
+  }
+  const hint = "results use your installed dependencies; run your package manager's install";
+  if (!dirs.some((d) => existsSync(d))) {
+    return { id: 'deps-not-installed', severity: 'warn', title: `Declared dependencies aren't installed: node_modules is missing; ${hint}` };
+  }
+  const missing = declared.filter((name) => !dirs.some((d) => existsSync(join(d, name, 'package.json'))));
+  if (!missing.length) return undefined;
+  const more = missing.length > SHOWN ? ` and ${missing.length - SHOWN} more` : '';
+  return {
+    id: 'deps-not-installed',
+    severity: 'warn',
+    title: `Declared dependencies aren't installed: ${missing.slice(0, SHOWN).join(', ')}${more}; ${hint}`,
+  };
+}

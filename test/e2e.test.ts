@@ -127,6 +127,18 @@ describe('trustbut verify (end to end)', () => {
     ]);
   });
 
+  it('WARN: a declared dependency is not installed', async () => {
+    const dir = await scenario({
+      'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' }, dependencies: { 'not-installed-zzz': '1' } }),
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+    });
+    const { receipt, output } = await runVerify({ cwd: dir });
+    const f = receipt.findings.find((x) => x.id === 'deps-not-installed');
+    expect(f?.severity).toBe('warn');
+    expect(output).toContain('not-installed-zzz');
+    expect(output).toContain('Declared dependencies');
+  });
+
   it('--quick reruns only changed test files and says so', async () => {
     const dir = await scenario({
       'src/sum.js': 'export const sum = (a, b) => a + b;\n',
@@ -140,7 +152,9 @@ describe('trustbut verify (end to end)', () => {
 
   it('errors clearly when there is nothing to compare', async () => {
     const { dir } = await makeRepo(BASE_FILES);
-    await expect(runVerify({ cwd: dir })).rejects.toThrow(/No changes between base and head/);
+    await expect(runVerify({ cwd: dir })).rejects.toThrow(
+      /No changes between base and head \(this branch may already be merged into main\)\. Try --base HEAD~1.*--working/,
+    );
   });
 
   it('prints JSON with --json', async () => {

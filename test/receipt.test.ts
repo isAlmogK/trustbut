@@ -165,3 +165,36 @@ describe('markdown escaping', () => {
     expect(renderMarkdown(receipt)).toContain('- ⚠ **t** · `` src/a`b.ts ``');
   });
 });
+
+describe('failing tests list', () => {
+  const mk = (n: number, findings = [{ id: 'suite-failing', severity: 'fail' as const, title: 'Test suite fails at head (clean checkout)' }]) =>
+    renderMarkdown(buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings, changes: [], proofs: [],
+      after: {
+        exitCode: 1, durationMs: 1, output: '',
+        cases: [
+          { id: 'ok', file: 'ok.test.ts', name: 'fine', outcome: 'pass' },
+          ...Array.from({ length: n }, (_, i) => ({ id: `f${i}`, file: 'src/a_b.test.ts', name: `case <${i}>`, outcome: (i % 2 ? 'error' : 'fail') as 'fail' | 'error' })),
+        ],
+      },
+    }));
+
+  it('lists failing and erroring cases after the findings, escaped', () => {
+    const md = mk(2);
+    expect(md).toContain('### Failing tests');
+    expect(md).toContain('- `src/a_b.test.ts` › case \\<0\\>');
+    expect(md).toContain('case \\<1\\>');
+    expect(md).not.toContain('fine\n');
+    expect(md.indexOf('### Findings')).toBeLessThan(md.indexOf('### Failing tests'));
+  });
+
+  it('caps at 10 with "and N more"', () => {
+    const md = mk(13);
+    expect(md).toContain('- and 3 more');
+    expect(md).not.toContain('case \\<10\\>');
+  });
+
+  it('is absent when the suite is not failing', () => {
+    expect(mk(2, [])).not.toContain('Failing tests');
+  });
+});
