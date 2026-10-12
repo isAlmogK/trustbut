@@ -88,9 +88,12 @@ describe.concurrent('trustbut hook: protocol golden outputs', () => {
     it('FAIL at the retry limit: lets the agent finish and tells the user', async () => {
       const f = await fixture('fail', { hook: { maxRetries: 2 } });
       expect((await f.hook(agent)).exitCode).toBe(agent === 'claude' ? 0 : 2);
+      // The agent edits but the test still fails (an unchanged tree is never sent back twice).
+      await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 2';\n" });
       const second = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
       if (agent === 'claude') expect(JSON.parse(second.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test — sent back to the agent (attempt 2/2)');
       else expect(second.exitCode).toBe(2);
+      await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 3';\n" });
       const third = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
       expect(third).toEqual({ exitCode: 0, stdout: msg(`trustbut still FAIL after 2 attempts — receipt: ${f.receipt}`), stderr: '' });
       // Letting the agent finish ends the chain: the next turn starts counting again.
@@ -139,14 +142,20 @@ describe.concurrent('trustbut hook: input and skip rules', () => {
     const f = await fixture('fail', { hook: { maxRetries: 1 } });
     const input = { session_id: 's', cwd: f.dir, stop_hook_active: true };
     expect((await f.hook('gemini', input)).exitCode).toBe(2);
-    expect((await f.hook('gemini', input)).exitCode).toBe(0);
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 2';\n" });
+    const r = await f.hook('gemini', input);
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut still FAIL after 1 attempt — /);
   });
 
   it('counts retries per session', async () => {
     const f = await fixture('fail', { hook: { maxRetries: 1 } });
     expect((await f.hook('codex', { session_id: 'a', cwd: f.dir })).exitCode).toBe(2);
     expect((await f.hook('codex', { session_id: 'b', cwd: f.dir })).exitCode).toBe(2);
-    expect((await f.hook('codex', { session_id: 'a', cwd: f.dir })).exitCode).toBe(0);
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 2';\n" });
+    const r = await f.hook('codex', { session_id: 'a', cwd: f.dir });
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut still FAIL after 1 attempt — /);
   });
 
   it('finds the project from CLAUDE_PROJECT_DIR, then GEMINI_PROJECT_DIR, then the input cwd, then the process cwd', async () => {
@@ -312,10 +321,21 @@ describe.concurrent('trustbut hook: unchanged trees', () => {
     expect(JSON.parse(r.stdout).systemMessage).toBe(`trustbut FAIL (unchanged since last check) — receipt: ${f.receipt}`);
   });
 
-  it('within a chain, an unchanged FAIL is verified and blocked again', async () => {
+  it.each(AGENTS)('%s: within a chain, a FAIL sent back with no changes since is allowed without a rerun', async (agent) => {
+    const f = await counted('fail');
+    expect((await f.hook(agent)).exitCode).toBe(agent === 'claude' ? 0 : 2);
+    const after = await f.runs();
+    const r = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
+    expect(r).toEqual({ exitCode: 0, stdout: msg(`trustbut FAIL (no changes since the receipt was sent back) — receipt: ${f.receipt}`), stderr: '' });
+    expect(await f.runs()).toBe(after);
+    expect((await readState(stateFile(f.stateDir, 'sess-1', f.dir))).state).toMatchObject({ attempts: 0, verdict: 'fail' });
+  });
+
+  it('within a chain, an edited tree that still FAILs is verified and blocked again', async () => {
     const f = await counted('fail');
     expect((await f.hook('codex')).exitCode).toBe(2);
     const after = await f.runs();
+    await writeFiles(f.dir, { 'src/lib.js': "export const v = 'still bad';\n" });
     expect((await f.hook('codex', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true })).exitCode).toBe(2);
     expect(await f.runs()).toBeGreaterThan(after);
     expect(await readAttempts(stateFile(f.stateDir, 'sess-1', f.dir))).toBe(2);

@@ -190,7 +190,7 @@ trustbut can run itself at the end of every agent turn, so a FAIL receipt never 
 2. **FAIL:** the agent gets the receipt (failing tests with their messages, focused tests, and so on) and keeps fixing. This repeats up to `hook.maxRetries` times in a row (default 3), then the agent is allowed to stop and you see the FAIL.
 3. **WARN or PASS:** you get a one-line note and the agent finishes.
 4. trustbut never blocks on its own errors: a timeout, a crash or a missing tool lets the agent finish with a "couldn't verify" note.
-5. A tree already verified as PASS or WARN isn't rerun, and an unchanged FAIL is reported, not sent back again, on a new turn.
+5. A tree already verified isn't rerun. A FAIL is sent back once per tree: if the agent stops again without changing anything, or you start a new turn with nothing changed, it is allowed to finish and you see the FAIL with the receipt path.
 
 After each completed check, the full Markdown receipt is at `.git/trustbut/last-receipt.md` (per worktree; inside `.git`, so it is never committed).
 

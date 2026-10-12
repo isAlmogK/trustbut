@@ -133,12 +133,14 @@ async function decide(opts: HookOptions): Promise<Decision> {
   const receiptPath = await receiptLocation(repo);
   const where = (path: string | undefined) => (path ? `receipt: ${path}` : 'receipt not written');
 
-  // Nothing changed since the last check: don't rerun. A FAIL is not sent back again on a new turn
-  // (e.g. the user only asked a question); within a chain the normal retry logic applies below.
+  // Nothing changed since the last check: don't rerun. A FAIL is never sent back twice for the same tree:
+  // on a new turn (e.g. the user only asked a question) or mid-chain (the agent stopped again without editing),
+  // the stop is allowed and the user is pointed at the receipt.
   const last = print !== undefined && read.state.tree === print ? read.state.verdict : undefined;
   if (last === 'pass' || last === 'warn') return allow({ kind: 'skip' }, { attempts: 0, tree: print, verdict: last });
-  if (last === 'fail' && attempts === 0) {
-    return allow({ kind: 'allow', message: `trustbut FAIL (unchanged since last check) — ${where(receiptPath)}` }, { attempts: 0, tree: print, verdict: 'fail' });
+  if (last === 'fail') {
+    const why = attempts === 0 ? 'unchanged since last check' : 'no changes since the receipt was sent back';
+    return allow({ kind: 'allow', message: `trustbut FAIL (${why}) — ${where(receiptPath)}` }, { attempts: 0, tree: print, verdict: 'fail' });
   }
 
   // The plugin launcher passes what is left of the agent's hook timeout after its own start-up.
