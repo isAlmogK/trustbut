@@ -186,7 +186,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, depend
   | `no-runner` | WARN | No runner detected; the message lists the supported runners |
   | `base-run-failed` | WARN | The changed tests could not run at base (nothing reported, nonzero exit), so there is no fail-before evidence |
   | `proofs-unmatched` | WARN | The suite ran but no result matched the changed test files, so there is no fail-before/pass-after evidence |
-  | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. Not checked for Python |
+  | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Not checked for Python |
   | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
   | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |
 

@@ -54,6 +54,19 @@ describe('checkDepsInstalled', () => {
     expect(checkDepsInstalled(dir, '.', 'vitest')?.title).toContain('node_modules is missing');
   });
 
+  it('skips Yarn PnP projects', async () => {
+    const files = { 'package.json': pkg({ dependencies: { a: '1' } }) };
+    expect(checkDepsInstalled(await repo({ ...files, '.pnp.cjs': '' }), '.', 'vitest')).toBeUndefined();
+    expect(checkDepsInstalled(await repo({ ...files, '.yarnrc.yml': 'nodeLinker: pnp\n' }), '.', 'vitest')).toBeUndefined();
+    const hoisted = await repo({ ...files, '.pnp.cjs': '', 'web/package.json': pkg({ dependencies: { a: '1' } }) });
+    expect(checkDepsInstalled(hoisted, 'web', 'vitest')).toBeUndefined();
+    expect(checkDepsInstalled(await repo({ ...files, '.yarnrc.yml': 'nodeLinker: node-modules\n' }), '.', 'vitest')?.id).toBe('deps-not-installed');
+  });
+
+  it('tolerates malformed dependency fields', async () => {
+    expect(checkDepsInstalled(await repo({ 'package.json': pkg({ dependencies: ['a'], devDependencies: 'x' }) }), '.', 'vitest')).toBeUndefined();
+  });
+
   it('ignores non-JS runners, no package.json and no declared deps', async () => {
     const dir = await repo({ 'package.json': pkg({ dependencies: { a: '1' } }) });
     expect(checkDepsInstalled(dir, '.', 'pytest')).toBeUndefined();
