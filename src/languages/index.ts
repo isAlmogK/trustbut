@@ -25,3 +25,12 @@ export function languageById(id: string): Language {
   if (!lang) throw new Error(`Unknown language: ${id}. Supported: ${LANGUAGES.map((l) => l.id).join(', ')}`);
   return lang;
 }
+
+// Files of unregistered languages (`.vue`, `.svelte`, ...) whose name says they define tests.
+const GENERIC_TEST_NAME = /\.(test|spec)\.[^/]*$/;
+
+/** Whether the file's name says it defines tests (not a helper under a test dir); see `Language.testFileName`. */
+export function isNamedTestFile(path: string): boolean {
+  const lang = languageOf(path);
+  return lang ? (lang.testFileName ?? lang.testFile).test(path) : GENERIC_TEST_NAME.test(path);
+}

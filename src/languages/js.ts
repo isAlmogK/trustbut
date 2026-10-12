@@ -4,6 +4,7 @@ export const js: Language = {
   id: 'js',
   extensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts'],
   testFile: /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/,
+  testFileName: /\.(test|spec)\.[^/]*$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
   strings: ['"', "'", '`'],
   regexLiterals: true,

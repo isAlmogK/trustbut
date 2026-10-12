@@ -147,6 +147,22 @@ describe('proveTests evidence findings', () => {
     expect(result.findings.map((f) => [f.id, f.severity])).toEqual([['proofs-unmatched', 'warn']]);
   });
 
+  it('counts Minitest *_test.rb files as named tests, but not helpers, for proofs-unmatched', async () => {
+    const { dir, base } = await makeRepo({ 'app/user.rb': 'class User; end\n', 'test/test_helper.rb': '# helper\n' });
+    await writeFiles(dir, { 'app/user.rb': 'class User; def a = 1; end\n', 'test/models/user_test.rb': "class UserTest; def test_a; end; end\n" });
+    const head = await commitAll(dir, 'minitest');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const other = run([tc('spec/other_spec.rb', 'x', 'pass')]);
+    const unmatched = await proveTests({ repo: dir, base, head, changes, runner: stubRunner(other, other) });
+    expect(unmatched.findings.map((f) => f.id)).toEqual(['proofs-unmatched']);
+
+    await writeFiles(dir, { 'test/test_helper.rb': '# helper v2\n' });
+    const head2 = await commitAll(dir, 'helper only');
+    const helperOnly = parseChanges(await diffText(dir, head, head2));
+    const quiet = await proveTests({ repo: dir, base: head, head: head2, changes: helperOnly, runner: stubRunner(other, other) });
+    expect(quiet.findings).toEqual([]);
+  });
+
   it('explains a runner that failed without reporting results', async () => {
     const { dir, base, head, changes } = await repoWithNewTest();
     const output = "npm error could not determine executable to run\nError: Cannot find module 'vitest'\n\n";

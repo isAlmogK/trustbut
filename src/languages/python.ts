@@ -4,6 +4,7 @@ export const py: Language = {
   id: 'py',
   extensions: ['.py'],
   testFile: /(^|\/)(tests?|__tests__)\/|(^|\/)test_[^/]*\.py$|_test\.py$|(^|\/)conftest\.py$/,
+  testFileName: /(^|\/)test_[^/]*\.py$|_test\.py$/,
   comments: { line: ['#'] },
   strings: ['"""', "'''", '"', "'"],
   rules: {

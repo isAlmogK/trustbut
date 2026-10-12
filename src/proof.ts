@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
+import { isNamedTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
 import { startSetup, type SetupOptions } from './setup.js';
 import type { ChangedFile, Finding, RunResult, RunScope, TestCaseResult, TestProof } from './types.js';
@@ -107,9 +108,6 @@ async function copyFromHead(repo: string, head: string, dir: string, path: strin
   await writeFile(target, await showFileBuffer(repo, head, path));
 }
 
-// Files whose name says they define tests (helpers under test/ do not produce results of their own).
-const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$|_test\.go$|^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/([^/]+|[^/]+\/main)\.rs$|Tests?\.cs$|Test\.php$|Tests?\.(java|kt)$|_spec\.rb$|_test\.dart$|Tests?\.swift$/;
-
 // Dependency folders are linked at the repo root and, for a package root, inside it too.
 const depFolders = (root: string): string[] => (root === '.' ? DEP_DIRS : [...DEP_DIRS, ...DEP_DIRS.map((d) => join(root, d))]);
 
@@ -199,7 +197,8 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     const hook = runner.casesInFile?.bind(runner);
     const inFile: CaseMatcher = hook ? (c, f) => hook(c, rel(f.path), readHead) : (c, f) => caseInFile(c, rel(f.path));
 
-    const namedTests = changedTests.filter((f) => TEST_FILE_NAME.test(f.path));
+    // Only files whose name says they define tests (helpers under test dirs produce no results of their own).
+    const namedTests = changedTests.filter((f) => isNamedTestFile(f.path));
     if (namedTests.length && after.cases.length && !after.cases.some((c) => namedTests.some((f) => inFile(c, f)))) {
       findings.push({
         id: 'proofs-unmatched',
