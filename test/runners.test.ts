@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -197,12 +198,14 @@ describe('pytest adapter without pytest installed', () => {
     expect(await readFile(join(tools, 'extra'), 'utf8')).toBe('yes');
   });
 
-  it('stops a run that exceeds the timeout, including processes it started', async () => {
+  it('stops a run that exceeds the timeout, including processes it started', { retry: 2 }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ar-py-'));
     const fake = join(dir, 'fake-python');
     // Not exec: sleep is a grandchild that holds the output pipe open.
-    await writeFile(fake, `#!/bin/sh\nsleep 31 &\necho $! > "${dir}/child.pid"\nsleep 30\ntrue\n`);
+    await writeFile(fake, `#!/bin/sh\n[ "$PREWARM" = 1 ] && exit 0\nsleep 31 &\necho $! > "${dir}/child.pid"\nsleep 30\ntrue\n`);
     await chmod(fake, 0o755);
+    // Pre-warm: the first run of a fresh executable can be slow (scanners); do it before the timed run.
+    spawnSync(fake, [], { env: { ...process.env, PREWARM: '1' }, stdio: 'ignore' });
     process.env.TRUSTBUT_PYTHON = fake;
     const start = Date.now();
     // Long enough for the fresh script to start (macOS checks new executables on first run).

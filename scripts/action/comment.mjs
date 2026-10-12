@@ -9,7 +9,9 @@ import { pathToFileURL } from 'node:url';
 
 export const MAX_BYTES = 60_000; // GitHub rejects comment bodies over 65,536 characters
 export const LEGACY_MARKER = '<!-- trustbut-receipt -->';
-export const markerFor = (key) => `<!-- trustbut-receipt:${key} -->`;
+export const DEFAULT_AUTHOR = 'github-actions[bot]';
+// The key goes inside an HTML comment: strip anything that could close it early or break the line.
+export const markerFor = (key) => `<!-- trustbut-receipt:${String(key).replace(/<!--|--!?>|[\r\n]/g, '')} -->`;
 
 /** Cut `text` to at most `max` bytes of UTF-8 without leaving a broken trailing character. */
 export function truncateBytes(text, max) {
@@ -32,13 +34,13 @@ export function buildBody({ receipt, marker, runUrl, max = MAX_BYTES }) {
 }
 
 /**
- * Pick the comment to update: bot-authored only (a human cannot plant a marker we then overwrite) and
- * starting with our marker. The pre-keyed legacy marker is adopted for the default key only.
+ * Pick the comment to update: authored by `author` only (a human cannot plant a marker we then overwrite;
+ * default github-actions[bot], override for PAT/App tokens) and starting with our marker. The pre-keyed legacy marker is adopted for the default key only.
  */
-export function findComment(comments, key) {
+export function findComment(comments, key, author = DEFAULT_AUTHOR) {
   const markers = [markerFor(key), ...(key === 'default' ? [LEGACY_MARKER] : [])];
   const mine = comments.filter(
-    (c) => (c.type === 'Bot' || c.login === 'github-actions[bot]') && markers.some((m) => (c.body ?? '').startsWith(m)),
+    (c) => c.login === author && markers.some((m) => (c.body ?? '').startsWith(m)),
   );
   return mine.find((c) => (c.body ?? '').startsWith(markers[0])) ?? mine[0];
 }
@@ -77,13 +79,24 @@ export function run(env, gh = defaultGh) {
       '--jq', '.[] | {id, login: .user.login, type: .user.type, body}',
     ]);
     const comments = listing.split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    const existing = findComment(comments, key);
-    const url = (existing
-      ? gh(['api', '-X', 'PATCH', `repos/${env.REPO}/issues/comments/${existing.id}`, '-F', `body=@${bodyFile}`, '--jq', '.html_url'])
-      : gh(['api', '-X', 'POST', `repos/${env.REPO}/issues/${env.PR}/comments`, '-F', `body=@${bodyFile}`, '--jq', '.html_url'])
-    ).trim();
+    const existing = findComment(comments, key, env.COMMENT_AUTHOR || DEFAULT_AUTHOR);
+    const post = () => gh(['api', '-X', 'POST', `repos/${env.REPO}/issues/${env.PR}/comments`, '-F', `body=@${bodyFile}`, '--jq', '.html_url']);
+    let url;
+    let updated = false;
+    if (existing) {
+      try {
+        url = gh(['api', '-X', 'PATCH', `repos/${env.REPO}/issues/comments/${existing.id}`, '-F', `body=@${bodyFile}`, '--jq', '.html_url']);
+        updated = true;
+      } catch (err) {
+        // The adopted comment may be deleted (404) or not ours to edit (403): post a fresh one instead.
+        if (!/40[34]|Not Found|Forbidden/i.test(String(err.message))) throw err;
+        notice('Could not update the existing receipt comment; posting a new one.');
+        url = post();
+      }
+    } else url = post();
+    url = url.trim();
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `url=${url}\n`);
-    console.log(`${existing ? 'Updated' : 'Created'} receipt comment: ${url}`);
+    console.log(`${updated ? 'Updated' : 'Created'} receipt comment: ${url}`);
   } catch (err) {
     warning(`Could not post the PR comment (needs pull-requests: write; Dependabot needs it granted explicitly): ${String(err.message).split('\n')[0]}`);
   }
