@@ -1,0 +1,20 @@
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"test","event":"started","name":"fx$tests::adds"}
+{"type":"test","event":"failed","name":"fx$tests::adds","exec_time":0.0031,"stdout":"thread 'tests::adds' panicked at src/lib.rs:12:9:\nassertion `left == right` failed\n"}
+{"type":"suite","event":"failed","passed":0,"failed":1,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.0031,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"test","event":"started","name":"fx$shapes::circle::tests::area"}
+{"type":"test","event":"ok","name":"fx$shapes::circle::tests::area","exec_time":0.0012}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.0012,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"test","event":"started","name":"fx$tests::later"}
+{"type":"test","event":"ignored","name":"fx$tests::later"}
+{"type":"suite","event":"ok","passed":0,"failed":0,"ignored":1,"measured":0,"filtered_out":0,"exec_time":0.0,"nextest":{"crate":"fx","test_binary":"fx","kind":"lib"}}
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"fx","test_binary":"api","kind":"test"}}
+{"type":"test","event":"started","name":"fx::api$sum_works"}
+{"type":"test","event":"ok","name":"fx::api$sum_works","exec_time":0.0008}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.0008,"nextest":{"crate":"fx","test_binary":"api","kind":"test"}}
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"fx","test_binary":"fx","kind":"bin"}}
+{"type":"test","event":"started","name":"fx::bin/fx$cli::parses"}
+{"type":"test","event":"ok","name":"fx::bin/fx$cli::parses","exec_time":0.0004}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.0004,"nextest":{"crate":"fx","test_binary":"fx","kind":"bin"}}
