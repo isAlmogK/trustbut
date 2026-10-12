@@ -210,6 +210,7 @@ describe('pytest adapter without pytest installed', () => {
     expect(Date.now() - start).toBeLessThan(20_000);
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toMatch(/timed out/i);
+    expect(result.timedOut).toBe(true);
     expect(await gone(Number(await readFile(join(dir, 'child.pid'), 'utf8')))).toBe(true);
   });
 

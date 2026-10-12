@@ -26,6 +26,10 @@ export interface TrustbutConfig {
 export const CONFIG_FILE = '.trustbut.json';
 export const DEFAULT_TIMEOUT_SEC = 900;
 export const DEFAULT_SETUP_WAIT_SEC = 5;
+/** Largest accepted timeout in seconds (timers overflow at 2^31-1 ms, about 2,147,483 s). */
+export const MAX_SECONDS = 2_000_000;
+/** Editor hint for a JSON schema: accepted and ignored. */
+const IGNORED_KEYS = ['$schema'];
 
 export const CONFIG_KEYS = [
   'root',
@@ -50,7 +54,7 @@ export function validateConfig(value: unknown, source: string): TrustbutConfig {
     throw new Error(`Invalid ${source}: ${msg}`);
   };
   if (!isObject(value)) return fail('must be a JSON object');
-  const unknown = Object.keys(value).filter((k) => !(CONFIG_KEYS as readonly string[]).includes(k));
+  const unknown = Object.keys(value).filter((k) => !(CONFIG_KEYS as readonly string[]).includes(k) && !IGNORED_KEYS.includes(k));
   if (unknown.length) {
     throw new Error(`Unknown keys in ${source}: ${unknown.join(', ')}. Allowed keys: ${CONFIG_KEYS.join(', ')}`);
   }
@@ -63,11 +67,11 @@ export function validateConfig(value: unknown, source: string): TrustbutConfig {
   if ('env' in value && !(isObject(value.env) && Object.values(value.env).every((v) => typeof v === 'string'))) {
     fail('"env" must be an object of strings');
   }
-  if ('timeoutSec' in value && !(typeof value.timeoutSec === 'number' && value.timeoutSec > 0)) {
-    fail('"timeoutSec" must be a positive number');
+  if ('timeoutSec' in value && !(typeof value.timeoutSec === 'number' && value.timeoutSec > 0 && value.timeoutSec <= MAX_SECONDS)) {
+    fail(`"timeoutSec" must be a positive number up to ${MAX_SECONDS}`);
   }
-  if ('setupWaitSec' in value && !(typeof value.setupWaitSec === 'number' && value.setupWaitSec >= 0)) {
-    fail('"setupWaitSec" must be a number >= 0');
+  if ('setupWaitSec' in value && !(typeof value.setupWaitSec === 'number' && value.setupWaitSec >= 0 && value.setupWaitSec <= MAX_SECONDS)) {
+    fail(`"setupWaitSec" must be a number >= 0 and up to ${MAX_SECONDS}`);
   }
   if (typeof value.setupReadyPattern === 'string') {
     try {
@@ -76,7 +80,9 @@ export function validateConfig(value: unknown, source: string): TrustbutConfig {
       fail('"setupReadyPattern" is not a valid regular expression');
     }
   }
-  return value as TrustbutConfig;
+  const config = { ...value };
+  for (const k of IGNORED_KEYS) delete config[k];
+  return config as TrustbutConfig;
 }
 
 /** A package root as a normalized repo-relative POSIX path ('.' for the repo root). */

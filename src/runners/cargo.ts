@@ -3,7 +3,7 @@ import { join, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { ReadHead, Runner } from './types.js';
 
 const DOC_TESTS = 'doc-tests';
@@ -238,7 +238,7 @@ export const cargo: Runner = {
     if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
       cases.push({ id: '[cargo]::[build]', file: '[cargo]', name: '[build or run failed]', outcome: 'error' });
     }
-    return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res) };
+    return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
   },
   casesInFile(c, file, readHead: ReadHead) {
     const f = file.split(sep).join('/');

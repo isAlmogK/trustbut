@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
 
 const CONFIGS = ['js', 'cjs', 'json', 'yml', 'yaml'].map((ext) => `.mocharc.${ext}`);
@@ -80,7 +80,7 @@ export const mocha: Runner = {
         // Mocha aborts without a report when a spec file fails to load (syntax error, bad import).
         cases = files.map((f) => ({ id: `${f}::${f}`, file: f, name: f, outcome: 'error' as const }));
       }
-      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

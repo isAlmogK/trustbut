@@ -195,7 +195,7 @@ If your tests run through something not listed, point trustbut at a command that
 
 ## Configuration (`.trustbut.json`)
 
-Everything is optional; most projects need no config at all. Put `.trustbut.json` in the repo root. trustbut reads it **as committed at head** (so the version under review is the one used), then falls back to the working-tree file. `--config <file>` uses a different file instead, which can live outside the repo. Unknown keys and wrong types are errors (exit code `2`) that list the allowed keys.
+Everything is optional; most projects need no config at all. Put `.trustbut.json` in the repo root. trustbut reads it **as committed at head** (so the version under review is the one used), then falls back to the working-tree file. `--config <file>` uses a different file instead, which can live outside the repo. Unknown keys and wrong types are errors (exit code `2`) that list the allowed keys; a `$schema` key is ignored.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
@@ -205,10 +205,10 @@ Everything is optional; most projects need no config at all. Put `.trustbut.json
 | `junit` | string | none | The `command` runner: JUnit XML file the command writes, relative to `root`. |
 | `setup` | string | none | Shell command started in the background before **each** test run (for example an emulator or database), and always killed afterwards. If it exits non-zero before the tests start, the run stops with exit code `2`. |
 | `setupReadyPattern` | regex string | none | Tests start as soon as `setup` prints a line matching this (stdout or stderr). |
-| `setupWaitSec` | number ≥ 0 | `5` | How long to wait for `setup`; with `setupReadyPattern` it is the maximum wait. |
+| `setupWaitSec` | number, 0 to 2,000,000 | `5` | How long to wait for `setup`; with `setupReadyPattern` it is the maximum wait. |
 | `env` | object of strings | none | Extra environment variables for every test run and for `setup`. |
 | `args` | string[] | none | Extra arguments appended to the runner's command, before the test files. |
-| `timeoutSec` | number > 0 | `900` | Time limit for each test run. |
+| `timeoutSec` | number, up to 2,000,000 | `900` | Time limit for each test run; the receipt says when a run timed out. |
 
 ### Examples
 

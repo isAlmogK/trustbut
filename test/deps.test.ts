@@ -70,6 +70,8 @@ describe('checkDepsInstalled', () => {
   it('ignores non-JS runners, no package.json and no declared deps', async () => {
     const dir = await repo({ 'package.json': pkg({ dependencies: { a: '1' } }) });
     expect(checkDepsInstalled(dir, '.', 'pytest')).toBeUndefined();
+    // The generic command runner may run anything (make, a shell script); a package.json is not a reason to warn.
+    expect(checkDepsInstalled(dir, '.', 'command')).toBeUndefined();
     expect(checkDepsInstalled(await repo({ 'x.txt': '' }), '.', 'vitest')).toBeUndefined();
     expect(checkDepsInstalled(await repo({ 'package.json': pkg({}) }), '.', 'vitest')).toBeUndefined();
   });

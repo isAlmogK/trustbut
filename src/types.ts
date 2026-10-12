@@ -42,6 +42,8 @@ export interface RunResult {
   cases: TestCaseResult[];
   durationMs: number;
   output: string;
+  /** Set when the run was stopped because it exceeded the time limit. */
+  timedOut?: boolean;
 }
 
 export type ProofVerdict = 'proves-change' | 'does-not-constrain' | 'failing' | 'skipped';

@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { anyExists, fileContains } from './detect.js';
 import { addCase } from './cases.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
 
 const STATUS: Record<string, TestCaseResult['outcome']> = { passed: 'pass', failed: 'fail', pending: 'skip' };
@@ -89,7 +89,7 @@ export const rspec: Runner = {
       if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
         cases.push({ id: '[rspec]::[run failed]', file: '[rspec]', name: '[run failed]', outcome: 'error' });
       }
-      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -74,6 +74,7 @@ describe('command runner', () => {
     expect(elapsed).toBeLessThan(15_000);
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toMatch(/timed out after 3000 ms/);
+    expect(result.timedOut).toBe(true);
     const child = Number(await readFile(join(dir, 'child.pid'), 'utf8'));
     let dead = false;
     for (let i = 0; i < 60 && !dead; i += 1) {

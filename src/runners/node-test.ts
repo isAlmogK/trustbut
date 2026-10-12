@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
 import { readPackageJson } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
 
 /**
@@ -126,6 +126,7 @@ export const nodeTest: Runner = {
         cases: parseNodeTestEvents(jsonl, cwd),
         durationMs: Date.now() - start,
         output: runOutput(res),
+        ...timedOutFlag(res),
       };
     } finally {
       await rm(dir, { recursive: true, force: true });

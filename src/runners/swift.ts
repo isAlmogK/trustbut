@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
 import { anyExists } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { ReadHead, Runner } from './types.js';
 
@@ -129,7 +129,7 @@ export const swift: Runner = {
       if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
         cases.push({ id: '[swift]::[build or run failed]', file: '[swift]', name: '[build or run failed]', outcome: 'error' });
       }
-      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -11,6 +11,9 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   return { ...env, ...extra };
 }
 
+/** `{ timedOut: true }` when any of the runs hit the time limit, else nothing (keeps receipts unchanged). */
+export const timedOutFlag = (...runs: { timedOut: boolean }[]): { timedOut?: true } => (runs.some((r) => r.timedOut) ? { timedOut: true } : {});
+
 export const tail = (s: string | undefined, max = 4000) => (s ?? '').slice(-max);
 
 // Combined output, plus the execa error text when the process never produced an exit code

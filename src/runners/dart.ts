@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { RunResult, TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
 
 interface DartEvent {
@@ -162,7 +162,7 @@ function makeRunner(name: 'dart' | 'flutter'): Runner {
         output.push(runOutput(pub));
         if (pub.timedOut || pub.exitCode !== 0) {
           const cases: TestCaseResult[] = [{ id: '[dart]::[pub get]', file: '[dart]', name: '[pub get failed]', outcome: 'error' }];
-          return { exitCode: pub.exitCode || 1, cases, durationMs: Date.now() - start, output: joined() };
+          return { exitCode: pub.exitCode || 1, cases, durationMs: Date.now() - start, output: joined(), ...timedOutFlag(pub) };
         }
       }
       // Only *_test.dart files are targets (helpers under test/ are not): if just helpers changed, run everything.
@@ -179,7 +179,7 @@ function makeRunner(name: 'dart' | 'flutter'): Runner {
       if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
         cases.push({ id: `[${name}]::[run failed]`, file: `[${name}]`, name: '[run failed]', outcome: 'error' });
       }
-      return { exitCode, cases, durationMs: Date.now() - start, output: joined() };
+      return { exitCode, cases, durationMs: Date.now() - start, output: joined(), ...timedOutFlag(res) };
     },
   };
 }

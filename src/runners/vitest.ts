@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInGroup } from '../process.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { Runner } from './types.js';
 
@@ -28,7 +28,7 @@ export const vitest: Runner = {
         { cwd, env: childEnv(env), timeoutMs },
       );
       const xml = existsSync(out) ? await readFile(out, 'utf8') : '';
-      return { exitCode: res.exitCode ?? 1, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode: res.exitCode ?? 1, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -136,7 +136,7 @@ Review these first
 
 ### Configuration (`.trustbut.json`)
 
-Optional. Read from the repo root **as committed at head** (`git cat-file blob <head>:.trustbut.json`); if head has none, from the working-tree file; `--config <path>` (relative to the current directory) replaces both. Unknown keys and wrong types are errors (exit 2) that list the allowed keys.
+Optional. Read from the repo root **as committed at head** (`git cat-file blob <head>:.trustbut.json`); if head has none, from the working-tree file; `--config <path>` (relative to the current directory) replaces both. Unknown keys and wrong types are errors (exit 2) that list the allowed keys; a `$schema` key (editor hint) is accepted and ignored.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -145,11 +145,11 @@ Optional. Read from the repo root **as committed at head** (`git cat-file blob <
 | `command` | string | — | Generic runner: shell command run with `sh -c` in the root. `{files}` is replaced with the shell-quoted test files (nothing for a full run). Setting `command` without `runner` selects the `command` runner. |
 | `junit` | string | — | Generic runner: JUnit XML file the command writes, relative to the root (deleted before each run). Without it, stdout is parsed when it starts with `<?xml` or `<testsuite`. Exit code semantics are the same as for other runners. |
 | `setup` | string | — | Shell command started in the background in the root of **each** worktree before its test run (e.g. a database emulator). It runs in its own process group, which is always killed after the run (SIGTERM, then SIGKILL after 3 s), also on errors and when trustbut is interrupted. If it exits non-zero before tests start, the run stops with exit 2; if it exits 0, tests start immediately. It gets `env`. |
-| `setupWaitSec` | number ≥ 0 | `5` | How long to wait for `setup` before starting the tests. With `setupReadyPattern` this is the maximum wait, so raise it for slow services. |
+| `setupWaitSec` | number, 0 to 2,000,000 | `5` | How long to wait for `setup` before starting the tests. With `setupReadyPattern` this is the maximum wait, so raise it for slow services. |
 | `setupReadyPattern` | regex string | — | Tests start as soon as `setup` prints a matching line (stdout or stderr). |
 | `env` | object of strings | — | Extra environment for every test run and for `setup`. |
 | `args` | string[] | — | Extra arguments appended to the runner's command, before the test files. |
-| `timeoutSec` | number > 0 | `900` | Time limit per test run. |
+| `timeoutSec` | number, > 0 and ≤ 2,000,000 | `900` | Time limit per test run. A run that hits it is stopped (its whole process group) and the finding says `timed out after N s`. |
 
 Example (Go service with a Firestore emulator in a subfolder):
 
@@ -188,7 +188,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `no-runner` | WARN | No runner detected; the message lists the supported runners |
   | `base-run-failed` | WARN | The changed tests could not run at base (nothing reported, nonzero exit), so there is no fail-before evidence |
   | `proofs-unmatched` | WARN | The suite ran (or exited 0 with no results) but no result matched the changed test files, so there is no fail-before/pass-after evidence. Not emitted when the head run only reports a build or start-up failure |
-  | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Not checked for Python |
+  | `deps-not-installed` | WARN | `package.json` declares dependencies (not optional, `workspace:`/`link:`/`file:` ignored) that are missing from the installed `node_modules` (or `node_modules` is missing); both runs use your installed dependencies. Lists up to 5 names. The list comes from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged; skipped for Yarn PnP. Only for the JS runners (vitest, jest, mocha, node-test): not for Python or the `command` runner |
   | `deps-changed` | info | Dependencies changed; both runs use the installed ones |
   | `tests-outside-root` | info | Changed test files outside the package root were not run; gives the count and the first 3 paths |
   | `uncommitted-changes` | info | Uncommitted work is not in the receipt (not emitted with `--working`) |

@@ -7,7 +7,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { runInGroup } from '../process.js';
 import type { RunResult, TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { ReadHead, RunOptions } from './types.js';
 
 const parser = new XMLParser({
@@ -228,5 +228,5 @@ export async function runJvm(tool: JvmTool, { cwd, worktree, files, args = [], e
   if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
     cases.push({ id: `[${tool.name}]::[build failed]`, file: `[${tool.name}]`, name: '[build failed]', outcome: 'error' });
   }
-  return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res) };
+  return { exitCode, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
 }

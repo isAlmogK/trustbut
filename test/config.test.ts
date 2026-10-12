@@ -63,6 +63,11 @@ describe('validateConfig', () => {
     expect(Object.keys(config).sort()).toEqual([...CONFIG_KEYS].sort());
   });
 
+  it('accepts the largest timeouts and ignores a $schema key', () => {
+    expect(validateConfig({ timeoutSec: 2_000_000, setupWaitSec: 2_000_000 }, '.trustbut.json')).toEqual({ timeoutSec: 2_000_000, setupWaitSec: 2_000_000 });
+    expect(validateConfig({ $schema: 'https://example.com/trustbut.schema.json', root: 'api' }, '.trustbut.json')).toEqual({ root: 'api' });
+  });
+
   it('rejects unknown keys and lists the allowed ones', () => {
     expect(() => validateConfig({ rot: '.', runer: 'x' }, '.trustbut.json')).toThrow(
       `Unknown keys in .trustbut.json: rot, runer. Allowed keys: ${CONFIG_KEYS.join(', ')}`,
@@ -80,6 +85,8 @@ describe('validateConfig', () => {
     [{ timeoutSec: 0 }, '"timeoutSec" must be a positive number'],
     [{ timeoutSec: '9' }, '"timeoutSec" must be a positive number'],
     [{ setupWaitSec: -1 }, '"setupWaitSec" must be a number >= 0'],
+    [{ timeoutSec: 2_000_001 }, '"timeoutSec" must be a positive number up to 2000000'],
+    [{ setupWaitSec: 2_000_001 }, '"setupWaitSec" must be a number >= 0 and up to 2000000'],
     [{ setupReadyPattern: '(' }, '"setupReadyPattern" is not a valid regular expression'],
   ])('rejects %j', (value, message) => {
     expect(() => validateConfig(value, '.trustbut.json')).toThrow(message);

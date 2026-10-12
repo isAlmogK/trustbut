@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
 import { anyExists, fileContains } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { ReadHead, Runner } from './types.js';
 
@@ -67,7 +67,7 @@ export const phpunit: Runner = {
         output.push(runOutput(install));
         if (install.timedOut || (install.exitCode !== undefined && install.exitCode !== 0)) {
           const cases: TestCaseResult[] = [{ id: '[phpunit]::[composer install]', file: '[phpunit]', name: '[composer install failed]', outcome: 'error' }];
-          return { exitCode: install.exitCode ?? 1, cases, durationMs: Date.now() - start, output: output.filter(Boolean).join('\n').slice(-4000) };
+          return { exitCode: install.exitCode ?? 1, cases, durationMs: Date.now() - start, output: output.filter(Boolean).join('\n').slice(-4000), ...timedOutFlag(install) };
         }
       }
       const bin = findPhpunit(cwd, worktree);
@@ -78,10 +78,12 @@ export const phpunit: Runner = {
       const cases: TestCaseResult[] = [];
       const index = new Map<string, number>();
       let exitCode = 0;
+      let timedOut = false;
       for (const [i, target] of targets.entries()) {
         const out = join(dir, `junit-${i}.xml`);
         const res = await runInGroup(bin, phpunitArgs(out, args, target), { cwd, env, timeoutMs });
         output.push(runOutput(res));
+        timedOut ||= res.timedOut;
         if (existsSync(out)) {
           for (const c of parsePhpunitJUnit(await readFile(out, 'utf8'), cwd)) addCase(cases, index, c);
         }
@@ -91,7 +93,7 @@ export const phpunit: Runner = {
       if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
         cases.push({ id: '[phpunit]::[run]', file: '[phpunit]', name: '[run failed]', outcome: 'error' });
       }
-      return { exitCode, cases, durationMs: Date.now() - start, output: output.filter(Boolean).join('\n').slice(-4000) };
+      return { exitCode, cases, durationMs: Date.now() - start, output: output.filter(Boolean).join('\n').slice(-4000), ...timedOutFlag({ timedOut }) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

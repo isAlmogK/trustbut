@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Finding } from './types.js';
 
-const JS_RUNNERS = new Set(['vitest', 'jest', 'node-test', 'mocha', 'command']);
+// Not `command`: it may run anything (make, a shell script), so a package.json there says nothing about its needs.
+const JS_RUNNERS = new Set(['vitest', 'jest', 'node-test', 'mocha']);
 const LOCAL_SPEC = /^(workspace|link|file|portal):/;
 const SHOWN = 5;
 

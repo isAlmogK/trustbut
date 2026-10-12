@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, relative } from 'node:path';
 import { runInGroup } from '../process.js';
 import { anyExists, fileContains } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import { parseJUnit } from './junit.js';
 import type { Runner } from './types.js';
 
@@ -56,7 +56,7 @@ export const pytest: Runner = {
       const xml = existsSync(out) ? await readFile(out, 'utf8') : '';
       // pytest exits 5 when no tests are collected; treat as success (vitest uses --passWithNoTests).
       const exitCode = res.exitCode === 5 ? 0 : (res.exitCode ?? 1);
-      return { exitCode, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode, cases: xml ? parseJUnit(xml) : [], durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

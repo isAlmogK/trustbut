@@ -204,6 +204,21 @@ describe('proveTests evidence findings', () => {
     ]);
   });
 
+  it('says a run timed out, with and without partial results, at head and at base', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const timedOut = (cases: TestCaseResult[]): RunResult => ({ ...run(cases, 1, 'Command timed out after 5000 ms'), timedOut: true });
+    const runOptions = { timeoutMs: 5000 };
+    const empty = await proveTests({ repo: dir, base, head, changes, runOptions, runner: stubRunner(timedOut([]), timedOut([])) });
+    expect(empty.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', detail: 'timed out after 5 s' },
+      { id: 'base-run-failed', severity: 'warn', title: 'Changed tests could not run at base; fail-before evidence unavailable (exit 1)', detail: 'timed out after 5 s' },
+    ]);
+    const partial = await proveTests({ repo: dir, base, head, changes, runOptions, runner: stubRunner(timedOut([tc('test/a.test.js', 'a', 'pass')])) });
+    expect(partial.findings).toEqual([
+      { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'timed out after 5 s' },
+    ]);
+  });
+
   it('keeps the plain suite-failing finding when tests ran and failed', async () => {
     const { dir, base, head, changes } = await repoWithNewTest();
     const runner = stubRunner(run([tc('test/a.test.js', 'a', 'fail')], 1), run([tc('test/a.test.js', 'a', 'fail')], 1));
@@ -225,6 +240,21 @@ describe('proveTests copying test data into base', () => {
     const head = await commitAll(dir, 'real fixtures');
     const changes = parseChanges(await diffText(dir, linked, head));
     expect(changes.map((c) => c.path)).toContain('fixtures/x.json');
+    await proveTests({ repo: dir, base: linked, head, changes, runner: stubRunner(run([tc('test/a.test.js', 'a', 'pass')])) });
+    expect(await readdir(outside)).toEqual([]);
+  });
+});
+
+describe('proveTests copying test data into base (new folders)', () => {
+  it('never creates folders outside the base checkout through a symlinked ancestor', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'outside-'));
+    const { dir } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await symlink(outside, join(dir, 'fixtures'), 'dir');
+    const linked = await commitAll(dir, 'link fixtures');
+    await rm(join(dir, 'fixtures'));
+    await writeFiles(dir, { 'fixtures/deep/nested/x.json': '{}\n', 'test/a.test.js': "it('a', () => {});\n" });
+    const head = await commitAll(dir, 'real fixtures');
+    const changes = parseChanges(await diffText(dir, linked, head));
     await proveTests({ repo: dir, base: linked, head, changes, runner: stubRunner(run([tc('test/a.test.js', 'a', 'pass')])) });
     expect(await readdir(outside)).toEqual([]);
   });

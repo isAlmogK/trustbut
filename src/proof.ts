@@ -100,13 +100,18 @@ export const isSynthetic = (c: TestCaseResult): boolean => c.file.startsWith('['
 /** Whether the run reported nothing but placeholders for a failed build or start-up. */
 const onlySynthetic = (r: RunResult): boolean => r.cases.length > 0 && r.cases.every(isSynthetic);
 
-function headRunFinding(after: RunResult): Finding | undefined {
+/** `timed out after N s` for a run stopped at the time limit. */
+const timeoutDetail = (r: RunResult, timeoutMs: number | undefined): string | undefined =>
+  r.timedOut ? `timed out after ${timeoutMs !== undefined ? `${Math.round(timeoutMs / 1000)} s` : 'the time limit'}` : undefined;
+
+function headRunFinding(after: RunResult, timeoutMs: number | undefined): Finding | undefined {
   if (after.exitCode === 0) return undefined;
+  const timedOut = timeoutDetail(after, timeoutMs);
   if (after.cases.length === 0 || onlySynthetic(after)) {
-    const detail = lastLine(after.output);
+    const detail = timedOut ?? lastLine(after.output);
     return { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results', ...(detail ? { detail } : {}) };
   }
-  return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: `exit code ${after.exitCode}` };
+  return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: timedOut ?? `exit code ${after.exitCode}` };
 }
 
 // Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
@@ -116,10 +121,18 @@ const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
   const target = join(dir, path);
-  await mkdir(dirname(target), { recursive: true });
   const root = await realpath(dir);
-  const parent = await realpath(dirname(target));
-  if (parent !== root && !parent.startsWith(root + sep)) return;
+  const inside = (p: string) => p === root || p.startsWith(root + sep);
+  // Check the nearest existing ancestor first, so `mkdir -p` can't create folders through a symlink that leads out.
+  let ancestor = dirname(target);
+  while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor);
+  if (!inside(await realpath(ancestor))) return;
+  try {
+    await mkdir(dirname(target), { recursive: true });
+  } catch {
+    return; // a file or dangling symlink is in the way at base
+  }
+  if (!inside(await realpath(dirname(target)))) return;
   try {
     if ((await lstat(target)).isSymbolicLink()) await unlink(target);
   } catch {
@@ -200,7 +213,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     await linkDeps(repo, headDir, root);
     const scope: RunScope = quick && testFiles.length ? 'changed' : 'full';
     const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
-    const headFinding = headRunFinding(after);
+    const headFinding = headRunFinding(after, runOptions.timeoutMs);
     if (headFinding) findings.push(headFinding);
     if (after.exitCode === 0 && after.cases.length === 0) {
       findings.push({ id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' });
@@ -215,10 +228,12 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
     const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
     if (before.exitCode !== 0 && before.cases.length === 0) {
+      const detail = timeoutDetail(before, runOptions.timeoutMs);
       findings.push({
         id: 'base-run-failed',
         severity: 'warn',
         title: `Changed tests could not run at base; fail-before evidence unavailable (exit ${before.exitCode})`,
+        ...(detail ? { detail } : {}),
       });
     }
 

@@ -3,7 +3,7 @@ import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { runInGroup } from '../process.js';
 import type { TestCaseResult } from '../types.js';
 import { addCase } from './cases.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { ReadHead, Runner } from './types.js';
 
 /** The module path declared by the `module` line of a go.mod, or undefined. */
@@ -129,6 +129,7 @@ export const go: Runner = {
       cases: parseGoJson(res.stdout, dirOf),
       durationMs: Date.now() - start,
       output: runOutput(res),
+      ...timedOutFlag(res),
     };
   },
   casesInFile(c, file, readHead: ReadHead) {

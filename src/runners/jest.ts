@@ -6,7 +6,7 @@ import { runInGroup } from '../process.js';
 import type { TestCaseResult, TestOutcome } from '../types.js';
 import { addCase } from './cases.js';
 import { anyExists, hasDep, readPackageJson } from './detect.js';
-import { childEnv, runOutput } from './env.js';
+import { childEnv, runOutput, timedOutFlag } from './env.js';
 import type { Runner } from './types.js';
 import { vitest } from './vitest.js';
 
@@ -109,7 +109,7 @@ export const jest: Runner = {
       } catch {
         // unreadable report: leave no cases; exit code and output tell the story
       }
-      return { exitCode: res.exitCode ?? 1, cases, durationMs: Date.now() - start, output: runOutput(res) };
+      return { exitCode: res.exitCode ?? 1, cases, durationMs: Date.now() - start, output: runOutput(res), ...timedOutFlag(res) };
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
