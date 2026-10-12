@@ -23,6 +23,7 @@ describe('parsePhpunitJUnit', () => {
       ['tests/Sub/ShapeTest.php', 'testArea', 'skip'],
     ]);
     expect(cases[0]!.id).toBe('tests/CalcTest.php::testAdds');
+    expect(cases.map((c) => c.leaf).slice(4, 6)).toEqual(['testSum', 'testSum']);
   });
 
   it('gives the same ids for two checkouts of the same project', async () => {
@@ -97,6 +98,35 @@ describe('phpunit runner with a fake vendor/bin/phpunit', () => {
     expect(res.exitCode).toBe(2);
     expect(res.cases.map((c) => c.id)).toContain('tests/CalcTest.php::testAdds');
     expect(res.cases).toHaveLength(7); // the duplicate ids from the second run are dropped
+  });
+
+  it('passes only *Test.php files; helpers alone mean a full run', async () => {
+    const dir = await project(0);
+    await writeFile(join(dir, 'tests', 'TestCase.php'), '<?php\n');
+    const mixed = await phpunit.run({ cwd: dir, files: ['tests/TestCase.php', 'tests/CalcTest.php'] });
+    expect(mixed.output).toMatch(/ARGS: --log-junit \S+ tests\/CalcTest\.php/);
+    expect(mixed.output).not.toContain('TestCase.php');
+    const helpers = await phpunit.run({ cwd: dir, files: ['tests/TestCase.php', 'tests/Pest.php'] });
+    expect(helpers.output).toMatch(/ARGS: --log-junit \S+\n?$/m);
+    expect(helpers.output).not.toContain('.php');
+  });
+
+  it('a failing composer install is one error case with its output', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-phpcomposer-'));
+    const bin = await mkdtemp(join(tmpdir(), 'tb-fakecomposer-'));
+    await writeFile(join(dir, 'composer.json'), '{}');
+    await writeFile(join(bin, 'composer'), '#!/bin/sh\necho "Your requirements could not be resolved" >&2\nexit 2\n');
+    await chmod(join(bin, 'composer'), 0o755);
+    const prev = process.env.PATH;
+    process.env.PATH = `${bin}:${prev}`;
+    try {
+      const res = await phpunit.run({ cwd: dir });
+      expect(res.exitCode).toBe(2);
+      expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
+      expect(res.output).toContain('could not be resolved');
+    } finally {
+      process.env.PATH = prev;
+    }
   });
 
   it('a full run passes no file; a crash without a report is one error case', async () => {

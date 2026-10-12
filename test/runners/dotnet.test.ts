@@ -21,6 +21,7 @@ describe('parseTrx', () => {
       ['Fx.Tests.Nested+Inner', 'Fx.Tests.Nested+Inner.Run', 'fail'],
     ]);
     expect(cases[0]!.id).toBe('Fx.Tests.CalcTests.Adds');
+    expect(cases.map((c) => c.leaf)).toEqual(['Adds', 'Subtracts', 'Later', 'Multiplies', 'Run']);
   });
 
   it('handles a TRX with a single result and no definitions, and an empty run', () => {

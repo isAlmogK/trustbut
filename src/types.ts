@@ -33,6 +33,8 @@ export interface TestCaseResult {
   file: string;
   name: string;
   outcome: TestOutcome;
+  /** The test's own short name (e.g. the method), for matching against added lines; defaults to the last segment of `name`. */
+  leaf?: string;
 }
 
 export interface RunResult {

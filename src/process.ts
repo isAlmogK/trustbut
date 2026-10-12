@@ -75,6 +75,7 @@ export interface GroupRunOptions {
 export interface GroupRunResult {
   exitCode?: number;
   stdout: string;
+  stderr: string;
   all: string;
   failed: boolean;
   timedOut: boolean;
@@ -109,6 +110,7 @@ export async function runInGroup(
     return {
       exitCode: timedOut ? undefined : res.exitCode,
       stdout: String(res.stdout ?? ''),
+      stderr: String(res.stderr ?? ''),
       all: String(res.all ?? ''),
       failed: timedOut || res.failed,
       timedOut,

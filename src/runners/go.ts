@@ -72,7 +72,7 @@ export function parseGoJson(output: string, dirOf: (pkg: string) => string = (p)
     const id = `${pkg}::${ev.Test}`;
     if (seen.has(id)) continue;
     seen.add(id);
-    cases.push({ id, file: dirOf(pkg), name: ev.Test, outcome });
+    cases.push({ id, file: dirOf(pkg), name: ev.Test, outcome, leaf: ev.Test.split('/')[0]! });
   }
   for (const [pkg, s] of pkgs) {
     if (s.failed && !s.failedTest) {

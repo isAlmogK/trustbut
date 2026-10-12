@@ -39,6 +39,10 @@ describe('parseGoJson', () => {
     ]);
   });
 
+  it('sets the top-level test as the leaf', () => {
+    expect(parseGoJson(SAMPLE).slice(0, 2).map((c) => c.leaf)).toEqual(['TestSum', 'TestSum']);
+  });
+
   it('parses a real Go 1.26 build failure (build-output events have no Package)', () => {
     const real = [
       '{"ImportPath":"example.com/fx [example.com/fx.test]","Action":"build-output","Output":"./a_test.go:3:27: undefined: undefinedFn\\n"}',

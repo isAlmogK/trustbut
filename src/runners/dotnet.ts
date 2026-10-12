@@ -78,7 +78,8 @@ export function parseTrx(xml: string): TestCaseResult[] {
     const id = name;
     if (seen.has(id)) continue;
     seen.add(id);
-    cases.push({ id, file: className, name, outcome });
+    const leaf = (className && name.startsWith(`${className}.`) ? name.slice(className.length + 1) : name).split('(')[0]!.trim();
+    cases.push({ id, file: className, name, outcome, leaf });
   }
   return cases;
 }

@@ -1,0 +1,9 @@
+   Compiling fx v0.1.0 (/work/fx)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running unittests src/lib.rs (target/debug/deps/fx-0123456789abcdef)
+     Running unittests src/main.rs (target/debug/deps/fx-fedcba9876543210)
+     Running tests/api.rs (target/debug/deps/api-1111111111111111)
+     Running tests/multi/main.rs (target/debug/deps/multi-2222222222222222)
+   Doc-tests fx
+error: 1 target failed:
+    `--lib`

@@ -33,7 +33,7 @@ export function parsePhpunitJUnit(xml: string, root: string): TestCaseResult[] {
       const rel = relative(real, file);
       file = (rel.startsWith('..') ? relative(root, file) : rel).split(sep).join('/');
     }
-    return { ...c, id: `${file}::${c.name}`, file };
+    return { ...c, id: `${file}::${c.name}`, file, leaf: c.name.replace(/ with data set .*$/s, '') };
   });
 }
 
@@ -72,10 +72,16 @@ export const phpunit: Runner = {
       if (existsSync(join(cwd, 'composer.json')) && !existsSync(join(cwd, 'vendor', 'autoload.php'))) {
         const install = await runInGroup('composer', ['install', '--no-interaction', '--no-progress', '--prefer-dist', '--no-scripts'], { cwd, env, timeoutMs });
         output.push(runOutput(install));
+        if (install.timedOut || (install.exitCode !== undefined && install.exitCode !== 0)) {
+          const cases: TestCaseResult[] = [{ id: '[phpunit]::[composer install]', file: '[phpunit]', name: '[composer install failed]', outcome: 'error' }];
+          return { exitCode: install.exitCode ?? 1, cases, durationMs: Date.now() - start, output: output.filter(Boolean).join('\n').slice(-4000) };
+        }
       }
       const bin = findPhpunit(cwd, worktree);
       // PHPUnit takes one path argument: run each changed file on its own and merge the results.
-      const targets: (string | undefined)[] = files ? files.filter((f) => existsSync(join(cwd, f))) : [undefined];
+      // Only files ending in Test.php are test classes; if just helpers (TestCase.php, Pest.php, ...) changed, run everything.
+      const tests = files?.filter((f) => /Test\.php$/.test(f) && existsSync(join(cwd, f)));
+      const targets: (string | undefined)[] = tests?.length ? tests : [undefined];
       const cases: TestCaseResult[] = [];
       const seen = new Set<string>();
       let exitCode = 0;

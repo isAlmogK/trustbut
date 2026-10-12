@@ -7,7 +7,7 @@ import { startSetup, type SetupOptions } from './setup.js';
 import type { ChangedFile, Finding, RunResult, RunScope, TestCaseResult, TestProof } from './types.js';
 
 const DEP_DIRS = ['node_modules', '.venv', 'venv'];
-const LOCKFILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|requirements[^/]*\.txt)$/;
+const LOCKFILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|composer\.lock|Cargo\.lock|packages\.lock\.json|Gemfile\.lock|go\.sum|pubspec\.lock|Package\.resolved|requirements[^/]*\.txt)$/;
 
 export interface ProofInput {
   repo: string;
@@ -66,7 +66,7 @@ export function buildProofs(
     if (!file) continue;
     const prior = beforeById.get(c.id) ?? 'missing';
     if (file.status !== 'added' && prior === 'pass' && (c.outcome === 'pass' || c.outcome === 'skip')) {
-      const leaf = leafName(c.name);
+      const leaf = c.leaf ?? leafName(c.name);
       if (!leaf || !file.added.some((a) => a.text.includes(leaf))) continue;
     }
     const verdict: TestProof['verdict'] =
@@ -108,7 +108,7 @@ async function copyFromHead(repo: string, head: string, dir: string, path: strin
 }
 
 // Files whose name says they define tests (helpers under test/ do not produce results of their own).
-const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$|_test\.go$|(^|\/)tests\/[^/]+\.rs$|Tests?\.cs$|Test\.php$/;
+const TEST_FILE_NAME = /\.(test|spec)\.[^/]*$|(^|\/)test_[^/]*\.py$|_test\.py$|_test\.go$|^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/([^/]+|[^/]+\/main)\.rs$|Tests?\.cs$|Test\.php$/;
 
 // Dependency folders are linked at the repo root and, for a package root, inside it too.
 const depFolders = (root: string): string[] => (root === '.' ? DEP_DIRS : [...DEP_DIRS, ...DEP_DIRS.map((d) => join(root, d))]);

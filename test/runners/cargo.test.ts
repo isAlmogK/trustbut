@@ -14,6 +14,7 @@ import {
   testBinaryOf,
   testSelectors,
 } from '../../src/runners/cargo.js';
+import { rust } from '../../src/languages/rust.js';
 import { detectRunner } from '../../src/runners/registry.js';
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';
 import { hasTool, requiredTools } from '../helpers/toolchain.js';
@@ -21,8 +22,8 @@ import { hasTool, requiredTools } from '../helpers/toolchain.js';
 const fixture = (name: string) => readFile(new URL(`../fixtures/runners/cargo/${name}`, import.meta.url), 'utf8');
 
 describe('parseCargoTest', () => {
-  it('maps test lines of every binary, with ignored reasons, doctests and should_panic', async () => {
-    const cases = parseCargoTest(await fixture('cargo-test.full.txt'));
+  it('pairs stderr headers with stdout blocks by position: files, targets, ignored reasons, doctests, should_panic', async () => {
+    const cases = parseCargoTest(await fixture('cargo-test.stdout.txt'), await fixture('cargo-test.stderr.txt'));
     expect(cases.map((c) => [c.file, c.name, c.outcome])).toEqual([
       ['src/lib.rs', 'shapes::circle::tests::area', 'pass'],
       ['src/lib.rs', 'tests::adds', 'fail'],
@@ -34,13 +35,34 @@ describe('parseCargoTest', () => {
       ['tests/api.rs', 'nested::deep', 'pass'],
       ['tests/multi/main.rs', 'multi_ok', 'pass'],
       ['doc-tests', 'src/lib.rs - add (line 3)', 'pass'],
-      ['doc-tests', 'src/lib.rs - sub (line 9) - should panic', 'pass'],
+      ['doc-tests', 'src/lib.rs - sub (line 9)', 'pass'],
     ]);
-    expect(cases[1]!.id).toBe('src/lib.rs::tests::adds');
+    expect(cases[1]!.id).toBe('fx:src/lib.rs::tests::adds');
+    expect(cases.map((c) => c.leaf)).toContain('adds');
+    expect(cases.find((c) => c.name.includes('sub'))!.leaf).toBe('sub');
+  });
+
+  it('keeps same-named tests of different binaries distinct, and never hides the failing one', () => {
+    const stderr = '     Running unittests src/lib.rs (target/debug/deps/a-0123456789abcdef)\n     Running tests/b.rs (target/debug/deps/b-fedcba9876543210)\n';
+    const stdout = 'running 1 test\ntest works ... ok\n\ntest result: ok.\n\nrunning 1 test\ntest works ... FAILED\n\ntest result: FAILED.\n';
+    const cases = parseCargoTest(stdout, stderr);
+    expect(cases.map((c) => [c.id, c.outcome])).toEqual([
+      ['a:src/lib.rs::works', 'pass'],
+      ['b:tests/b.rs::works', 'fail'],
+    ]);
+  });
+
+  it('keeps workspace members apart by target and the worst outcome for a truly repeated id', () => {
+    const stderr = '     Running unittests src/lib.rs (target/debug/deps/core-0123456789abcdef)\n     Running unittests src/lib.rs (target/debug/deps/util-0123456789abcdef)\n     Running unittests src/lib.rs (target/debug/deps/util-0123456789abcdef)\n';
+    const stdout = 'running 1 test\ntest t ... ok\nrunning 1 test\ntest t ... ok\nrunning 1 test\ntest t ... FAILED\n';
+    expect(parseCargoTest(stdout, stderr).map((c) => [c.id, c.outcome])).toEqual([
+      ['core:src/lib.rs::t', 'pass'],
+      ['util:src/lib.rs::t', 'fail'],
+    ]);
   });
 
   it('returns nothing for a build failure', () => {
-    expect(parseCargoTest("error[E0425]: cannot find value `x` in this scope\n --> src/lib.rs:3:5\n")).toEqual([]);
+    expect(parseCargoTest('', "error[E0425]: cannot find value `x` in this scope\n --> src/lib.rs:3:5\n")).toEqual([]);
   });
 });
 
@@ -48,12 +70,13 @@ describe('parseNextestJson', () => {
   it('maps ok / failed / ignored events and derives the binary file from the binary id', async () => {
     const cases = parseNextestJson(await fixture('nextest.libtest-json-plus.txt'));
     expect(cases.map((c) => [c.id, c.file, c.name, c.outcome])).toEqual([
-      ['src/lib.rs::tests::adds', 'src/lib.rs', 'tests::adds', 'fail'],
-      ['src/lib.rs::shapes::circle::tests::area', 'src/lib.rs', 'shapes::circle::tests::area', 'pass'],
-      ['src/lib.rs::tests::later', 'src/lib.rs', 'tests::later', 'skip'],
-      ['tests/api.rs::sum_works', 'tests/api.rs', 'sum_works', 'pass'],
-      ['src/main.rs::cli::parses', 'src/main.rs', 'cli::parses', 'pass'],
+      ['fx:src/lib.rs::tests::adds', 'src/lib.rs', 'tests::adds', 'fail'],
+      ['fx:src/lib.rs::shapes::circle::tests::area', 'src/lib.rs', 'shapes::circle::tests::area', 'pass'],
+      ['fx:src/lib.rs::tests::later', 'src/lib.rs', 'tests::later', 'skip'],
+      ['fx::api:tests/api.rs::sum_works', 'tests/api.rs', 'sum_works', 'pass'],
+      ['fx::bin/fx:src/main.rs::cli::parses', 'src/main.rs', 'cli::parses', 'pass'],
     ]);
+    expect(cases[0]!.leaf).toBe('adds');
   });
 
   it('accepts names without a binary id and skips garbage', () => {
@@ -61,10 +84,12 @@ describe('parseNextestJson', () => {
     expect(parseNextestJson(out).map((c) => [c.file, c.name])).toEqual([['src/lib.rs', 'a::b']]);
   });
 
-  it('produces the same ids as cargo test for the same test', async () => {
-    const a = parseCargoTest(await fixture('cargo-test.full.txt')).map((c) => c.id);
-    const b = parseNextestJson(await fixture('nextest.libtest-json-plus.txt')).map((c) => c.id);
-    for (const id of b) expect(a).toContain(id);
+  it('keeps the same test name in different crates distinct', () => {
+    const out = '{"type":"test","event":"ok","name":"a$t"}\n{"type":"test","event":"failed","name":"b$t"}\n';
+    expect(parseNextestJson(out).map((c) => [c.id, c.outcome])).toEqual([
+      ['a:src/lib.rs::t', 'pass'],
+      ['b:src/lib.rs::t', 'fail'],
+    ]);
   });
 });
 
@@ -86,9 +111,18 @@ describe('cargo helpers', () => {
     expect(testBinaryOf('src/x.rs')).toBeUndefined();
   });
 
-  it('selects test binaries only when every file is an integration test', () => {
+  it('selects test binaries only when every file is a test-binary entry point', () => {
     expect(testSelectors(['tests/a.rs', 'tests/b/main.rs'])).toEqual(['--test', 'a', '--test', 'b']);
     expect(testSelectors(['tests/a.rs', 'src/lib.rs'])).toBeUndefined();
+    expect(testSelectors(['tests/common/mod.rs'])).toBeUndefined();
+    expect(testSelectors(['tests/a.rs', 'tests/b/helpers.rs'])).toBeUndefined();
+    expect(testSelectors(['src/tests/x.rs'])).toBeUndefined();
+  });
+
+  it('recognises only test-binary entry points as test files', () => {
+    const t = rust.testFile;
+    expect([t.test('tests/a.rs'), t.test('crates/x/tests/b/main.rs')]).toEqual([true, true]);
+    expect([t.test('tests/common/mod.rs'), t.test('tests/b/helpers.rs'), t.test('src/tests/x.rs'), t.test('src/lib.rs')]).toEqual([false, false, false, false]);
   });
 
   it('finds declared functions', () => {
@@ -161,6 +195,23 @@ describe('cargo command line (fake tools on PATH)', () => {
     await withFakeCargo('#!/bin/sh\nif [ "$1" = nextest ]; then exit 1; fi\necho "ARGS: $*" >&2\nexit 0\n', async (dir) => {
       const res = await cargo.run({ cwd: dir, files: ['src/lib.rs', 'tests/api.rs'] });
       expect(res.output).toContain('ARGS: test --no-fail-fast -- --test-threads=1');
+    });
+  });
+
+  it('reads headers from stderr and blocks from stdout (real cargo split): distinct ids, failure not hidden', async () => {
+    const script =
+      '#!/bin/sh\nif [ "$1" = nextest ]; then exit 1; fi\n' +
+      'echo "     Running unittests src/lib.rs (target/debug/deps/fx-0123456789abcdef)" >&2\n' +
+      'echo "     Running tests/b.rs (target/debug/deps/b-fedcba9876543210)" >&2\n' +
+      'printf "running 1 test\\ntest works ... ok\\n\\ntest result: ok.\\n\\nrunning 1 test\\ntest works ... FAILED\\n\\ntest result: FAILED.\\n"\nexit 101\n';
+    await withFakeCargo(script, async (dir) => {
+      const res = await cargo.run({ cwd: dir });
+      expect(res.cases.map((c) => [c.id, c.file, c.outcome])).toEqual([
+        ['fx:src/lib.rs::works', 'src/lib.rs', 'pass'],
+        ['b:tests/b.rs::works', 'tests/b.rs', 'fail'],
+      ]);
+      expect(cargo.casesInFile!(res.cases[1]!, 'tests/b.rs', () => '')).toBe(true);
+      expect(cargo.casesInFile!(res.cases[0]!, 'tests/b.rs', () => '')).toBe(false);
     });
   });
 

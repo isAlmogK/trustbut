@@ -56,6 +56,26 @@ describe('buildProofs', () => {
   });
 });
 
+describe('buildProofs with runner-provided leaf names', () => {
+  const any = () => true;
+  it('keeps a new .NET-style test added to an existing class, and drops untouched ones', () => {
+    const f = 'CalcTests.cs';
+    const mk = (method: string, args = ''): TestCaseResult => ({
+      id: `Ns.CalcTests.${method}${args}`, file: 'Ns.CalcTests', name: `Ns.CalcTests.${method}${args}`, outcome: 'pass', leaf: method,
+    });
+    const cases = [mk('Old'), mk('NewOne', '(a: 1)')];
+    const proofs = buildProofs([changed(f, 'modified', ['    public void NewOne(int a) { }'])], run(cases), run(cases), any);
+    expect(proofs.map((p) => [p.name, p.verdict])).toEqual([['Ns.CalcTests.NewOne(a: 1)', 'does-not-constrain']]);
+  });
+
+  it('keeps a new Rust-style nested test whose last path segment is on an added line', () => {
+    const mk = (name: string): TestCaseResult => ({ id: `fx:src/lib.rs::${name}`, file: 'src/lib.rs', name, outcome: 'pass', leaf: name.split('::').pop()! });
+    const cases = [mk('shapes::tests::old'), mk('shapes::tests::fresh')];
+    const proofs = buildProofs([changed('src/shapes.rs', 'modified', ['    fn fresh() {'])], run(cases), run(cases), any);
+    expect(proofs.map((p) => [p.name, p.verdict])).toEqual([['shapes::tests::fresh', 'does-not-constrain']]);
+  });
+});
+
 describe('buildProofs on modified test files', () => {
   it('skips untouched cases that already passed at base; keeps edited, fixed and failing ones', () => {
     const f = 'test/a.test.ts';

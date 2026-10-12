@@ -36,33 +36,78 @@ export function declaredFns(src: string): Set<string> {
 }
 
 const OUTCOMES: Record<string, TestCaseResult['outcome']> = { ok: 'pass', FAILED: 'fail', ignored: 'skip' };
+const SEVERITY: Record<TestCaseResult['outcome'], number> = { pass: 0, skip: 1, fail: 2, error: 3 };
+
+/** Adds `c`; if the id repeats (the same target listed twice) the worst outcome wins, so a failure is never hidden. */
+function addCase(cases: TestCaseResult[], index: Map<string, number>, c: TestCaseResult): void {
+  const at = index.get(c.id);
+  if (at === undefined) {
+    index.set(c.id, cases.length);
+    cases.push(c);
+  } else if (SEVERITY[c.outcome] > SEVERITY[cases[at]!.outcome]) cases[at] = c;
+}
+
+interface Header {
+  file: string;
+  target: string;
+}
+
+/** The target name of a test executable path: `target/debug/deps/fx_core-0123abcd` -> `fx_core`. */
+const targetOf = (exe: string): string => (exe.split('/').pop() ?? exe).replace(/-[0-9a-f]{8,}(\.exe)?$/, '');
+
+/** `Running <entry> (<exe>)` / `Doc-tests <crate>` headers, in order. */
+function parseHeaders(text: string): Header[] {
+  const out: Header[] = [];
+  for (const line of text.split('\n')) {
+    const run = /^\s+Running (?:unittests )?(.+?) \((.+)\)\s*$/.exec(line);
+    if (run) out.push({ file: run[1]!, target: targetOf(run[2]!) });
+    else {
+      const doc = /^\s+Doc-tests\s+(\S+)/.exec(line);
+      if (doc) out.push({ file: DOC_TESTS, target: doc[1]!.replace(/-/g, '_') });
+    }
+  }
+  return out;
+}
+
+/** Libtest names minus the ` - should panic` marker, and the test's own short name. */
+function libtestName(raw: string): { name: string; leaf: string } {
+  const name = raw.replace(/ - should panic$/, '');
+  const doc = /^.+? - (.+?) \(line \d+\)$/.exec(name);
+  const leaf = doc ? doc[1]! : (name.split('::').pop() ?? name);
+  return { name, leaf };
+}
 
 /**
- * Parses `cargo test` stdout. A `Running <target> (<exe>)` line starts a test binary (the case's
- * `file` is its entry point, e.g. `src/lib.rs` or `tests/api.rs`); `Doc-tests` starts the doctests.
+ * Parses `cargo test` output. Cargo prints the `Running <entry> (<exe>)` / `Doc-tests` headers on
+ * stderr and the libtest blocks (`running N tests` ... `test result:`) on stdout, so the two streams
+ * are read separately and paired by position (each binary prints exactly one `running` block).
+ * Headers found on stdout are used when stderr has none (combined captures). The case's `file` is the
+ * printed entry point (`src/lib.rs`, `tests/api.rs`); ids also carry the target name so same-named
+ * tests in different binaries or workspace members stay distinct.
  */
-export function parseCargoTest(output: string): TestCaseResult[] {
-  const cases: TestCaseResult[] = [];
-  const seen = new Set<string>();
-  let file = '';
-  for (const line of output.split('\n')) {
-    const run = /^\s+Running (?:unittests )?(\S+)(?: \(|$)/.exec(line);
-    if (run) {
-      file = run[1]!;
-      continue;
-    }
-    if (/^\s+Doc-tests\s/.test(line)) {
-      file = DOC_TESTS;
+export function parseCargoTest(stdout: string, stderr = ''): TestCaseResult[] {
+  let headers = parseHeaders(stderr);
+  if (headers.length === 0) headers = parseHeaders(stdout);
+  const blocks: { name: string; outcome: TestCaseResult['outcome'] }[][] = [];
+  for (const line of stdout.split('\n')) {
+    if (/^running \d+ tests?\s*$/.test(line)) {
+      blocks.push([]);
       continue;
     }
     const t = /^test (.+?) \.\.\. (ok|FAILED|ignored)\b/.exec(line);
     if (!t) continue;
-    const name = t[1]!;
-    const id = `${file}::${name}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    cases.push({ id, file, name, outcome: OUTCOMES[t[2]!]! });
+    if (blocks.length === 0) blocks.push([]);
+    blocks[blocks.length - 1]!.push({ name: t[1]!, outcome: OUTCOMES[t[2]!]! });
   }
+  const cases: TestCaseResult[] = [];
+  const index = new Map<string, number>();
+  blocks.forEach((block, i) => {
+    const { file, target } = headers[i] ?? { file: '', target: '' };
+    for (const t of block) {
+      const { name, leaf } = libtestName(t.name);
+      addCase(cases, index, { id: `${target ? `${target}:` : ''}${file}::${name}`, file, name, outcome: t.outcome, leaf });
+    }
+  });
   return cases;
 }
 
@@ -73,20 +118,20 @@ interface NextestEvent {
 }
 
 /**
- * The entry-point file of the test binary a nextest name belongs to. Names are `<binary-id>$<test>`
- * with binary ids `crate` (lib), `crate::bin/name` (binary) or `crate::name` (integration test).
+ * The entry-point file and target of the test binary a nextest binary id names: `crate` (lib),
+ * `crate::bin/name` (binary) or `crate::name` (integration test).
  */
-function nextestFile(binaryId: string): string {
+function nextestBinary(binaryId: string): { file: string; target: string } {
   const parts = binaryId.split('::');
-  if (parts.length < 2) return 'src/lib.rs';
+  if (parts.length < 2) return { file: 'src/lib.rs', target: (parts[0] ?? '') || 'lib' };
   const second = parts.slice(1).join('::');
-  return second.startsWith('bin/') ? 'src/main.rs' : `tests/${second}.rs`;
+  return second.startsWith('bin/') ? { file: 'src/main.rs', target: second.slice(4) } : { file: `tests/${second}.rs`, target: second };
 }
 
 /** Parses `cargo nextest run --message-format libtest-json-plus` stdout (one JSON event per line). */
 export function parseNextestJson(output: string): TestCaseResult[] {
   const cases: TestCaseResult[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
   for (const line of output.split('\n')) {
     if (!line.startsWith('{')) continue;
     let ev: NextestEvent;
@@ -100,21 +145,23 @@ export function parseNextestJson(output: string): TestCaseResult[] {
     if (!outcome) continue;
     const dollar = ev.name.indexOf('$');
     const binaryId = dollar < 0 ? '' : ev.name.slice(0, dollar);
-    const name = dollar < 0 ? ev.name : ev.name.slice(dollar + 1);
-    const file = nextestFile(binaryId);
-    const id = `${file}::${name}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    cases.push({ id, file, name, outcome });
+    const { name, leaf } = libtestName(dollar < 0 ? ev.name : ev.name.slice(dollar + 1));
+    const { file } = nextestBinary(binaryId);
+    addCase(cases, index, { id: `${binaryId}:${file}::${name}`, file, name, outcome, leaf });
   }
   return cases;
 }
 
-/** The `--test <binary>` selectors for `files`, or undefined when a source file needs the whole suite. */
+/** The test binary a changed file is the entry point of (`tests/x.rs`, `tests/x/main.rs`); other files are not binaries. */
+function entryBinary(file: string): string | undefined {
+  return /^(?!(?:.*\/)?src\/)(?:.*\/)?tests\/(?:([^/]+)\.rs|([^/]+)\/main\.rs)$/.exec(file)?.slice(1).find(Boolean);
+}
+
+/** The `--test <binary>` selectors for `files`, or undefined when any file is not a test-binary entry point (helpers, `src/`): then everything runs. */
 export function testSelectors(files: string[]): string[] | undefined {
   const bins = new Set<string>();
   for (const f of files) {
-    const bin = testBinaryOf(f);
+    const bin = entryBinary(f);
     if (!bin) return undefined;
     bins.add(bin);
   }
@@ -157,7 +204,7 @@ export const cargo: Runner = {
     const res = nextest
       ? await runInGroup('cargo', nextestArgs(args, selectors), { cwd, env: { ...env, NEXTEST_EXPERIMENTAL_LIBTEST_JSON: '1' }, timeoutMs })
       : await runInGroup('cargo', cargoTestArgs(args, selectors), { cwd, env, timeoutMs });
-    const cases = nextest ? parseNextestJson(res.stdout) : parseCargoTest(res.stdout);
+    const cases = nextest ? parseNextestJson(res.stdout) : parseCargoTest(res.stdout, res.stderr);
     let exitCode = res.exitCode ?? 1;
     // nextest exits 4 when there is nothing to run
     if (nextest && exitCode === 4 && cases.length === 0) exitCode = 0;
