@@ -36,16 +36,24 @@ describe('parseDartJson', () => {
     ]);
   });
 
-  it('ignores hidden tests (setUpAll) and keeps the worst outcome for a repeated name', () => {
+  it('keeps tests named "loading …", reports a failing setUpAll as an error, a failing test as fail (captured sample)', async () => {
+    const cases = parseDartJson(await readFile(fx('dart-hooks.jsonl'), 'utf8'), '/work/pkg');
+    expect(cases.map((c) => [c.id, c.outcome])).toEqual([
+      ['test/setup_test.dart::G (setUpAll)', 'error'],
+      ['test/setup_test.dart::loading spinner shows', 'fail'],
+      ['test/setup_test.dart::loading cache works', 'pass'],
+    ]);
+  });
+
+  it('keeps the worst outcome for a repeated name and maps a thrown exception (result error) in a test to fail', () => {
     const ev = (o: object) => JSON.stringify(o);
     const text = [
-      ev({ type: 'suite', suite: { id: 0, path: 'test/a_test.dart' } }),
-      ev({ type: 'testStart', test: { id: 1, name: '(setUpAll)', suiteID: 0, groupIDs: [] } }),
-      ev({ type: 'testDone', testID: 1, result: 'error', hidden: true }),
+      ev({ type: 'suite', suite: { id: 0, platform: 'vm', path: 'test/a_test.dart' } }),
       ev({ type: 'testStart', test: { id: 2, name: 'x', suiteID: 0, groupIDs: [] } }),
       ev({ type: 'testDone', testID: 2, result: 'success', hidden: false }),
       ev({ type: 'testStart', test: { id: 3, name: 'x', suiteID: 0, groupIDs: [] } }),
-      ev({ type: 'testDone', testID: 3, result: 'failure', hidden: false }),
+      ev({ type: 'testDone', testID: 3, result: 'error', hidden: false }),
+      ev({ type: 'done', success: false }),
     ].join('\n');
     expect(parseDartJson(text, '/nonexistent').map((c) => [c.id, c.outcome])).toEqual([['test/a_test.dart::x', 'fail']]);
   });
@@ -72,6 +80,10 @@ describe('dart/flutter detection', () => {
     const none = await pkg('name: lib\ndependencies:\n  path: ^1.0.0\n');
     expect([await flutter.detect(none), await dart.detect(none)]).toEqual([0, 0]);
     expect([await flutter.detect(await pkg()), await dart.detect(join(none, 'missing'))]).toEqual([0, 0]);
+    const misplaced = await pkg('name: lib\ndependencies:\n  test: ^1.0.0\n');
+    expect(await dart.detect(misplaced)).toBe(0);
+    const later = await pkg('name: lib\ndev_dependencies:\n  lints: ^3.0.0\nflutter:\n  test: x\n');
+    expect(await dart.detect(later)).toBe(0);
   });
 });
 
@@ -117,6 +129,16 @@ describe('dart runner with fake tools', () => {
     expect(res.exitCode).toBe(7);
     expect(res.cases.map((c) => c.outcome)).toEqual(['error']);
     expect(res.output).toContain('boom');
+  });
+
+  it('flutter exit 1 with a successful done event and no cases ("No tests were found") is a pass', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tb-flempty-'));
+    const bin = await mkdtemp(join(tmpdir(), 'tb-fakefl-'));
+    await writeFile(join(bin, 'flutter'), `#!/bin/sh\necho '{"success":true,"type":"done","time":1}'\necho 'No tests were found.' >&2\nexit 1\n`);
+    await chmod(join(bin, 'flutter'), 0o755);
+    const res = await flutter.run({ cwd: dir, env: { PATH: `${bin}:${process.env.PATH}` } });
+    expect(res.exitCode).toBe(0);
+    expect(res.cases).toEqual([]);
   });
 
   it('a failing pub get is one error case', async () => {

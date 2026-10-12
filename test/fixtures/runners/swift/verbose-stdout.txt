@@ -1,0 +1,6 @@
+Test Case '-[CalcTests.CalcTests testSkipped]' started.
+Test Case '-[CalcTests.CalcTests testSkipped]' skipped (0.002 seconds).
+Test Case '-[CalcTests.CalcTests testFails]' started.
+Test Case '-[CalcTests.CalcTests testFails]' failed (0.033 seconds).
+Test Case '-[CalcTests.CalcTests testAdds]' started.
+Test Case '-[CalcTests.CalcTests testAdds]' passed (0.001 seconds).

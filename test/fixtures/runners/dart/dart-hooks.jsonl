@@ -1,0 +1,18 @@
+{"protocolVersion":"0.1.1","runnerVersion":"1.25.8","pid":40296,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"test/setup_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading test/setup_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":34}
+{"count":1,"time":48,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":645}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":650}
+{"group":{"id":3,"suiteID":0,"parentID":2,"name":"G","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":3,"column":3,"url":"file:///work/pkg/test/setup_test.dart"},"type":"group","time":652}
+{"test":{"id":4,"name":"G (setUpAll)","suiteID":0,"groupIDs":[2,3],"metadata":{"skip":false,"skipReason":null},"line":4,"column":5,"url":"file:///work/pkg/test/setup_test.dart"},"type":"testStart","time":652}
+{"testID":4,"error":"Bad state: boom","stackTrace":"test/setup_test.dart 4:19  main.<fn>.<fn>\n","isFailure":false,"type":"error","time":691}
+{"testID":4,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":692}
+{"test":{"id":5,"name":"G (tearDownAll)","suiteID":0,"groupIDs":[2,3],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":693}
+{"testID":5,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":695}
+{"test":{"id":6,"name":"loading spinner shows","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":7,"column":3,"url":"file:///work/pkg/test/setup_test.dart"},"type":"testStart","time":695}
+{"testID":6,"error":"Expected: <2>\n  Actual: <1>\n","stackTrace":"package:matcher            expect\ntest/setup_test.dart 7:39  main.<fn>\n","isFailure":true,"type":"error","time":710}
+{"testID":6,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":710}
+{"test":{"id":7,"name":"loading cache works","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":8,"column":3,"url":"file:///work/pkg/test/setup_test.dart"},"type":"testStart","time":711}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":712}
+{"success":false,"type":"done","time":725}

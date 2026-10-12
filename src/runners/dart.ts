@@ -9,7 +9,8 @@ import type { Runner } from './types.js';
 
 interface DartEvent {
   type?: string;
-  suite?: { id: number; path?: string };
+  suite?: { id: number; path?: string; platform?: string };
+  success?: boolean;
   group?: { id: number; name?: string };
   test?: { id: number; name: string; suiteID: number; groupIDs?: number[] };
   testID?: number;
@@ -36,19 +37,25 @@ function relFile(path: string, roots: string[]): string {
  * `file::name`, the file relative to `root`.
  */
 export function parseDartJson(text: string, root: string): TestCaseResult[] {
+  return parseDartRun(text, root).cases;
+}
+
+/** `parseDartJson` plus whether the reporter's final `done` event said success (false when absent). */
+export function parseDartRun(text: string, root: string): { cases: TestCaseResult[]; success: boolean } {
+  let success = false;
   const roots = [root];
   try {
     roots.unshift(realpathSync(root));
   } catch {
     // root vanished: use it as given
   }
-  const suites = new Map<number, string>();
+  const suites = new Map<number, { file: string; key: string }>();
   const groups = new Map<number, string>();
-  const tests = new Map<number, { name: string; file: string; leaf: string; loading: boolean }>();
+  const tests = new Map<number, { name: string; file: string; key: string; leaf: string; loading: boolean }>();
   const cases: TestCaseResult[] = [];
   const index = new Map<string, number>();
   const ran = new Set<string>();
-  const loadErrors: string[] = [];
+  const loadErrors: { file: string; key: string }[] = [];
   for (const line of text.split(/\r?\n/)) {
     if (!line.startsWith('{')) continue;
     let ev: DartEvent;
@@ -57,32 +64,41 @@ export function parseDartJson(text: string, root: string): TestCaseResult[] {
     } catch {
       continue;
     }
-    if (ev.type === 'suite' && ev.suite) suites.set(ev.suite.id, relFile(ev.suite.path ?? '', roots));
+    if (ev.type === 'done') success = ev.success === true;
+    else if (ev.type === 'suite' && ev.suite) {
+      const file = relFile(ev.suite.path ?? '', roots);
+      suites.set(ev.suite.id, { file, key: `${ev.suite.platform ?? ''}\0${file}` });
+    }
     else if (ev.type === 'group' && ev.group) groups.set(ev.group.id, ev.group.name ?? '');
     else if (ev.type === 'testStart' && ev.test) {
       const t = ev.test;
       // The test name already carries its groups' names; the leaf is what remains after the innermost named group.
       const enclosing = [...(t.groupIDs ?? [])].reverse().map((g) => groups.get(g) ?? '').find((n) => n !== '') ?? '';
       const leaf = enclosing && t.name.startsWith(enclosing) ? t.name.slice(enclosing.length).trim() : t.name;
-      tests.set(t.id, { name: t.name, file: suites.get(t.suiteID) ?? '', leaf: leaf || t.name, loading: t.name.startsWith('loading ') });
+      const suite = suites.get(t.suiteID) ?? { file: '', key: '' };
+      // The pseudo-test that loads a suite sits outside every group; a user's `test('loading …')` does not.
+      const loading = (t.groupIDs ?? []).length === 0 && t.name.startsWith('loading ');
+      tests.set(t.id, { name: t.name, file: suite.file, key: suite.key, leaf: leaf || t.name, loading });
     } else if (ev.type === 'testDone' && ev.testID !== undefined) {
       const t = tests.get(ev.testID);
       if (!t) continue;
       const bad = ev.result === 'error' || ev.result === 'failure';
       if (t.loading) {
-        if (bad) loadErrors.push(t.file);
+        if (bad) loadErrors.push({ file: t.file, key: t.key });
         continue;
       }
       if (ev.hidden) continue;
-      const outcome: TestCaseResult['outcome'] = ev.result === 'error' ? 'error' : bad ? 'fail' : ev.skipped ? 'skip' : 'pass';
-      ran.add(t.file);
+      // `error` is a failure outside the test body (a setUpAll/tearDownAll hook); a thrown exception inside a test is a failing test.
+      const hook = /\((?:setUpAll|tearDownAll)\)$/.test(t.name);
+      const outcome: TestCaseResult['outcome'] = bad ? (hook ? 'error' : 'fail') : ev.skipped ? 'skip' : 'pass';
+      ran.add(t.key);
       addCase(cases, index, { id: `${t.file}::${t.name}`, file: t.file, name: t.name, leaf: t.leaf, outcome });
     }
   }
-  for (const file of loadErrors) {
-    if (!ran.has(file)) addCase(cases, index, { id: `${file}::[load error]`, file, name: '[load error]', outcome: 'error' });
+  for (const { file, key } of loadErrors) {
+    if (!ran.has(key)) addCase(cases, index, { id: `${file}::[load error]`, file, name: '[load error]', outcome: 'error' });
   }
-  return cases;
+  return { cases, success };
 }
 
 /** The error messages of failing tests, one block per test, for the run output (the raw JSON stream is too noisy to keep). */
@@ -116,7 +132,11 @@ async function readPubspec(root: string): Promise<string> {
 }
 
 const isFlutter = (pubspec: string): boolean => /^[ \t]+sdk:[ \t]*flutter\b/m.test(pubspec);
-const hasTestDep = (pubspec: string): boolean => /^[ \t]+test:/m.test(pubspec);
+/** A `test:` entry in the `dev_dependencies:` block. */
+function hasTestDep(pubspec: string): boolean {
+  const block = /^dev_dependencies:[^\n]*\n((?:[ \t]+[^\n]*\n?|[ \t]*\n)*)/m.exec(pubspec)?.[1];
+  return block !== undefined && /^[ \t]+test:/m.test(block);
+}
 
 function makeRunner(name: 'dart' | 'flutter'): Runner {
   const flutter = name === 'flutter';
@@ -150,9 +170,11 @@ function makeRunner(name: 'dart' | 'flutter'): Runner {
       const res = await runInGroup(name, dartArgs(flutter, args, targets?.length ? targets : undefined), { cwd, env, timeoutMs });
       // stdout is the JSON event stream: keep stderr (tool messages) and the failure messages instead.
       output.push(runOutput({ ...res, all: res.stderr }), dartFailureDigest(res.stdout));
-      const cases = parseDartJson(res.stdout, cwd);
+      const { cases, success } = parseDartRun(res.stdout, cwd);
       // `package:test` exits 79 when no test matched the filters: nothing to run, not a failure.
-      const exitCode = res.exitCode === 79 ? 0 : (res.exitCode ?? 1);
+      // `flutter test` exits 1 with `done: success` for a file without tests ("No tests were found").
+      let exitCode = res.exitCode === 79 ? 0 : (res.exitCode ?? 1);
+      if (exitCode !== 0 && res.exitCode !== undefined && success && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) exitCode = 0;
       // A crash before any event, or a failing hook (hidden test), leaves no failing case: report one error case.
       if (exitCode !== 0 && !cases.some((c) => c.outcome === 'fail' || c.outcome === 'error')) {
         cases.push({ id: `[${name}]::[run failed]`, file: `[${name}]`, name: '[run failed]', outcome: 'error' });
