@@ -31,7 +31,8 @@
     "trustbut": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "integrations/claude-code/scripts/run.mjs"
   ],
   "engines": {
     "node": ">=22"

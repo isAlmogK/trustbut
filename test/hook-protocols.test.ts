@@ -5,8 +5,8 @@ const block = { kind: 'block', feedback: 'trustbut verdict: FAIL\n\nfix it\n', m
 const allow = { kind: 'allow', message: 'trustbut PASS: 2 tests passed' } as const;
 
 describe('hook protocols', () => {
-  it('knows claude, codex and gemini', () => {
-    expect(AGENTS).toEqual(['claude', 'codex', 'gemini']);
+  it('knows claude, codex, gemini and opencode', () => {
+    expect(AGENTS).toEqual(['claude', 'codex', 'gemini', 'opencode']);
   });
 
   it('claude: blocks with exit 0 and a JSON decision; systemMessage goes to the user', () => {
@@ -21,8 +21,13 @@ describe('hook protocols', () => {
     expect(respond(agent, block)).toEqual({ exitCode: 2, stdout: '', stderr: block.feedback });
   });
 
-  it.each(AGENTS)('%s: allows with exit 0 and a systemMessage', (agent) => {
+  it.each(['claude', 'codex', 'gemini'] as const)('%s: allows with exit 0 and a systemMessage', (agent) => {
     expect(respond(agent, allow)).toEqual({ exitCode: 0, stdout: '{"systemMessage":"trustbut PASS: 2 tests passed"}\n', stderr: '' });
+  });
+
+  it('opencode: a FAIL is exit 1 with the feedback on stdout; allow and skip are exit 0 with nothing on stdout', () => {
+    expect(respond('opencode', block)).toEqual({ exitCode: 1, stdout: block.feedback, stderr: `${block.message}\n` });
+    expect(respond('opencode', allow)).toEqual({ exitCode: 0, stdout: '', stderr: 'trustbut PASS: 2 tests passed\n' });
   });
 
   it.each(AGENTS)('%s: skips with exit 0 and no output', (agent) => {

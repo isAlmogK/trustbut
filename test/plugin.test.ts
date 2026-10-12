@@ -73,6 +73,8 @@ describe('run.mjs helpers', () => {
     expect(budgetSec(0)).toBe(570);
     expect(budgetSec(20_000)).toBe(550);
     expect(budgetSec(999_000)).toBe(30);
+    expect(budgetSec(0, { TRUSTBUT_HOOK_BUDGET_SEC: '100' })).toBe(100);
+    expect(budgetSec(0, { TRUSTBUT_HOOK_BUDGET_SEC: 'nope' })).toBe(570);
   });
 
   it('nodeTooOld is true below Node 22', () => {

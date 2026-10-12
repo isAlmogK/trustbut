@@ -4,7 +4,7 @@
 // passes stdout, stderr and the exit code through unchanged. If trustbut can't be found or started,
 // it says so and exits 0: the hook never blocks because of a missing tool.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, constants, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,11 +12,26 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIN_NODE = 22;
 const STARTED = Date.now();
-/** The agent allows the hook 600 s; what is left after our own start-up goes to trustbut as its time budget. */
-export const budgetSec = (elapsedMs = Date.now() - STARTED) => Math.max(30, Math.floor(570 - elapsedMs / 1000));
+/**
+ * The agent allows the hook 600 s; what is left after our own start-up goes to trustbut as its time budget.
+ * TRUSTBUT_HOOK_BUDGET_SEC overrides the 570 s starting point (for an agent with a shorter timeout).
+ */
+export const budgetSec = (elapsedMs = Date.now() - STARTED, env = process.env) => {
+  const base = Number(env.TRUSTBUT_HOOK_BUDGET_SEC);
+  return Math.max(30, Math.floor((Number.isFinite(base) && base > 0 ? base : 570) - elapsedMs / 1000));
+};
 
+/** The plugin's version; a copy made by `trustbut init` has no plugin.json and reads trustbut-run.json next to it. */
 export function pluginVersion() {
-  return JSON.parse(readFileSync(join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  try {
+    return JSON.parse(readFileSync(join(HERE, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+  } catch (err) {
+    try {
+      return JSON.parse(readFileSync(join(HERE, 'trustbut-run.json'), 'utf8')).version;
+    } catch {
+      throw err;
+    }
+  }
 }
 
 const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -134,11 +149,13 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return couldNotVerify(agent, err instanceof Error ? err.message : String(err));
   }
   const input = await readStdin();
-  const childEnv = { ...env, TRUSTBUT_HOOK_TIMEOUT_SEC: String(budgetSec()) };
+  // Claude's stdout is validated; OpenCode's carries the feedback (exit 1), which must not look like a crash.
+  const captured = agent === 'claude' || agent === 'opencode';
+  const childEnv = { ...env, TRUSTBUT_HOOK_TIMEOUT_SEC: String(budgetSec(undefined, env)) };
   await new Promise((done) => {
     let child;
     try {
-      child = spawn(target.command, [...target.args, 'hook', agent], { env: childEnv, stdio: ['pipe', agent === 'claude' ? 'pipe' : 'inherit', 'pipe'] });
+      child = spawn(target.command, [...target.args, 'hook', agent], { env: childEnv, stdio: ['pipe', captured ? 'pipe' : 'inherit', 'pipe'] });
     } catch (err) {
       couldNotVerify(agent, `could not start ${target.command}: ${err instanceof Error ? err.message : err}`);
       return done();
@@ -170,6 +187,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
       }
       process.exitCode = code;
       if (agent === 'claude') emitClaudeStdout(out);
+      else if (captured) process.stdout.write(out);
       done();
     });
     child.stdin.on('error', () => {});
@@ -200,4 +218,14 @@ export function emitClaudeStdout(out) {
   process.stdout.write(`${lines[at].trim()}\n`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
+/** True when this file is the script being run; compares real paths, since a symlinked project dir (macOS /tmp, /var) makes the two differ. */
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return fileURLToPath(import.meta.url) === process.argv[1];
+  }
+}
+
+if (isEntryPoint()) await main();

@@ -4,7 +4,9 @@
 //   Gemini `AfterAgent`: exit 2 + reason on stderr retries; stdout must stay empty (it would replace the reason).
 // Any other answer lets the agent finish. Exit 2 means "block" to all three, so it is used only for a FAIL.
 
-export const AGENTS = ['claude', 'codex', 'gemini'] as const;
+//   OpenCode plugin:     no hook protocol; the plugin runs `trustbut hook opencode`: exit 1 + feedback on stdout is a FAIL to send back,
+//                        exit 0 means nothing to send (a status message, if any, is on stderr).
+export const AGENTS = ['claude', 'codex', 'gemini', 'opencode'] as const;
 export type Agent = (typeof AGENTS)[number];
 
 export type HookOutcome =
@@ -24,6 +26,11 @@ export interface HookResponse {
 const json = (value: unknown): string => `${JSON.stringify(value)}\n`;
 
 export function respond(agent: Agent, outcome: HookOutcome): HookResponse {
+  if (agent === 'opencode') {
+    if (outcome.kind === 'skip') return { exitCode: 0, stdout: '', stderr: '' };
+    if (outcome.kind === 'allow') return { exitCode: 0, stdout: '', stderr: `${outcome.message}\n` };
+    return { exitCode: 1, stdout: outcome.feedback, stderr: `${outcome.message}\n` };
+  }
   switch (outcome.kind) {
     case 'skip':
       return { exitCode: 0, stdout: '', stderr: '' };

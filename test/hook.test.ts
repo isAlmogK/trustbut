@@ -5,7 +5,10 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { recheckArg, runHook, type HookOptions } from '../src/commands/hook.js';
-import { AGENTS, type Agent } from '../src/hook/protocols.js';
+import type { Agent } from '../src/hook/protocols.js';
+
+// The three JSON-config agents; OpenCode's hook answer is covered in hook-protocols.test.ts and init.test.ts.
+const AGENTS: Agent[] = ['claude', 'codex', 'gemini'];
 import { hookSettingsKey, readState, stateFile, writeState } from '../src/hook/state.js';
 import { branch, commitAll, makeRepo, writeFiles } from './helpers/repo.js';
 
