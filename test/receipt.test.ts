@@ -102,6 +102,24 @@ describe('factual receipt wording', () => {
   });
 });
 
+describe('languages and root', () => {
+  const after = { exitCode: 0, durationMs: 1, output: '', cases: [] };
+  const base = { base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'go', after, proofs: [], findings: [] };
+
+  it('lists the sorted, unique registry ids of the changed files and defaults root to "."', () => {
+    const r = buildReceipt({ ...base, changes: [file('b.go', 'source'), file('a_test.go', 'test'), file('x.ts', 'source'), file('README.md', 'other')] });
+    expect(r.languages).toEqual(['go', 'js']);
+    expect(r.root).toBe('.');
+    expect(renderMarkdown(r)).not.toContain('root:');
+  });
+
+  it('shows the root in the header only when it is not the repo root', () => {
+    const r = buildReceipt({ ...base, root: 'services/api', changes: [file('services/api/a.go', 'source')] });
+    expect(r.root).toBe('services/api');
+    expect(renderMarkdown(r)).toContain('· runner: go · root: `services/api`');
+  });
+});
+
 describe('path-word risk matching', () => {
   const reasonsFor = (path: string, kind: ChangedFile['kind'] = 'source') =>
     rankRisks([file(path, kind)], []).flatMap((r) => r.reasons);

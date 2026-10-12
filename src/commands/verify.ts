@@ -7,7 +7,7 @@ import { diffText, isDirty, mergeBase, repoRoot, resolveRef, snapshotWorkingTree
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
-import { detectRunner, getRunner } from '../runners/registry.js';
+import { detectRunner, getRunner, runnerNames } from '../runners/registry.js';
 import type { Finding, Receipt } from '../types.js';
 
 export interface VerifyOptions {
@@ -92,7 +92,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         : undefined,
     });
   } else {
-    findings.push({ id: 'no-runner', severity: 'warn', title: 'No supported test runner detected (Vitest or pytest); tests were not rerun' });
+    findings.push({ id: 'no-runner', severity: 'warn', title: `No supported test runner detected (supported: ${runnerNames().join(', ')}); tests were not rerun` });
   }
 
   const receipt = buildReceipt({
@@ -100,6 +100,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
     head,
     headRef: opts.working ? 'working tree' : undefined,
     runner: runner?.name ?? null,
+    root,
     scope: proof.scope,
     after: proof.after,
     before: proof.before,

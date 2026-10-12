@@ -74,6 +74,10 @@ export interface Receipt {
   /** Human label for head when it is not a plain commit (e.g. "working tree"). */
   headRef?: string;
   runner: string | null;
+  /** Registry ids of the languages of the changed files, sorted and unique. */
+  languages: string[];
+  /** Package root relative to the repo ('.' = repo root). */
+  root: string;
   scope: RunScope;
   verdict: Verdict;
   after?: RunResult;

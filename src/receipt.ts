@@ -1,3 +1,4 @@
+import { languageOf } from './languages/index.js';
 import { rankRisks } from './risk.js';
 import type { ChangedFile, Finding, Receipt, RunResult, RunScope, TestProof, Verdict } from './types.js';
 
@@ -6,6 +7,8 @@ export interface ReceiptInput {
   head: string;
   headRef?: string;
   runner: string | null;
+  /** Package root relative to the repo; default '.'. */
+  root?: string;
   scope?: RunScope;
   after?: RunResult;
   before?: RunResult;
@@ -40,6 +43,16 @@ export function decideVerdict(findings: Finding[]): Verdict {
   return 'pass';
 }
 
+/** Registry ids of the languages of the changed files, sorted and unique. */
+export function changedLanguages(changes: ChangedFile[]): string[] {
+  const ids = new Set<string>();
+  for (const c of changes) {
+    const lang = languageOf(c.path);
+    if (lang) ids.add(lang.id);
+  }
+  return [...ids].sort();
+}
+
 export function buildReceipt(input: ReceiptInput): Receipt {
   const findings = [...input.findings, ...proofFindings(input.proofs), ...coverageFindings(input.changes)];
   return {
@@ -48,6 +61,8 @@ export function buildReceipt(input: ReceiptInput): Receipt {
     head: input.head,
     ...(input.headRef ? { headRef: input.headRef } : {}),
     runner: input.runner,
+    languages: changedLanguages(input.changes),
+    root: input.root ?? '.',
     scope: input.scope ?? 'full',
     verdict: decideVerdict(findings),
     after: input.after,
