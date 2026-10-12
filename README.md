@@ -10,10 +10,11 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](https://nodejs.org)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/ROADMAP.md)
+[![Languages](https://img.shields.io/badge/languages-11-blueviolet.svg)](#supported-languages)
 
 🧾 *Verified by trustbut: every pull request to this repo carries its own trustbut receipt.*
 
-[Why](#why-im-building-this) · [Install](#install) · [Languages](#supported-languages-and-test-runners) · [Usage](#usage) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
 
@@ -46,6 +47,25 @@ $ npx github:isAlmogK/trustbut verify
 When the suite fails at head, the receipt also lists the failing tests. If `package.json` declares dependencies that aren't installed in your `node_modules` (a stale install), a `deps-not-installed` warning names them, because both runs link and use your installed dependencies. See the finding ids in [docs/SPEC.md](docs/SPEC.md).
 
 The output is Markdown, so the same receipt reads cleanly in your terminal and renders properly in a pull request or a CI job summary.
+
+## Supported languages
+
+| Language | Test frameworks | Tamper and escape checks | Verified in CI against the real toolchain |
+|---|---|---|---|
+| JavaScript / TypeScript | Vitest, Jest (incl. Expo / React Native), Mocha, `node:test` | ✅ | ✅ |
+| Python | pytest | ✅ | ✅ |
+| Go | `go test` | ✅ | ✅ |
+| Rust | cargo-nextest, `cargo test` | ✅ | ✅ |
+| Java | Maven, Gradle | ✅ | ✅ |
+| Kotlin | Maven, Gradle | ✅ | ◐ same runners as Java; Kotlin end-to-end test coming |
+| C# / .NET | `dotnet test` (xUnit verified; NUnit and MSTest via the same TRX results) | ✅ | ✅ |
+| Ruby | RSpec | ✅ | ✅ |
+| PHP | PHPUnit | ✅ | ✅ |
+| Dart / Flutter | `dart test`, `flutter test` | ✅ | ✅ |
+| Swift | Swift Package Manager (XCTest, Swift Testing) | ✅ | ✅ |
+| Anything else | any command that writes JUnit XML | — | ✅ |
+
+trustbut detects the right runner automatically, including in monorepo subfolders. Setup steps (such as starting a database emulator), extra arguments and environment variables go in a [`.trustbut.json`](#configuration-trustbutjson). Detection rules and the exact commands are in [Supported languages and test runners](#supported-languages-and-test-runners).
 
 ## Why I'm building this
 
