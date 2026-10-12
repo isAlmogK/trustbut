@@ -85,7 +85,7 @@ Review these first
 
 ### 2. Diff parser
 - Parses the unified diff into `ChangedFile { path, status, kind, added[{line,text}], removed[] }`.
-- Classifies each file by path: test, snapshot, test-config, source, other. Source and test files are recognised through the **language registry** (`src/languages/`): each `Language` declares its file extensions, a test-file pattern, its comment and string syntax (which drives the per-line lexer the static checks run on), and its check rules (focus, skip, test definitions, assertions, escapes). v0.1 registers `js` (`.js .jsx .ts .tsx .mjs .cjs .mts .cts`) and `py`. Adding a language means adding one file and listing it in `src/languages/index.ts`.
+- Classifies each file by path: test, snapshot, test-config, source, other. Source and test files are recognised through the **language registry** (`src/languages/`): each `Language` declares its file extensions, a test-file pattern (test helpers under test dirs included; nothing in a main source set such as `src/main/` or a Ruby/Dart `lib/`), an optional narrower test-file-name pattern (files that define tests, used for `proofs-unmatched`), its comment and string syntax (which drives the per-line lexer the static checks run on: raw, verbatim and character literals, Rust lifetimes, PHP `#[` attributes; one line at a time, so lines inside multi-line strings or block comments are not recognised), and its check rules (focus, skip, test definitions, assertions, escapes; a rule matches lexed code unless it names the comment part). Rust also runs the skip and test-definition checks on source files, where `#[cfg(test)]` modules live. v0.1 registers `js` (`.js .jsx .ts .tsx .mjs .cjs .mts .cts`) and `py`. Adding a language means adding one file and listing it in `src/languages/index.ts`.
 
 ### 3. Static checks (pattern-based, on the diff)
 | Check | Severity | Signal |
@@ -96,7 +96,7 @@ Review these first
 | Assertions removed (net) | WARN | |
 | Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
-| Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores) | WARN | |
+| Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores; per language e.g. `//nolint`, `#[allow(…)]`, `unsafe`, `@SuppressWarnings`, `@Suppress`, `#pragma warning disable`, `rubocop:disable`, `@phpstan-ignore`, `// ignore:`, `swiftlint:disable`, `@unchecked Sendable`) | WARN | Rust `.unwrap()`, Kotlin `!!`, C# `x!` and Swift `as!`/`try!` are not escapes |
 | Source changed, no tests changed | WARN | |
 
 ### 4. Proof engine (reruns)
