@@ -5,7 +5,7 @@ const SNAPSHOT = /(^|\/)__snapshots__\/|\.snap$/;
 const TEST_CONFIG =
   /(^|\/)(vitest\.config|vitest\.workspace|jest\.config)\.[cm]?[jt]s$|(^|\/)(pytest\.ini|tox\.ini|setup\.cfg|\.coveragerc|codecov\.ya?ml|\.nycrc(\.json)?|\.c8rc(\.json)?)$/;
 // Source files of languages that are not (yet) in the registry, and how their tests are recognised.
-const OTHER_SOURCE = /\.(go|rs|java|kt|rb|php|cs|swift|scala|vue|svelte)$/;
+const OTHER_SOURCE = /\.(rs|java|kt|rb|php|cs|swift|scala|vue|svelte)$/;
 const OTHER_TEST = /(^|\/)(tests?|__tests__)\//;
 
 export function classify(path: string): FileKind {

@@ -58,13 +58,13 @@ describe('detectRunner', () => {
 });
 
 describe('runner registry', () => {
-  it('registers vitest, jest, pytest and the generic command runner', () => {
-    expect(RUNNERS.map((r) => r.name)).toEqual(['vitest', 'jest', 'pytest', 'command']);
+  it('registers vitest, jest, pytest, go and the generic command runner', () => {
+    expect(RUNNERS.map((r) => r.name)).toEqual(['vitest', 'jest', 'pytest', 'go', 'command']);
   });
 
   it('looks runners up by name and lists the supported ones for an unknown name', () => {
     expect(getRunner('pytest')).toBe(pytest);
-    expect(() => getRunner('nope')).toThrow('Unknown runner: nope. Supported: vitest, jest, pytest, command');
+    expect(() => getRunner('nope')).toThrow('Unknown runner: nope. Supported: vitest, jest, pytest, go, command');
   });
 
   it('scores detection: 10 for a vitest dependency or config, 10 for pytest config, 0 otherwise', async () => {
