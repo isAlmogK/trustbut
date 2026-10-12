@@ -1,0 +1,116 @@
+import { describe, expect, it } from 'vitest';
+import { summarize } from '../src/hook/feedback.js';
+import { buildReceipt } from '../src/receipt.js';
+import { AGENT_FEEDBACK_MAX, renderForAgent } from '../src/render.js';
+import type { Finding, RunResult, TestCaseResult } from '../src/types.js';
+
+const tc = (name: string, outcome: TestCaseResult['outcome'], file = 'test/lib.test.js'): TestCaseResult => ({ id: `${file}::${name}`, file, name, outcome });
+const run = (cases: TestCaseResult[], exitCode = cases.some((c) => c.outcome === 'fail') ? 1 : 0): RunResult => ({ exitCode, cases, durationMs: 1, output: '' });
+
+function receipt(findings: Finding[], after?: RunResult, scope: 'full' | 'changed' = 'full') {
+  return buildReceipt({ base: 'a'.repeat(40), head: 'b'.repeat(40), headRef: 'working tree', runner: 'command', scope, after, proofs: [], findings, changes: [] });
+}
+
+const failReceipt = () =>
+  receipt(
+    [
+      { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
+      { id: 'test-failing', severity: 'fail', title: 'Test fails at head', file: 'test/lib.test.js', detail: 'lib > works' },
+      { id: 'test-focused', severity: 'fail', title: 'Test focused (other tests will not run)', file: 'test/a.test.js', line: 3, detail: "it.only('x', () => {})" },
+      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change', file: 'test/b.test.js', detail: 'b' },
+      { id: 'uncommitted-changes', severity: 'info', title: 'ignored info' },
+    ],
+    run([tc('lib > works', 'fail'), tc('lib > other', 'error'), tc('ok', 'pass')]),
+    'changed',
+  );
+
+describe('renderForAgent', () => {
+  it('lists what to fix, the failing tests, warnings, how to recheck and where the receipt is', () => {
+    expect(renderForAgent(failReceipt(), '/repo/.git/trustbut/last-receipt.md')).toBe(
+      [
+        'trustbut verdict: FAIL',
+        '',
+        'Tests (clean checkout of your work, changed test files only): 1 passed · 2 failed · 0 skipped',
+        '',
+        '### Must fix',
+        '- Test suite fails at head (clean checkout): exit code 1',
+        '- Test fails at head · `test/lib.test.js`: lib > works',
+        "- Test focused (other tests will not run) · `test/a.test.js:3`: it.only('x', () => {})",
+        '',
+        '### Failing tests',
+        '- `test/lib.test.js` › lib > works',
+        '- `test/lib.test.js` › lib > other',
+        '',
+        '### Warnings',
+        '- Test passes without the change · `test/b.test.js`: b',
+        '',
+        'Fix these and finish again; run `trustbut verify --working` to check.',
+        'Full receipt: `/repo/.git/trustbut/last-receipt.md`',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('caps failing tests and warnings at 10 each', () => {
+    const cases = Array.from({ length: 13 }, (_, i) => tc(`t${i}`, 'fail'));
+    const warns: Finding[] = Array.from({ length: 12 }, (_, i) => ({ id: 'escape-added', severity: 'warn', title: `Escape ${i}`, file: 'src/x.ts', line: i + 1 }));
+    const out = renderForAgent(receipt([{ id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)' }, ...warns], run(cases)), '/r.md');
+    expect(out).toContain('- `test/lib.test.js` › t9\n- and 3 more failing tests\n');
+    expect(out).not.toContain('› t10');
+    expect(out).toContain('- Escape 9 · `src/x.ts:10`\n- and 2 more warnings\n');
+  });
+
+  it('flattens newlines and clips very long lines', () => {
+    const out = renderForAgent(receipt([{ id: 'test-failing', severity: 'fail', title: 'Test fails at head', file: 'test/a.test.js', detail: `a\nb${'x'.repeat(1000)}` }]), '/r.md');
+    const line = out.split('\n').find((l) => l.startsWith('- Test fails at head'))!;
+    expect(line).toMatch(/^- Test fails at head · `test\/a\.test\.js`: a bxxx/);
+    expect(line.length).toBeLessThanOrEqual(400);
+    expect(line.endsWith('…')).toBe(true);
+  });
+
+  it(`stays within ${AGENT_FEEDBACK_MAX} characters, keeping the instruction and the receipt path`, () => {
+    expect(AGENT_FEEDBACK_MAX).toBe(6000);
+    const fails: Finding[] = Array.from({ length: 60 }, (_, i) => ({ id: 'test-focused', severity: 'fail', title: `Test focused ${i}`, file: 'test/a.test.js', line: i, detail: 'y'.repeat(150) }));
+    const out = renderForAgent(receipt(fails), '/repo/.git/trustbut/last-receipt.md');
+    expect(out.length).toBeLessThanOrEqual(AGENT_FEEDBACK_MAX);
+    expect(out).toMatch(/\n- … \d+ more lines not shown; see the full receipt\n\nFix these and finish again; run `trustbut verify --working` to check\.\nFull receipt: `\/repo\/\.git\/trustbut\/last-receipt\.md`\n$/);
+    expect(out).toContain('Test focused 0 ');
+    expect(out).not.toContain('Test focused 59 ');
+  });
+
+  it('says when the full receipt could not be written', () => {
+    expect(renderForAgent(failReceipt(), undefined)).toContain('\nFull receipt: not written (run `trustbut verify --working` to see it)\n');
+  });
+});
+
+describe('summarize (one line for systemMessage)', () => {
+  it('FAIL: counts failing tests, focus markers and tests that pass without the change', () => {
+    expect(summarize(failReceipt())).toBe('2 failing tests, 1 focused test, 1 test passes without the change');
+  });
+
+  it('FAIL: a runner that reported nothing, other FAIL findings and other warnings', () => {
+    const r = receipt([
+      { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results' },
+      { id: 'something-new', severity: 'fail', title: 'Something new' },
+      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change' },
+      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change' },
+      { id: 'escape-added', severity: 'warn', title: 'x' },
+    ], run([], 1));
+    expect(summarize(r)).toBe('test runner failed without reporting any test results, something new, 2 tests pass without the change, 1 other warning');
+  });
+
+  it('WARN: finding titles, grouped, at most 3', () => {
+    const w = (title: string): Finding => ({ id: 'w', severity: 'warn', title });
+    expect(summarize(receipt([w('Test skipped'), w('Test skipped'), w('Cast to any')], run([tc('a', 'pass')])))).toBe('Test skipped (×2); Cast to any');
+    expect(summarize(receipt([w('A'), w('B'), w('C'), w('D'), w('E')]))).toBe('A; B; C; and 2 more');
+  });
+
+  it('PASS: what ran and what the new tests prove', () => {
+    const r = buildReceipt({
+      base: 'a', head: 'b', runner: 'command', after: run([tc('a', 'pass'), tc('b', 'pass')]), changes: [], findings: [],
+      proofs: [{ id: 'x', file: 'test/lib.test.js', name: 'a', before: 'fail', after: 'pass', verdict: 'proves-change', weak: false }],
+    });
+    expect(summarize(r)).toBe('2 tests passed, 1 new/changed test proves the change');
+    expect(summarize(receipt([]))).toBe('tests not run');
+  });
+});
