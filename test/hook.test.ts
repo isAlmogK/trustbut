@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
-import { runHook, type HookOptions } from '../src/commands/hook.js';
+import { recheckArg, runHook, type HookOptions } from '../src/commands/hook.js';
 import { AGENTS, type Agent } from '../src/hook/protocols.js';
-import { readState, stateFile, writeState } from '../src/hook/state.js';
+import { hookSettingsKey, readState, stateFile, writeState } from '../src/hook/state.js';
 import { branch, commitAll, makeRepo, writeFiles } from './helpers/repo.js';
 
 const readAttempts = async (file: string) => (await readState(file)).state.attempts;
@@ -373,6 +373,12 @@ describe.concurrent('trustbut hook: base', () => {
     expect(await f.hook('claude')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
   });
 
+  it('a configured base that does not exist is replaced by the auto-resolved one, with a note in the message', async () => {
+    const f = await fixture('pass', { hook: { base: 'nope' } });
+    const r = await f.hook('claude');
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut PASS: .* — hook\.base "nope" not found; used main$/);
+  });
+
   it('committing on a feature branch does not hide the change from the default-branch diff', async () => {
     const f = await fixture('no-changes');
     await branch(f.dir, 'feature');
@@ -385,5 +391,33 @@ describe.concurrent('trustbut hook: base', () => {
     const f = await fixture('fail');
     await commitAll(f.dir, 'agent commits on main');
     expect(await f.hook('claude')).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+  });
+});
+
+describe.concurrent('trustbut hook: unchanged-tree cache key', () => {
+  it('includes a hash of the effective hook settings', async () => {
+    const f = await fixture('pass');
+    await f.hook('claude');
+    const { state } = await readState(stateFile(f.stateDir, 'sess-1', f.dir));
+    expect(state.tree).toMatch(new RegExp(`^[0-9a-f]+:[0-9a-f]+:${hookSettingsKey({ mode: 'quick', maxRetries: 3, timeoutSec: 540 })}$`));
+  });
+
+  it('differs when mode, maxRetries, base or timeoutSec differ', () => {
+    const s = { mode: 'quick', maxRetries: 3, timeoutSec: 540 } as const;
+    const keys = [s, { ...s, mode: 'full' }, { ...s, maxRetries: 2 }, { ...s, base: 'x' }, { ...s, timeoutSec: 60 }].map(hookSettingsKey);
+    expect(new Set(keys).size).toBe(5);
+  });
+});
+
+describe('trustbut hook: recheck command quoting', () => {
+  it.each([
+    ['origin/develop', 'origin/develop'],
+    ['v1.0', 'v1.0'],
+    ['feat^1', "'feat^1'"],
+    ['HEAD~2', "'HEAD~2'"],
+    ['a b', "'a b'"],
+    ['HEAD@{1}', "'HEAD@{1}'"],
+  ])('%s -> %s', (ref, quoted) => {
+    expect(recheckArg(ref)).toBe(quoted);
   });
 });

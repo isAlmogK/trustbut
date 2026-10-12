@@ -12,7 +12,7 @@ export const STALE_MS = 24 * 60 * 60 * 1000;
 
 export interface HookState {
   attempts: number;
-  /** What was last verified: `<snapshot tree>:<merge-base commit>`. */
+  /** What was last verified: `<snapshot tree>:<merge-base commit>:<settings hash>`. */
   tree?: string;
   /** The verdict for `tree`. */
   verdict?: Verdict;
@@ -67,4 +67,10 @@ export async function writeState(file: string, state: HookState, now = Date.now(
   } finally {
     await rm(tmp, { force: true });
   }
+}
+
+/** Hash of the hook settings that change what a run reports or sends back, so changing one invalidates the unchanged-tree cache. */
+export function hookSettingsKey(s: { mode: string; maxRetries: number; base?: string; timeoutSec: number }): string {
+  const text = JSON.stringify([s.mode, s.maxRetries, s.base ?? null, s.timeoutSec]);
+  return createHash('sha1').update(text).digest('hex').slice(0, 12);
 }

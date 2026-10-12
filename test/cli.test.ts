@@ -112,6 +112,7 @@ describe('cli: trustbut hook', () => {
     const r = await cli('hook', '--help');
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('Usage: trustbut hook [options] <agent>');
+    expect(r.stdout).toContain('(enabled, mode, maxRetries, timeoutSec, base)');
   }, 60_000);
 });
 

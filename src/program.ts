@@ -60,7 +60,7 @@ export function buildProgram(): Command {
       'after',
       '\nReads the hook input (JSON) on stdin. Exit codes follow the agent\'s protocol, not trustbut\'s:\n' +
         'only a FAIL within hook.maxRetries blocks; errors, timeouts and "nothing to verify" never do.\n' +
-        'Set TRUSTBUT_SKIP=1 to skip. Settings: "hook" in .trustbut.json (enabled, mode, maxRetries, timeoutSec).',
+        'Set TRUSTBUT_SKIP=1 to skip. Settings: "hook" in .trustbut.json (enabled, mode, maxRetries, timeoutSec, base).',
     )
     .action(async (agent: Agent) => {
       // An agent that kills the hook (its own timeout, Ctrl-C) gets the test processes stopped and the

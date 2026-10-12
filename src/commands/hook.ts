@@ -7,7 +7,7 @@ import { hookSettings, loadConfig } from '../config.js';
 import { summarize } from '../hook/feedback.js';
 import { respond, type Agent, type HookOutcome, type HookResponse } from '../hook/protocols.js';
 import { resolveHookBase, verifyDefaultBase } from '../hook/base.js';
-import { DEFAULT_STATE_DIR, readState, stateFile, writeState, type HookState } from '../hook/state.js';
+import { DEFAULT_STATE_DIR, hookSettingsKey, readState, stateFile, writeState, type HookState } from '../hook/state.js';
 import { resolveRef, snapshotWorkingTree } from '../git.js';
 import { shellQuote } from '../runners/command.js';
 import { renderForAgent } from '../render.js';
@@ -81,8 +81,9 @@ async function receiptLocation(repo: string): Promise<string | undefined> {
 
 type Settled = { ok: true; value: VerifyResult } | { ok: false; error: unknown };
 
-const SAFE_ARG = /^[\w./@{}^~:-]+$/;
-const arg = (s: string): string => (SAFE_ARG.test(s) ? s : shellQuote(s));
+// `^`, `~`, `{` and `}` are special to some shells (zsh globbing, brace expansion, `~` home): quote them.
+const SAFE_ARG = /^[\w./@:-]+$/;
+export const recheckArg = (s: string): string => (SAFE_ARG.test(s) ? s : shellQuote(s));
 
 /** `<snapshot tree>:<merge-base commit>`, or undefined when the base doesn't resolve. */
 async function fingerprint(repo: string, snapshot: string, baseRef: string): Promise<string | undefined> {
@@ -117,15 +118,18 @@ async function decide(opts: HookOptions): Promise<Decision> {
   // Mid-chain with an unreadable counter, a block could repeat forever: never block then.
   const noBlock = input.stop_hook_active === true && read.error ? `couldn't read the retry counter (${read.error})` : undefined;
   const save = (state: HookState) => writeState(counter, state);
+  const base = await resolveHookBase(repo, settings.base);
+  const withNote = (outcome: HookOutcome): HookOutcome =>
+    !base.note || outcome.kind === 'skip' ? outcome : { ...outcome, message: `${outcome.message} — ${base.note}` };
   // Letting the agent finish ends its continuation chain, so the next stop starts counting from 0.
   const allow = async (outcome: HookOutcome, state: HookState = { attempts: 0 }, extra: Omit<Decision, 'outcome'> = {}): Promise<Decision> => {
     await save(state).catch(() => {});
-    return { outcome, ...extra };
+    return { outcome: withNote(outcome), ...extra };
   };
 
-  const base = await resolveHookBase(repo, settings.base);
   const snapshot = await snapshotWorkingTree(repo);
-  const print = await fingerprint(repo, snapshot, base.ref);
+  const treeKey = await fingerprint(repo, snapshot, base.ref);
+  const print = treeKey === undefined ? undefined : `${treeKey}:${hookSettingsKey(settings)}`;
   const receiptPath = await receiptLocation(repo);
   const where = (path: string | undefined) => (path ? `receipt: ${path}` : 'receipt not written');
 
@@ -182,7 +186,7 @@ async function decide(opts: HookOptions): Promise<Decision> {
     }
   }
   const defaultBase = await verifyDefaultBase(repo);
-  const recheck = `trustbut verify --working${quick ? ' --quick' : ''}${base.ref !== defaultBase ? ` --base ${arg(base.ref)}` : ''}`;
+  const recheck = `trustbut verify --working${quick ? ' --quick' : ''}${base.ref !== defaultBase ? ` --base ${recheckArg(base.ref)}` : ''}`;
   const message = `trustbut FAIL: ${summary} — sent back to the agent (attempt ${attempts + 1}/${max})`;
-  return { outcome: { kind: 'block', feedback: renderForAgent(receipt, written, { recheck }), message } };
+  return { outcome: withNote({ kind: 'block', feedback: renderForAgent(receipt, written, { recheck }), message }) };
 }

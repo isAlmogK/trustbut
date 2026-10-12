@@ -15,7 +15,17 @@ async function repoOn(name: string) {
 describe('resolveHookBase', () => {
   it('1. uses hook.base from the config first', async () => {
     const { dir } = await repoOn('main');
+    await git(dir, 'branch', 'release');
     expect(await resolveHookBase(dir, 'release')).toEqual({ ref: 'release', source: 'config' });
+  });
+
+  it('1b. a configured base that does not exist falls through to the auto-resolver and says so', async () => {
+    const { dir, base } = await repoOn('main');
+    await git(dir, 'update-ref', 'refs/remotes/origin/develop', base);
+    await git(dir, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop');
+    expect(await resolveHookBase(dir, 'nope')).toEqual({ ref: 'origin/develop', source: 'origin-head', note: 'hook.base "nope" not found; used origin/develop' });
+    const lone = await repoOn('develop');
+    expect(await resolveHookBase(lone.dir, 'nope')).toMatchObject({ ref: 'HEAD', source: 'head', note: 'hook.base "nope" not found; used HEAD' });
   });
 
   it("2. then origin's default branch (refs/remotes/origin/HEAD), even when a stale main exists", async () => {

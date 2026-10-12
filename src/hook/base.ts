@@ -8,6 +8,8 @@ export type BaseSource = 'config' | 'origin-head' | 'default' | 'upstream' | 'he
 export interface HookBase {
   ref: string;
   source: BaseSource;
+  /** Set when `hook.base` named a ref that doesn't exist and another base was used instead. */
+  note?: string;
 }
 
 async function output(repo: string, args: string[]): Promise<string | undefined> {
@@ -16,12 +18,18 @@ async function output(repo: string, args: string[]): Promise<string | undefined>
 }
 
 /**
- * In order: `hook.base` from the config; origin's default branch (`refs/remotes/origin/HEAD`);
+ * In order: `hook.base` from the config (when it exists; else a note says it was replaced); origin's default branch (`refs/remotes/origin/HEAD`);
  * origin/main, main, origin/master, master; the current branch's upstream; else `HEAD`, which
  * verifies only the uncommitted changes. The whole branch is compared, so committing never hides work.
  */
 export async function resolveHookBase(repo: string, configured?: string): Promise<HookBase> {
-  if (configured) return { ref: configured, source: 'config' };
+  if (configured === undefined) return autoBase(repo);
+  if (await resolveRef(repo, configured)) return { ref: configured, source: 'config' };
+  const used = await autoBase(repo);
+  return { ...used, note: `hook.base "${configured}" not found; used ${used.ref}` };
+}
+
+async function autoBase(repo: string): Promise<HookBase> {
   const originHead = await output(repo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
   if (originHead && (await resolveRef(repo, originHead))) return { ref: originHead, source: 'origin-head' };
   for (const ref of DEFAULT_BASES) {
