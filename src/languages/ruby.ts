@@ -1,7 +1,7 @@
 import type { Language } from './types.js';
 
 // Example-defining calls, for metadata such as `it 'x', :focus` or `describe X, skip: 'why'`.
-const EXAMPLE = String.raw`^\s*(?:it|specify|example|scenario|describe|context|feature|test)\b.*,\s*`;
+const EXAMPLE = String.raw`^\s*(?:RSpec\.)?(?:it|specify|example|scenario|describe|context|feature|test)\b.*,\s*`;
 // Not a call: an assignment, predicate, bang or method call on a local of the same name.
 const NOT_CALL = String.raw`(?!\s*=[^=~>]|[?!.:])`;
 
@@ -17,13 +17,13 @@ export const ruby: Language = {
   strings: ['"', "'", '`'],
   rules: {
     focus: [
-      new RegExp(String.raw`^\s*f(?:it|specify|example|scenario|describe|context|feature)\b${NOT_CALL}`),
+      new RegExp(String.raw`^\s*(?:RSpec\.)?f(?:it|specify|example|scenario|describe|context|feature)\b${NOT_CALL}`),
       new RegExp(String.raw`${EXAMPLE}(?::focus\b|focus:\s*true\b)`),
     ],
     skip: [
-      new RegExp(String.raw`^\s*x(?:it|specify|example|scenario|describe|context|feature)\b${NOT_CALL}`),
+      new RegExp(String.raw`^\s*(?:RSpec\.)?x(?:it|specify|example|scenario|describe|context|feature)\b${NOT_CALL}`),
       new RegExp(String.raw`^\s*(?:skip|pending)\b${NOT_CALL}`),
-      new RegExp(String.raw`${EXAMPLE}(?::skip\b|(?:skip|pending):\s*(?!false\b|nil\b)\S)`),
+      new RegExp(String.raw`${EXAMPLE}(?::(?:skip|pending)\b|(?:skip|pending):\s*(?!false\b|nil\b)\S)`),
     ],
     testDef: [/^\s*(?:it|specify|example|scenario|test)\b(?=\s*(?:\(|['"]|do\b|\{|$))/, /^\s*def\s+test_\w*/],
     assert: [/\b(?:expect|is_expected|assert\w*|refute\w*|should(?:_not)?)\b/],

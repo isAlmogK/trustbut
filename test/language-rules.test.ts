@@ -111,6 +111,7 @@ describe('Kotlin rules', () => {
   it('counts removed tests and assertions', () => {
     expect(removedCounts(t, ['  @Test', '  @Test fun adds() {', '  @ParameterizedTest', '  @TestInstance(Lifecycle.PER_CLASS)'])).toEqual(['3 tests removed']);
     expect(removedCounts(t, ['    assertEquals(1, x)', '    verify { mock.run() }', '    x shouldBe 1', '    assertThat(x).isTrue()', '    val m = """assertEquals(1, x)"""'])).toEqual(['4 assertions removed']);
+    expect(removedCounts(t, ['    list.shouldContain(3)', '    shouldThrow<IllegalStateException> { run() }', '    val shouldRetry = true', '    if (shouldRun()) go()', '    return shouldSkip', '    val shouldRetry: Boolean', '    return shouldX && y'])).toEqual(['2 assertions removed']);
   });
   it('flags @Suppress and lint markers in source', () => {
     expect(escapes('src/main/kotlin/a/Calc.kt', ['@Suppress("UNCHECKED_CAST")', '@file:Suppress("unused")', '@SuppressLint("NewApi")', 'import a.* // ktlint-disable no-wildcard-imports', 'val s = "@Suppress(x)"', 'val y = x!!'])).toEqual([
@@ -150,6 +151,10 @@ describe('Ruby rules', () => {
   it('flags skips and pending, not variables named pending or strings', () => {
     expect(focusSkip(t, ["  xit 'works' do", '  xdescribe User do', "  skip 'not yet'", "  pending 'later'", "  it 'x', skip: 'flaky' do", '    skip', '  pending = orders.select(&:pending?)', '  items.skip_while { |x| x }', `  str = "skip 'x'"`, "  # pending 'later'", '  expect(order.pending?).to be true'])).toEqual([1, 2, 3, 4, 5, 6].map((l) => [l, 'test-skipped']));
   });
+  it('recognises RSpec.-prefixed groups and :pending metadata', () => {
+    expect(focusSkip(t, ['RSpec.describe User, :focus do', 'RSpec.describe User, focus: true do', 'RSpec.fdescribe User do'])).toEqual([1, 2, 3].map((l) => [l, 'test-focused']));
+    expect(focusSkip(t, ['RSpec.xdescribe User do', 'RSpec.describe User, skip: "x" do', '  it "x", :pending do', '  create(:order, :pending)', 'RSpec.describe User do'])).toEqual([1, 2, 3].map((l) => [l, 'test-skipped']));
+  });
   it('counts removed tests and assertions (RSpec and Minitest)', () => {
     expect(removedCounts(t, ["  it 'adds' do", '  it { is_expected.to be_valid }', '  specify do', "  test 'adds' do", '  def test_adds', '  items.each { it.save }', '  it.save', "  describe 'x' do", "  context 'y' do"])).toEqual(['5 tests removed', '1 assertion removed']);
     expect(removedCounts('test/models/user_test.rb', ['    expect(x).to eq(1)', '    expect { run }.to raise_error(E)', '    is_expected.to be_valid', '    assert_equal 1, x', '    refute x.nil?', '    x.should eq 1', '    expected = 1', '    msg = "expect(x)"'])).toEqual(['6 assertions removed']);
@@ -172,6 +177,9 @@ describe('PHP rules', () => {
     expect(removedCounts(t, ['    public function testAdds(): void', '    #[Test]', '    /** @test */', '     * @test', "test('adds', function () {", "it('works', function () {", "    #[DataProvider('cases')]", '    public function setUp(): void', '    /** @testdox Adds */', '    $x = "function testFoo()";'])).toEqual(['6 tests removed']);
     expect(removedCounts(t, ['        $this->assertSame(1, $x);', '        self::assertTrue($x);', '        static::assertCount(2, $a);', '        $this->expectException(E::class);', '    expect($x)->toBe(1);', '        Assert::assertEquals(1, $x);', "        $m = '$this->assertSame(1, $x)';", '        // self::assertTrue($x)'])).toEqual(['6 assertions removed']);
   });
+  it('flags only real @ error suppression, not emails, CSS at-rules or Alpine attributes in templates', () => {
+    expect(escapes('src/view.php', ['    $c = @file_get_contents($f);', "    $v = @$arr['k'];", '    @unlink($p);', '    $r = @\\Vendor\\fn($x);', 'Contact support@example.com today', '  @media (min-width: 600px) { a { color: red } }', '  @import url(x.css);', '<button @click="open = true">Go</button>', '@font-face { font-family: X; }', '@csrf'])).toEqual([1, 2, 3, 4].map((l) => [l, 'errors suppressed']));
+  });
   it('flags phpstan/psalm/phpcs/coverage markers and the @ operator in source', () => {
     expect(escapes('src/Calc.php', ['        // @phpstan-ignore-next-line', '    /** @psalm-suppress MixedAssignment */', '        $x = foo(); // phpcs:ignore', '# phpcs:disable', '    /** @codeCoverageIgnore */', '        $c = @file_get_contents($p);', '        $s = "@phpstan-ignore";', '    #[Pure]', "        $email = 'a@b.c';", '     * @param int $x'])).toEqual([
       [1, 'type check suppressed'],
@@ -187,7 +195,7 @@ describe('PHP rules', () => {
 describe('Dart rules', () => {
   const t = 'test/calc_test.dart';
   it('fails on solo tests and flags skips, not strings or comments', () => {
-    expect(focusSkip(t, ["  test('x', () {}, solo: true);", "  test('x', () {}, skip: true);", "  test('y', () {}, skip: 'flaky');", '  testWidgets(\'z\', (t) async {}, skip: isCI);', "@Skip('not on CI')", "  test('x', () {}, skip: false);", "  final s = 'solo: true';", '  final r = "skip: true";', '  // skip: true'])).toEqual([
+    expect(focusSkip(t, ["  test('x', () {}, solo: true);", "  test('x', () {}, skip: true);", "  test('y', () {}, skip: 'flaky');", "  testWidgets('z', (t) async {}, skip: r'raw reason');", "@Skip('not on CI')", "  test('x', () {}, skip: false);", '  testWidgets(\'w\', (t) async {}, skip: isCI);', '  final page = items.sublist(skip: 3);', '  query(skip: offset, take: 10);', "  final s = 'solo: true';", '  final r = "skip: true";', '  // skip: true'])).toEqual([
       [1, 'test-focused'],
       [2, 'test-skipped'],
       [3, 'test-skipped'],
@@ -210,6 +218,9 @@ describe('Dart rules', () => {
 
 describe('Swift rules', () => {
   const t = 'Tests/CalcTests/CalcTests.swift';
+  it('flags Swift Testing .disabled traits but not SwiftUI .disabled(Bool)', () => {
+    expect(focusSkip(t, ['    @Test(.disabled()) func a() {}', '    @Test(.disabled(if: ci)) func b() {}', '    @Suite(.disabled("later")) struct S {}', '    Button("Go") {}.disabled(true)', '    view.disabled(isLoading)', '    .disabled(false)'])).toEqual([1, 2, 3].map((l) => [l, 'test-skipped']));
+  });
   it('flags XCTSkip and disabled traits, not strings, raw strings or comments', () => {
     expect(focusSkip(t, ['    try XCTSkipIf(true)', '    throw XCTSkip("later")', '    @Test(.disabled("flaky")) func adds() {}', '    try XCTSkipUnless(x)', '    let s = "XCTSkip"', '    // throw XCTSkip()', '    let r = #"XCTSkip"#'])).toEqual([1, 2, 3, 4].map((l) => [l, 'test-skipped']));
   });

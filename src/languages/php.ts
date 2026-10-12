@@ -17,8 +17,13 @@ export const php: Language = {
       { part: 'comment', re: /@phpstan-ignore|@psalm-suppress/, title: 'type check suppressed' },
       { part: 'comment', re: /phpcs:(?:ignore|disable)|@codingStandardsIgnore/, title: 'lint rule disabled' },
       { part: 'comment', re: /@codeCoverageIgnore/, title: 'coverage exclusion' },
-      // In PHP code (strings and comments removed) `@` is only the error-suppression operator.
-      { part: 'code', re: /@\s*[$\w]/, title: 'errors suppressed' },
+      // The error-suppression operator on a variable or a call (`@$x`, `@fn(`, `@\Ns\fn(`); not emails, Alpine `@click`,
+      // or CSS at-rules in inline HTML (`@media (…)`). Blade templates are not PHP sources (see classify).
+      {
+        part: 'code',
+        re: /(?<![\w@.-])@(?:\$\w|(?!(?:media|import|supports|page|layer|container|keyframes|charset|namespace|document|scope|starting-style)\b)[\w\\]+\s*\()/,
+        title: 'errors suppressed',
+      },
     ],
   },
 };

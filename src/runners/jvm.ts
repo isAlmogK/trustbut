@@ -95,7 +95,8 @@ const SOURCE_SET_FILE = /(?:^|\/)src\/test\/(?:java|kotlin)\/.+\.(?:java|kt)$/;
 // (Failsafe's `IT*` prefix is left out: it would drop `ITest` or `ITokenizerTest`, which Surefire does run.)
 const INTEGRATION = /(?:IT|ITCase)$/;
 const TEST_MARKER = /@(?:Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate|Nested)\b|extends\s+TestCase\b/;
-const ABSTRACT_CLASS = /\babstract\s+(?:\w+\s+)*class\b/;
+// A top-level abstract class: at column 0, possibly after same-line annotations (nested classes and comments do not count).
+const ABSTRACT_CLASS = /^(?:@[\w.]+(?:\([^)]*\))?\s+)*(?:(?:public|internal|private|protected|sealed|open|static|final)\s+)*abstract\s+(?:\w+\s+)*class\b/m;
 
 /**
  * Fully qualified names of the test classes among `files`; helpers without tests are left out (empty = run everything).

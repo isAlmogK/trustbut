@@ -13,7 +13,8 @@ export const swift: Language = {
     '"',
   ],
   rules: {
-    skip: [/\bXCTSkip(?:If|Unless)?\b/, /\.disabled\s*\(/],
+    // Swift Testing's `.disabled()`, `.disabled("why")`, `.disabled(if: c)` traits, not SwiftUI's `.disabled(Bool)` modifier.
+    skip: [/\bXCTSkip(?:If|Unless)?\b/, /\.disabled\s*\(\s*(?:"|\)|if\s*:)/],
     testDef: [/\bfunc\s+test\w*\s*\(/, /@Test\b/],
     assert: [/\bXCT(?:Assert\w*|Fail|Unwrap)\s*\(/, /#(?:expect|require)\s*\(/],
     // Force unwraps and casts (`!`, `as!`, `try!`) are deliberately not flagged.

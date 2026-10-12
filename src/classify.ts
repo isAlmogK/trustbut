@@ -12,6 +12,7 @@ export function classify(path: string): FileKind {
   if (SNAPSHOT.test(path)) return 'snapshot';
   if (TEST_CONFIG.test(path)) return 'test-config';
   if (/\.gradle\.kts$/.test(path)) return 'other'; // build scripts, not Kotlin sources
+  if (/\.blade\.php$/.test(path)) return 'other'; // Laravel Blade templates (`@if`, `@csrf`), not PHP sources
   const lang = languageOf(path);
   if (lang) return lang.testFile.test(path) ? 'test' : 'source';
   if (OTHER_SOURCE.test(path)) return OTHER_TEST.test(path) ? 'test' : 'source';

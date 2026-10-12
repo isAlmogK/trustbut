@@ -142,6 +142,14 @@ describe('jvm test target edge cases', () => {
     const dir = await srcDir(files);
     expect(jvmTestClasses(dir, Object.keys(files))).toEqual(['com.x.TaggedTest', 'com.y.KTaggedTest']);
   });
+
+  it('ignores nested abstract classes and comments when deciding the file-name fallback', async () => {
+    const files = {
+      'src/test/java/com/x/OuterTest.java': 'package com.x;\n// an abstract class would not run\n/* abstract class Old {} */\n@Tag("x") class OuterTest {\n  abstract static class Base {}\n  @Test void a() {}\n}\n',
+    };
+    const dir = await srcDir(files);
+    expect(jvmTestClasses(dir, Object.keys(files))).toEqual(['com.x.OuterTest']);
+  });
 });
 
 describe('command lines', () => {

@@ -17,7 +17,8 @@ export const dart: Language = {
   ],
   rules: {
     focus: [/\bsolo:\s*true\b/],
-    skip: [/\bskip:\s*(?!false\b|null\b)[^\s,)]/, /^\s*@Skip\b/],
+    // `skip: true` or a reason string; a variable (`skip: isCI`, `skip: offset`) is not recognised.
+    skip: [/\bskip:\s*(?:true\b|r?['"])/, /^\s*@Skip\b/],
     // `group(` is not a test.
     testDef: [/^\s*(?:test|testWidgets|testGoldens|blocTest|patrolTest)\s*[<(]/],
     assert: [/\b(?:expect|expectLater|verify|verifyNever)\s*\(/],

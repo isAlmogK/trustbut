@@ -12,8 +12,8 @@ export const kotlin: Language = {
   rules: {
     skip: JVM_SKIP,
     testDef: JVM_TEST_DEF,
-    // MockK `verify { }` / `coVerify { }` and Kotest `shouldBe`-style infix matchers too.
-    assert: [...JVM_ASSERT, /\b(?:co)?[vV]erify\s*\{/, /\bshould[A-Z]\w*\b/],
+    // MockK `verify { }` / `coVerify { }`; Kotest infix (`x shouldBe 1`), extension (`.shouldContain(`) and `shouldThrow<E>`.
+    assert: [...JVM_ASSERT, /\b(?:co)?[vV]erify\s*\{/, /[\w)\]}"'`](?<!\b(?:val|var|fun|return))\s+should[A-Z]\w*\s+[^\s=:)]/, /\.should[A-Z]\w*\s*\(/, /\bshould(?:Throw|NotThrow)\w*\s*</],
     escapes: [
       { part: 'code', re: /@(?:file:)?Suppress\s*\(/, title: 'warnings suppressed' },
       { part: 'code', re: /@SuppressLint\s*\(/, title: 'lint rule disabled' },

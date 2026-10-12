@@ -84,6 +84,14 @@ describe('splitLine driven by a language definition', () => {
   });
 });
 
+describe('Blade templates', () => {
+  it('classifies *.blade.php as other, not PHP source', async () => {
+    const { classify } = await import('../src/classify.js');
+    expect(classify('resources/views/home.blade.php')).toBe('other');
+    expect(classify('app/Http/Controllers/Home.php')).toBe('source');
+  });
+});
+
 describe('files whose name says they define tests (proofs-unmatched)', () => {
   it.each([
     'src/a.test.ts', 'src/__tests__/a.spec.js', 'tests/test_api.py', 'pkg/api_test.py', 'pkg/calc_test.go', 'tests/api.rs', 'tests/api/main.rs',
