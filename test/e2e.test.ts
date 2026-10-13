@@ -135,6 +135,21 @@ describe('trustbut verify (end to end)', () => {
     ]);
   });
 
+  it('does not copy changed source code under a spec/ folder into the base checkout', async () => {
+    const dir = await scenario({
+      'src/spec/double.js': 'export const double = (n) => n * 2;\n',
+      'test/double.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { double } from '../src/spec/double.js';",
+        "it('doubles', () => expect(double(2)).toBe(4));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['doubles', 'proves-change']]);
+    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+  });
+
   it('WARN: a declared dependency is not installed', async () => {
     const dir = await scenario({
       'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' }, dependencies: { 'not-installed-zzz': '1' } }),
