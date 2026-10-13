@@ -1,6 +1,6 @@
 {
   "name": "trustbut",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Verifiable receipts for code written by AI coding agents",
   "keywords": [
     "agent-receipts",

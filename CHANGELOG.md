@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+First release published from CI through npm trusted publishing, with a provenance attestation. No changes to the CLI.
+
+- Tests: the CLI tests start trustbut with `node` instead of `npx`, so npm's own config warnings on stderr no longer break the release workflow.
+
 ## 0.3.0
 
 First npm release. It includes everything built so far:
