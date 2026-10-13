@@ -65,6 +65,21 @@ describe('runValidate', () => {
     expect((await runValidate({ readStdin: stdin('{') })).stderr).toMatch(/^trustbut: stdin is not valid JSON: /);
   });
 
+  it('with --json, also prints the exit-2 problem as a JSON result', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ar-validate-'));
+    const missing = join(dir, 'nope.json');
+    const read = await runValidate({ file: missing, json: true, readStdin: noStdin });
+    expect(read.exitCode).toBe(2);
+    const message = read.stderr.replace(/^trustbut: /, '').replace(/\n$/, '');
+    expect(message).toMatch(/^couldn't read /);
+    expect(read.stdout).toBe(`${JSON.stringify({ valid: false, errors: [{ path: '/', message }], warnings: [] }, null, 2)}\n`);
+    for (const text of ['  \n', '{']) {
+      const r = await runValidate({ json: true, readStdin: stdin(text) });
+      expect(r.exitCode).toBe(2);
+      expect(JSON.parse(r.stdout)).toEqual({ valid: false, errors: [{ path: '/', message: r.stderr.slice('trustbut: '.length, -1) }], warnings: [] });
+    }
+  });
+
   it('accepts the receipt trustbut itself writes', async () => {
     const { dir } = await makeRepo({ 'README.md': '# a\n' });
     await writeFiles(dir, { 'README.md': '# b\n' });
