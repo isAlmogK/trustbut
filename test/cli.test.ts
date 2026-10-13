@@ -11,9 +11,9 @@ import { makeRepo, writeFiles } from './helpers/repo.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PKG_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
-const cli = (...args: string[]) => execa('npx', ['--no-install', 'tsx', 'src/cli.ts', ...args], { cwd: ROOT, reject: false });
+const cli = (...args: string[]) => execa('node', ['--import', 'tsx', 'src/cli.ts', ...args], { cwd: ROOT, reject: false });
 const hookCli = (agent: string, input: string, env: Record<string, string> = {}) =>
-  execa('npx', ['--no-install', 'tsx', 'src/cli.ts', 'hook', agent], { cwd: ROOT, reject: false, input, env: { ...env, TRUSTBUT_SKIP: '' } });
+  execa('node', ['--import', 'tsx', 'src/cli.ts', 'hook', agent], { cwd: ROOT, reject: false, input, env: { ...env, TRUSTBUT_SKIP: '' } });
 
 describe('cli', () => {
   it('reports its version', () => {
