@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runVerify } from '../../src/commands/verify.js';
+import { runVerify } from '../helpers/verify.js';
 import { gradle, gradleArgs } from '../../src/runners/gradle.js';
 import { casesInJvmFile, declaredJvmClasses, findReports, jvmLeaf, jvmTestClasses, parseJvmJUnit } from '../../src/runners/jvm.js';
 import { maven, mavenArgs } from '../../src/runners/maven.js';

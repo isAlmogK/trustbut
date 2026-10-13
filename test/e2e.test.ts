@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
-import { runVerify } from '../src/commands/verify.js';
+import { runVerify } from './helpers/verify.js';
 import { buildProgram } from '../src/program.js';
+import { toAgentReceipt } from '../src/spec/serialize.js';
+import { VERSION } from '../src/version.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 import { hasTool, requiredTools } from './helpers/toolchain.js';
 
@@ -194,10 +196,13 @@ describe('trustbut verify (end to end)', () => {
     );
   });
 
-  it('prints JSON with --json', async () => {
+  it('prints JSON with --json: an agent receipt v1', async () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
     const { output } = await runVerify({ cwd: dir, json: true });
-    expect(JSON.parse(output)).toMatchObject({ version: 1, verdict: 'pass' });
+    const json = JSON.parse(output);
+    expect(json).toMatchObject({ specVersion: '1.0', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
+    expect(json).not.toHaveProperty('version');
+    expect(output).not.toContain('"output"');
   });
 
   it('registers the verify command', () => {
@@ -503,7 +508,7 @@ describe('--receipt-json / --receipt-md', () => {
     const jsonPath = join(out, 'a/b/receipt.json');
     const mdPath = join(out, 'c/receipt.md');
     const { receipt, output } = await runVerify({ cwd: dir, receiptJson: jsonPath, receiptMd: mdPath });
-    expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(JSON.parse(JSON.stringify(receipt)));
+    expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(JSON.parse(JSON.stringify(toAgentReceipt(receipt))));
     expect(await readFile(mdPath, 'utf8')).toBe(output);
   });
 

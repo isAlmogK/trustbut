@@ -37,7 +37,7 @@ export function buildProgram(): Command {
     .option('--root <dir>', 'package folder to run the tests in, relative to the repo root (overrides config root)')
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
-    .option('--json', 'print the receipt as JSON')
+    .option('--json', 'print the receipt as JSON (agent receipt v1, see spec/agent-receipt-v1.md)')
     .option('--receipt-json <path>', 'also write the JSON receipt to this file (relative to the current directory)')
     .option('--receipt-md <path>', 'also write the Markdown receipt to this file (relative to the current directory)')
     .action(async (opts: VerifyOptions) => {
