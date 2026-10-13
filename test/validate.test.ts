@@ -88,4 +88,12 @@ describe('trustbut validate (CLI)', () => {
     expect(bad.exitCode).toBe(1);
     expect(bad.stdout).toMatch(/^error: \/specVersion: must match pattern/);
   }, 60_000);
+
+  it('waits for the end of piped input, however slow the producer is', async () => {
+    const valid = await readFile(join(EXAMPLES, 'valid', 'pass.json'), 'utf8');
+    const child = execa('node', ['--import', 'tsx', 'src/cli.ts', 'validate'], { cwd: ROOT, reject: false });
+    await new Promise((r) => setTimeout(r, 6000));
+    child.stdin!.end(valid);
+    expect(await child).toMatchObject({ exitCode: 0, stdout: 'valid' });
+  }, 60_000);
 });

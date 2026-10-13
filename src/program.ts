@@ -60,7 +60,8 @@ export function buildProgram(): Command {
     .argument('[file]', 'the receipt file; "-" or omitted reads stdin')
     .option('--json', 'print the result as JSON')
     .action(async (file: string | undefined, opts: { json?: boolean }) => {
-      const result = await runValidate({ file, json: opts.json, readStdin: () => readStdin() });
+      // Hooks may hold stdin open, so `hook` times out; a pipe into validate ends when its producer exits.
+      const result = await runValidate({ file, json: opts.json, readStdin: () => readStdin(process.stdin, Infinity) });
       process.stdout.write(result.stdout);
       process.stderr.write(result.stderr);
       process.exitCode = result.exitCode;
@@ -128,14 +129,14 @@ export function buildProgram(): Command {
 const STDIN_WAIT_MS = 5000;
 const INTERRUPT_GRACE_MS = 2000;
 
-/** All of stdin, or what arrived within a few seconds if the agent leaves it open; '' for a terminal. */
-async function readStdin(stream: NodeJS.ReadStream = process.stdin): Promise<string> {
+/** All of stdin, or what arrived within waitMs if the agent leaves it open (Infinity: wait for the end); '' for a terminal. */
+async function readStdin(stream: NodeJS.ReadStream = process.stdin, waitMs: number = STDIN_WAIT_MS): Promise<string> {
   if (stream.isTTY) return '';
   let text = '';
   await new Promise<void>((done) => {
-    const timer = setTimeout(done, STDIN_WAIT_MS);
+    const timer = Number.isFinite(waitMs) ? setTimeout(done, waitMs) : undefined;
     const finish = () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       done();
     };
     stream.setEncoding('utf8');
