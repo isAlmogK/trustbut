@@ -4,8 +4,10 @@
 
 **Agent receipts, spec v1.** trustbut's receipt is now an open, versioned format that any tool can produce or read: [`spec/agent-receipt-v1.md`](spec/agent-receipt-v1.md), with a JSON Schema and examples.
 
-- **Breaking:** `verify --json` and `--receipt-json` now write an agent receipt v1. `version: 1` is replaced by `specVersion: "1.0"` and `producer`. `base`/`head`/`headRef` move under `subject`, and test counts move to `tests`. trustbut-only detail (`runner`, `languages`, `root`, the `after`/`before` runs) moves under `x-trustbut`, and the raw runner `output` is no longer written to JSON. `verdict` stays at the top level, so the GitHub Action is unaffected.
-- New: `trustbut validate [file]` checks any receipt against the spec (stdin for `-`; `--json` result; exit 0 valid, 1 invalid, 2 unreadable).
+- **Breaking:** `verify --json` and `--receipt-json` now write an agent receipt v1. `version: 1` is replaced by `specVersion: "1.0"` and `producer`. `base`/`head`/`headRef` move under `subject`. The top-level `scope` moves to `tests.scope`, and `tests` is absent when tests didn't run. `proofs[].id` and `proofs[].weak` are dropped. trustbut-only detail (`runner`, `languages`, `root`, the `after`/`before` runs) moves under `x-trustbut`, and the raw runner `output` is no longer written to JSON. `verdict` stays at the top level, so the GitHub Action is unaffected.
+- New: `tests` holds test counts (`passed`, `failed`, `errored`, `skipped`) taken from the head run.
+- New: `trustbut validate [file]` checks any receipt against the spec (stdin for `-`; exit 0 valid, 1 invalid, 2 unreadable). `--json` prints the result as JSON, for unreadable input too. A receipt that declares a newer `1.x` minor is accepted: fields and core ids unknown to 1.0 are warnings.
+- Fixed: a new test was wrongly reported as passing without the change when the change added source under a test folder inside a source tree (`src/spec/`): that source was copied into the base run. It no longer is; test helpers elsewhere (`spec/helpers/`) and code fixtures under `fixtures/` or `testdata/` are still copied.
 - The npm package now ships `spec/`.
 
 ## 0.3.1

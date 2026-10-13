@@ -45,7 +45,7 @@ $ npx trustbut verify
 2. `package.json`: dependencies
 ```
 
-When the suite fails at head, the receipt also lists the failing tests. If `package.json` declares dependencies that aren't installed in your `node_modules` (a stale install), a `deps-not-installed` warning names them, because both runs link and use your installed dependencies. See the finding ids in [docs/SPEC.md](docs/SPEC.md).
+When the suite fails at head, the receipt also lists the failing tests. If `package.json` declares dependencies that aren't installed in your `node_modules` (a stale install), a `deps-not-installed` warning names them, because both runs link and use your installed dependencies. See the finding ids in the spec's [finding catalog](spec/agent-receipt-v1.md#finding-catalog).
 
 The output is Markdown, so the same receipt reads cleanly in your terminal and renders properly in a pull request or a CI job summary.
 

@@ -132,7 +132,7 @@ Review these first
 - **Matching results to changed test files.** By default a result belongs to a changed test file when its reported file equals the path, is a path suffix of it, or (pytest) is its dotted module name. Runners whose results don't carry file paths (Go, JVM) implement `casesInFile(c, file, readHead)`: `file` is the changed test file relative to the package root, and `readHead(path)` returns the head contents of a changed test file (relative to the package root; `''` if unreadable), read from the head worktree and cached, e.g. to find which `func TestX` a Go file defines. Results may carry an optional `leaf` (the test's own short name, e.g. the .NET method without parameters or the last Rust path segment); the proof engine looks for it on added lines to tell new tests from untouched ones, defaulting to the last segment of `name`. Proofs and findings report repo-relative paths; the raw test cases in `after` / `before` keep the runner's own `file`, which is relative to the package root (or a class/package name for runners without file paths).
 
 - **Nothing to verify:** when base and head are the same commit, or their trees don't differ (an empty commit, `--working` with no edits), `verify` exits 2 with a hint (`--base HEAD~1`, `--working`).
-- **`--working`** verifies uncommitted work: the tracked edits plus untracked, non-ignored files are snapshotted into an unreferenced commit on top of `HEAD`, built with a temporary index (the real index, HEAD and working tree are never touched), which is used as `head`. It is rejected together with `--head`; the receipt's `headRef` is `"working tree"`.
+- **`--working`** verifies uncommitted work: the tracked edits plus untracked, non-ignored files are snapshotted into an unreferenced commit on top of `HEAD`, built with a temporary index (the real index, HEAD and working tree are never touched), which is used as `head`. It is rejected together with `--head`; the receipt's `subject.headRef` is `"working tree"`.
 
 ### Configuration (`.trustbut.json`)
 
@@ -169,7 +169,31 @@ Example (Go service with a Firestore emulator in a subfolder):
 Path rules add weight for: auth or permissions, migrations, CI pipelines, verification config (`.trustbut.json`), dependencies and lockfiles (npm/pnpm/yarn, Python, `go.mod`, `Cargo.toml`, `pom.xml`, Gradle build/settings scripts, `Gemfile`, `composer.json`, `pubspec.yaml`, `Package.swift`, `*.csproj`, `Directory.Packages.props` and their lockfiles), secrets and env, infrastructure, and agent config (`.claude/`, `AGENTS.md`, hooks). Files with findings and very large changes get extra weight. The output is an ordered "review these first" list.
 
 ### 6. Receipt
-- **Format:** the JSON receipt is an **agent receipt v1**: [`spec/agent-receipt-v1.md`](../spec/agent-receipt-v1.md), with the schema in `spec/agent-receipt-v1.schema.json`. The spec is the source of truth for the fields, the 19 core finding ids and their severities, the verdict rule, `x-` extensions and versioning. trustbut's own detail goes under `x-trustbut`: `runner`, `languages`, `root`, and `after`/`before` runs (`exitCode`, `durationMs`, `timedOut?`, `cases`). A test case in those runs may carry `leaf`, the test's own short name used to tell new tests from untouched ones, and a failing case may carry `message`, the runner's failure message (one line, up to 300 characters). The raw runner output is never written to JSON. Internally (Markdown, hooks), trustbut keeps the richer `Receipt` type; `toAgentReceipt()` in `src/spec/serialize.ts` maps it. The Markdown header reads `runner: X`, plus ` · root: Y` when `root` is not `.`.
+- **Format:** the JSON receipt is an **agent receipt v1**: [`spec/agent-receipt-v1.md`](../spec/agent-receipt-v1.md), with the schema in `spec/agent-receipt-v1.schema.json`. The spec is the source of truth for the fields, the 19 core finding ids and their severities, the verdict rule, `x-` extensions and versioning. trustbut's own detail goes under `x-trustbut`: `runner`, `languages`, `root`, and `after`/`before` runs (`exitCode`, `durationMs`, `timedOut?`, `cases`). A test case in those runs may carry `leaf`, the test's own short name used to tell new tests from untouched ones, and a failing case may carry `message`, the runner's failure message (one line, up to 300 characters). The raw runner output is never written to JSON. Internally (Markdown, hooks), trustbut keeps the richer `Receipt` type; `toAgentReceipt()` in `src/spec/serialize.ts` maps it.
+- **Markdown header:** reads `runner: X`, plus ` · root: Y` when `root` is not `.`.
+- **When trustbut emits each id** (meanings and severities: the spec's [finding catalog](../spec/agent-receipt-v1.md#finding-catalog)):
+
+  | Id | trustbut emits it when |
+  |---|---|
+  | `test-focused` | The diff adds a focus marker (§3: `.only`, `fit`, `solo: true`, …). |
+  | `test-skipped` | The diff adds a skip marker (§3). |
+  | `tests-removed` | A file loses test definitions on net; one finding per file. |
+  | `assertions-removed` | A file loses assertions on net; one finding per file. |
+  | `snapshot-changed` | A snapshot file is changed or deleted. |
+  | `test-config-changed` | A test or coverage config file changes, `.trustbut.json` included. |
+  | `escape-added` | An added line carries a type, lint, coverage, warning or safety escape (§3). |
+  | `no-tests-changed` | Source changed and no test file was added or changed. |
+  | `suite-failing` | The head run exits nonzero. When the runner reported no test (a build or start-up failure), the detail is the last output line, or `timed out after N s`; otherwise `exit code N`. |
+  | `no-test-results` | The head run exits 0 with no results, e.g. args that filter out every test, a `junit` path the command never writes, a test task whose reports trustbut doesn't read. |
+  | `test-failing` | A new or changed test fails at head. |
+  | `test-passes-without-change` | A new or changed test also passes at base (§4). |
+  | `no-runner` | No runner is detected; the title lists the supported runners. |
+  | `base-run-failed` | The base run of the changed tests reports nothing and exits nonzero. |
+  | `proofs-unmatched` | The suite ran (or exited 0 with no results) but no result matched the changed test files. Not emitted when the head run only reports a build or start-up failure. |
+  | `deps-not-installed` | JS runners only (vitest, jest, mocha, node-test; not Python or `command`), skipped for Yarn PnP. `package.json` declares dependencies (not optional; `workspace:`/`link:`/`file:` ignored) missing from the installed `node_modules`, or `node_modules` is missing. Lists up to 5 names. Read from the working-tree `package.json` (what is linked), so a `--head` ref that adds a dependency isn't flagged. |
+  | `deps-changed` | A lockfile or requirements file changes (`package-lock.json`, `yarn.lock`, `go.sum`, `requirements*.txt`, …); both runs use the installed dependencies. |
+  | `tests-outside-root` | Changed test files outside the package root were not run; gives the count and the first 3 paths. |
+  | `uncommitted-changes` | The working tree has uncommitted work. Not emitted with `--working`. |
 - **Validate:** `trustbut validate [file]` (stdin for `-` or no argument; `--json` for a machine-readable result) checks any receipt: schema, then the verdict rule; a core id with a non-default severity is a warning, and so are unknown fields and unknown non-namespaced ids in a receipt that declares a minor newer than `1.0`. Exit 0 valid, 1 invalid, 2 unreadable input (with `--json`, also printed as `{ "valid": false, "errors": [{ "path": "/", "message": … }], "warnings": [] }`).
 
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.
