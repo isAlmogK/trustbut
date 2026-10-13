@@ -36,7 +36,8 @@ Order matters because of the 48 h window. Do these in sequence, all in one sitti
 3. Create the npm trusted publisher (the 48 h clock starts here): npmjs.com, package `trustbut`, Settings, Trusted Publisher, GitHub Actions:
    - Owner `isAlmogK`, repository `trustbut`, workflow filename `release.yml`, environment `npm`.
    - **Allowed actions: tick "npm publish".** New configs are staging-only by default (since 2026-09-03); without the tick the workflow's `npm publish` is refused. (Alternative: leave staging-only, change the workflow to `npm stage publish`, and approve each release with 2FA on npmjs.com.)
-   - Configs cannot be edited: a typo means delete and recreate (which restarts the 48 h clock).
+   - **Every field is case-sensitive and npm does not check it on save.** The owner must be `isAlmogK` exactly: `isalmogk` saves fine and then every publish fails with `E404 … you do not have permission`, the same error as a missing "npm publish" permission.
+   - npm's docs say configs can't be edited (the page shows an Edit button anyway): to fix a field, delete the entry and recreate it, which restarts the 48 h clock. A failed publish can be retried without a new release: `gh run rerun <run-id> --failed`.
 4. **Create the GitHub Release `v0.3.1`** immediately (section 3 step 4) and watch the workflow.
 5. **Verify** (section 3 step 6) within 48 h. If the window lapses, delete and recreate the config.
 6. Hardening: npm Settings, Publishing access, "Require two-factor authentication and disallow tokens", and revoke old automation tokens.
