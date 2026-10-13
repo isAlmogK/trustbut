@@ -2,6 +2,7 @@ import { writeSync } from 'node:fs';
 import { Argument, Command, InvalidArgumentError, Option } from 'commander';
 import { INIT_AGENTS, runInit, type InitAgent } from './init/index.js';
 import { runHook } from './commands/hook.js';
+import { runValidate } from './commands/validate.js';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
 import { AGENTS, respond, type Agent } from './hook/protocols.js';
 import { getRunner } from './runners/registry.js';
@@ -51,6 +52,18 @@ export function buildProgram(): Command {
         process.stderr.write(`trustbut: ${(err as Error).message}\n`);
         process.exitCode = 2;
       }
+    });
+
+  program
+    .command('validate')
+    .description('Check an agent receipt (JSON) against the agent receipts v1 spec')
+    .argument('[file]', 'the receipt file; "-" or omitted reads stdin')
+    .option('--json', 'print the result as JSON')
+    .action(async (file: string | undefined, opts: { json?: boolean }) => {
+      const result = await runValidate({ file, json: opts.json, readStdin: () => readStdin() });
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exitCode = result.exitCode;
     });
 
   program
