@@ -150,6 +150,20 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
   });
 
+  it('still copies changed code fixtures under fixtures/ into the base checkout', async () => {
+    const dir = await scenario({
+      'fixtures/data.js': 'export const value = 2;\n',
+      'test/data.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { value } from '../fixtures/data.js';",
+        "it('reads data', () => expect(value).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['reads data', 'does-not-constrain']]);
+  });
+
   it('WARN: a declared dependency is not installed', async () => {
     const dir = await scenario({
       'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' }, dependencies: { 'not-installed-zzz': '1' } }),

@@ -116,7 +116,8 @@ function headRunFinding(after: RunResult, timeoutMs: number | undefined): Findin
 
 // Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
 // Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/` projects included.
-// This carries test data (fixtures, golden files), not source code: changed source under these folders is never copied to base.
+// Changed source code is copied only from pure data folders (fixtures/, testdata/); source under spec/, test/ etc. is the change's own code and is never copied to base.
+const FIXTURE_DIR = /(^|\/)(fixtures?|testdata)\//;
 const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
@@ -227,7 +228,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
       .filter(
         (c) =>
           c.status !== 'deleted' &&
-          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && c.kind !== 'source')),
+          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path)))),
       )
       .map((c) => c.path);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
