@@ -18,5 +18,5 @@
     { "file": "src/auth/session.ts", "score": 5, "reasons": ["auth/permissions", "has findings"] },
     { "file": "package.json", "score": 2, "reasons": ["dependencies"] }
   ],
-  "x-trustbut": { "runner": "vitest", "languages": ["js"], "root": ".", "after": { "exitCode": 0, "durationMs": 8123, "cases": [] } }
+  "x-trustbut": { "runner": "vitest", "languages": ["js"], "root": "." }
 }

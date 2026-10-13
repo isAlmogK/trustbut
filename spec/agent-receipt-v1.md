@@ -9,7 +9,7 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 ## Principles
 
 - **Evidence, not opinions.** Findings state facts ("this test passes without the change"), never intent.
-- **Deterministic core.** The core fields and standard sections contain no timestamps, durations or raw logs. Given the same repository state and the same test results, a producer MUST emit the same core receipt.
+- **Deterministic core.** The core fields and standard sections have no fields for timestamps, durations or logs. A finding's `detail` MAY quote a short line of tool output, so it can vary between runs; producers SHOULD keep everything else stable for the same repository state and test results.
 - **Small core, open edges.** Five required fields, three optional standard sections, and `x-` keys for everything else.
 
 ## Example
