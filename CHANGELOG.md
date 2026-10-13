@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+**Agent receipts, spec v1.** trustbut's receipt is now an open, versioned format that any tool can produce or read: [`spec/agent-receipt-v1.md`](spec/agent-receipt-v1.md), with a JSON Schema and examples.
+
+- **Breaking:** `verify --json` and `--receipt-json` now write an agent receipt v1. `version: 1` is replaced by `specVersion: "1.0"` and `producer`. `base`/`head`/`headRef` move under `subject`, and test counts move to `tests`. trustbut-only detail (`runner`, `languages`, `root`, the `after`/`before` runs) moves under `x-trustbut`, and the raw runner `output` is no longer written to JSON. `verdict` stays at the top level, so the GitHub Action is unaffected.
+- New: `trustbut validate [file]` checks any receipt against the spec (stdin for `-`; `--json` result; exit 0 valid, 1 invalid, 2 unreadable).
+- The npm package now ships `spec/`.
+
 ## 0.3.1
 
 First release published from CI through npm trusted publishing, with a provenance attestation. No changes to the CLI.

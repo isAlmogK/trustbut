@@ -1,6 +1,6 @@
 {
   "name": "trustbut",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Verifiable receipts for code written by AI coding agents",
   "keywords": [
     "agent-receipts",
@@ -32,6 +32,7 @@
   },
   "files": [
     "dist",
+    "spec",
     "integrations/claude-code/scripts/run.mjs"
   ],
   "engines": {
