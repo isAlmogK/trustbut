@@ -114,11 +114,11 @@ function headRunFinding(after: RunResult, timeoutMs: number | undefined): Findin
   return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: timedOut ?? `exit code ${after.exitCode}` };
 }
 
-// Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
-// Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/` projects included.
-// Changed source code is copied only from pure data folders (fixtures/, testdata/); source under spec/, test/ etc. is the change's own code and is never copied to base.
+// Base gets the changed tests, snapshots, and files under a test or fixture folder (Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/`).
+// Source-kind files there are copied too (test helpers), unless the folder sits inside a source tree (`src/spec/`) and isn't a fixtures/testdata folder.
 const FIXTURE_DIR = /(^|\/)(fixtures?|testdata)\//;
 const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
+const SOURCE_TREE_DATA = /(^|\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
@@ -228,7 +228,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
       .filter(
         (c) =>
           c.status !== 'deleted' &&
-          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path)))),
+          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path)))),
       )
       .map((c) => c.path);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);

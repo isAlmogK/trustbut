@@ -166,6 +166,20 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['reads data', 'does-not-constrain']]);
   });
 
+  it('still copies changed test helpers under spec/ into the base checkout', async () => {
+    const dir = await scenario({
+      'spec/helpers/make.js': 'export const make = () => 2;\n',
+      'test/make.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { make } from '../spec/helpers/make.js';",
+        "it('makes two', () => expect(make()).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['makes two', 'does-not-constrain']]);
+  });
+
   it('WARN: a declared dependency is not installed', async () => {
     const dir = await scenario({
       'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' }, dependencies: { 'not-installed-zzz': '1' } }),
