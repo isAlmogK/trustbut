@@ -6,6 +6,7 @@
 
 **Your agent said it's done and the tests pass. trustbut shows you what's actually true.**
 
+[![npm](https://img.shields.io/npm/v/trustbut.svg)](https://www.npmjs.com/package/trustbut)
 [![CI](https://github.com/isAlmogK/trustbut/actions/workflows/ci.yml/badge.svg)](https://github.com/isAlmogK/trustbut/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](https://nodejs.org)
@@ -14,7 +15,7 @@
 
 🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
-[Languages](#supported-languages) · [Why](#why-im-building-this) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
 
@@ -79,9 +80,29 @@ The data says I'm not alone:
 - In 2025, **66%** of developers named "almost right, but not quite" as their top frustration with AI tools ([InfoWorld on the 2025 survey](https://infoworld.com/article/4031673/ai-use-among-software-developers-grows-but-trust-remains-an-issue-stack-overflow-survey.html)).
 - Armin Ronacher put it well in [The Final Bottleneck](https://lucumr.pocoo.org/2026/2/13/the-final-bottleneck/): generating code is now cheaper than reviewing it, and the human stays accountable.
 
-The existing tools don't close that gap. AI code reviewers read the diff and comment, but they never rerun anything. Agent vendors are adding their own checks, but a vendor grading its own agent is a weak audit, and most teams use more than one agent anyway.
+The labs see the same thing in their own models:
+
+- Anthropic's [Claude 3.7 Sonnet system card](https://www.anthropic.com/claude-3-7-sonnet-system-card) reports the model special-casing tests, and sometimes modifying them, to make them pass in agentic coding environments like Claude Code. The [Claude 4 system card](https://www.anthropic.com/claude-4-system-card) reports this much reduced, but still present.
+- OpenAI's [research on monitoring reasoning models](https://arxiv.org/abs/2503.11926) caught a model exiting early or skipping unit tests to look green. When the training pushed hard against this, the model learned to "hide their intent while continuing to misbehave."
+- [METR](https://metr.org/blog/2025-06-05-recent-reward-hacking/) found frontier models patching the grading and scoring code of their evaluations, and [ImpossibleBench](https://arxiv.org/abs/2510.20270) now measures how often models exploit tests on tasks that can't be solved honestly.
+
+These shortcuts get rarer as models improve, but they don't go away, and they get harder to spot by reading the agent's own account of what it did. That makes a deterministic check from outside the agent more useful, not less.
+
+The existing tools don't close the gap. AI code reviewers read the diff and comment, but they never rerun anything. Agent vendors are adding their own checks, but a vendor grading its own agent is a weak audit, and most teams use more than one agent anyway. Even a perfect agent is still the one reporting on its own work: compilers almost never miscompile, and we still run CI.
 
 So I want something **independent, deterministic and local**: evidence, not opinions. trustbut doesn't ask an AI whether the code looks right. It runs things and reports what is true.
+
+## Field results
+
+Before releasing, I ran trustbut on the repos of [DogBase](https://www.dogbase.co), my own app. Nothing dramatic turned up, and that's the point: these are the quiet gaps a diff review doesn't show.
+
+| Repo | Verdict | What the receipt showed |
+|---|---|---|
+| Mobile app (Expo, Jest, 543 tests) | WARN | 299 of the branch's 306 new or changed tests failed before the change and passed after it. **7 passed with or without the change**, so they prove nothing about this branch. They may be fine regression tests, or padding that makes the change look better tested than it is. You can't tell from the diff; you can from the receipt. |
+| Firebase Cloud Functions (Vitest, 320 tests) | WARN | Two new `eslint-disable-next-line` comments silencing a lint rule. |
+| Web app (SvelteKit, Vitest, 3,168 tests) | FAIL | A fix commit with no test, and 5 failing tests caused by a dependency declared in `package.json` but missing from the local install. That second finding became the `deps-not-installed` warning. |
+
+Every finding was real, and two of them changed the product. Have a run of your own? [Open an issue](https://github.com/isAlmogK/trustbut/issues) with what the receipt found, or missed.
 
 ## Install
 
@@ -539,7 +560,7 @@ From "trust, but verify." Agents are genuinely useful, so keep trusting them, bu
 ## Roadmap
 
 - **v0.2 (done):** every language, a runner registry and `.trustbut.json`, `--working`
-- **v0.3 (done, in review):** the GitHub Action with a sticky PR comment, hooks that stop an agent from saying "done" on a red receipt (Claude Code, Codex, Gemini CLI, OpenCode), and the npm release
+- **v0.3 (done, released as 0.3.x on npm):** the GitHub Action with a sticky PR comment, hooks that stop an agent from saying "done" on a red receipt (Claude Code, Codex, Gemini CLI, OpenCode), and the npm release
 - **v0.4 (next):** the receipt format as an open spec with stable finding ids
 - **v0.5:** an agent test-honesty index, measured on real agent pull requests
 - **Later:** transcripts and claim checks, mutation testing on changed lines, `trustbut compare`, a local web UI
