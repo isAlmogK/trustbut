@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
+  "specVersion": "1.0",
+  "producer": { "name": "trustbut", "version": "0.4.0" },
+  "subject": { "base": "3f2a91c0d4b6e8a1f2c3d4e5f6a7b8c9d0e1f2a3", "head": "8be04d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e" },
+  "verdict": "warn",
+  "tests": { "passed": 41, "failed": 0, "errored": 0, "skipped": 1, "scope": "full" },
+  "proofs": [
+    { "file": "test/auth.test.ts", "name": "refreshes a token", "before": "fail", "after": "pass", "verdict": "proves-change" },
+    { "file": "test/auth.test.ts", "name": "rejects expired token", "before": "pass", "after": "pass", "verdict": "does-not-constrain" }
+  ],
+  "findings": [
+    { "id": "test-passes-without-change", "severity": "warn", "title": "Test passes without the change", "file": "test/auth.test.ts", "detail": "rejects expired token" },
+    { "id": "test-skipped", "severity": "warn", "title": "Test skipped", "file": "test/auth.test.ts", "line": 88, "detail": "it.skip('handles clock skew', () => {" },
+    { "id": "escape-added", "severity": "warn", "title": "cast to any", "file": "src/auth/session.ts", "line": 41, "detail": "const claims = decoded as any;" }
+  ],
+  "risks": [
+    { "file": "src/auth/session.ts", "score": 5, "reasons": ["auth/permissions", "has findings"] },
+    { "file": "package.json", "score": 2, "reasons": ["dependencies"] }
+  ],
+  "x-trustbut": { "runner": "vitest", "languages": ["js"], "root": ".", "after": { "exitCode": 0, "durationMs": 8123, "cases": [] } }
+}

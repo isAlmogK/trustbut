@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
+  "specVersion": "1.0",
+  "producer": { "name": "trustbut", "version": "0.4.0" },
+  "subject": { "base": "3f2a91c0d4b6e8a1f2c3d4e5f6a7b8c9d0e1f2a3", "head": "9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d", "headRef": "working tree" },
+  "verdict": "fail",
+  "tests": { "passed": 12, "failed": 1, "errored": 0, "skipped": 0, "scope": "changed" },
+  "proofs": [
+    { "file": "test/a.test.js", "name": "works", "before": "missing", "after": "fail", "verdict": "failing" }
+  ],
+  "findings": [
+    { "id": "test-focused", "severity": "fail", "title": "Test focused", "file": "test/a.test.js", "line": 3, "detail": "it.only('works', () => {" },
+    { "id": "test-failing", "severity": "fail", "title": "Test fails at head", "file": "test/a.test.js", "detail": "works" }
+  ]
+}

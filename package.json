@@ -50,6 +50,7 @@
     "check:plugin-version": "vitest run test/plugin.test.ts -t \"plugin.json matches package.json\""
   },
   "dependencies": {
+    "ajv": "^8.20.0",
     "commander": "^15.0.0",
     "execa": "^10.1.0",
     "fast-xml-parser": "^5.11.2",
