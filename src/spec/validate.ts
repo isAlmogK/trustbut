@@ -1,4 +1,4 @@
-import { Ajv2020, type ErrorObject } from 'ajv/dist/2020.js';
+import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import schema from '../../spec/agent-receipt-v1.schema.json' with { type: 'json' };
 import { CORE_FINDINGS, isCoreFindingId } from './catalog.js';
 
@@ -17,7 +17,9 @@ export interface ValidationResult {
 const ID_MESSAGE = 'must be a core finding id or a namespaced id (<namespace>/<id>)';
 const FINDING_ID_PATH = /^\/findings\/\d+\/id$/;
 
-const checkSchema = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+let compiled: ValidateFunction | undefined;
+/** The schema validator, compiled on first use: compiling costs ~100 ms that commands other than validate shouldn't pay. */
+const schemaValidator = (): ValidateFunction => (compiled ??= new Ajv2020({ allErrors: true, strict: true }).compile(schema));
 
 function describe(e: ErrorObject): string {
   if (e.keyword === 'required') return `must have required property '${(e.params as { missingProperty: string }).missingProperty}'`;
@@ -100,6 +102,7 @@ interface CheckedFinding {
  */
 export function validateAgentReceipt(value: unknown): ValidationResult {
   const warnings: ValidationProblem[] = [];
+  const checkSchema = schemaValidator();
   if (!checkSchema(value)) {
     const problems = schemaProblems(checkSchema.errors ?? []);
     if (!isNewerMinor(value)) return { valid: false, errors: problems.map(plain), warnings: [] };

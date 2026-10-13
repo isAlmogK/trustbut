@@ -2,7 +2,6 @@ import { writeSync } from 'node:fs';
 import { Argument, Command, InvalidArgumentError, Option } from 'commander';
 import { INIT_AGENTS, runInit, type InitAgent } from './init/index.js';
 import { runHook } from './commands/hook.js';
-import { runValidate } from './commands/validate.js';
 import { runVerify, type VerifyOptions } from './commands/verify.js';
 import { AGENTS, respond, type Agent } from './hook/protocols.js';
 import { getRunner } from './runners/registry.js';
@@ -60,6 +59,8 @@ export function buildProgram(): Command {
     .argument('[file]', 'the receipt file; "-" or omitted reads stdin')
     .option('--json', 'print the result as JSON')
     .action(async (file: string | undefined, opts: { json?: boolean }) => {
+      // Loaded here so other commands don't load ajv.
+      const { runValidate } = await import('./commands/validate.js');
       // Hooks may hold stdin open, so `hook` times out; a pipe into validate ends when its producer exits.
       const result = await runValidate({ file, json: opts.json, readStdin: () => readStdin(process.stdin, Infinity) });
       process.stdout.write(result.stdout);
