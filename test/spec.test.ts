@@ -98,6 +98,47 @@ describe('validateAgentReceipt', () => {
     });
   });
 
+  describe('a receipt from a newer 1.x minor', () => {
+    const future = (specVersion: string) => ({
+      ...base(),
+      specVersion,
+      coverage: { lines: 0.8 },
+      verdict: 'warn',
+      findings: [{ id: 'mutation-survived', severity: 'warn', title: 'A mutant survived' }],
+    });
+
+    it('is valid, with unknown fields and unknown core ids as warnings', () => {
+      expect(validateAgentReceipt(future('1.1'))).toEqual({
+        valid: true,
+        errors: [],
+        warnings: [
+          { path: '/', message: "unknown in spec 1.0: 'coverage' (allowed for a newer 1.x receipt)" },
+          { path: '/findings/0/id', message: "'mutation-survived' is not a 1.0 core id (allowed for a newer 1.x receipt)" },
+        ],
+      });
+    });
+
+    it('still applies the verdict rule to unknown ids by their severity', () => {
+      const r = { ...future('1.1'), verdict: 'pass' };
+      expect(validateAgentReceipt(r).errors).toEqual([{ path: '/verdict', message: "must be 'warn' for these findings (got 'pass')" }]);
+    });
+
+    it('is invalid when it declares 1.0', () => {
+      const result = validateAgentReceipt(future('1.0'));
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual([
+        { path: '/', message: "must not have additional property 'coverage'" },
+        { path: '/findings/0/id', message: ID_MESSAGE },
+      ]);
+    });
+
+    it('is invalid for real type errors and malformed namespaced ids', () => {
+      expect(validateAgentReceipt({ ...future('1.1'), verdict: 'nope' }).valid).toBe(false);
+      const badNs = { ...future('1.1'), findings: [{ id: 'Acme/leak', severity: 'warn', title: 'x' }] };
+      expect(validateAgentReceipt(badNs).errors).toEqual([{ path: '/findings/0/id', message: ID_MESSAGE }]);
+    });
+  });
+
   it('reports every problem, not just the first', () => {
     const r = { specVersion: '1.0', producer: { name: '' }, subject: { base: 'a', head: 'b' }, verdict: 'nope', findings: [] };
     const paths = validateAgentReceipt(r).errors.map((e) => e.path);

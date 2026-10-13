@@ -104,11 +104,11 @@ Any other finding MUST use a namespaced id `<namespace>/<id>`, both parts matchi
 
 ## Extensions
 
-Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Any other unknown key makes the receipt invalid. Consumers MUST ignore `x-` keys they don't understand.
+Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Consumers MUST ignore `x-` keys they don't understand. Any other unknown key makes a `1.0` receipt invalid; in a receipt that declares a newer minor it is a field from that revision (see Versioning).
 
 ## Versioning
 
-`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. Removing or changing the meaning of anything requires `2.0`.
+`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. Receipts that declare `1.0` are validated strictly. Removing or changing the meaning of anything requires `2.0`.
 
 ## Validating
 
@@ -116,7 +116,7 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 trustbut validate receipt.json         # or: some-tool --json | trustbut validate
 ```
 
-Validation checks the schema first, then the verdict rule. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
+Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than `1.0`, unknown fields and unknown non-namespaced ids. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
 
 | Example | Expected error |
 |---|---|
