@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
-import { buildProofs, caseInFile, proveTests } from '../src/proof.js';
+import { buildProofs, caseInFile, copiedToBase, proveTests } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
 import type { RunOptions, Runner } from '../src/runners/types.js';
 import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
@@ -31,6 +31,37 @@ describe('caseInFile', () => {
   it('matches a runner path relative to a subdirectory of the repo', () => {
     expect(caseInFile(tc('test/a.test.ts', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(true);
     expect(caseInFile(tc('', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(false);
+  });
+});
+
+describe('copiedToBase', () => {
+  const file = (path: string, kind: ChangedFile['kind'] = 'source'): ChangedFile => ({ path, status: 'modified', kind, added: [], removed: [] });
+  const copied = (paths: string[]) => paths.filter((p) => copiedToBase(file(p)));
+
+  it('copies helpers in a top-level test folder of a package named after a source root', () => {
+    expect(
+      copied([
+        'packages/app/test/helpers.ts',
+        'apps/app/spec/support/make.rb',
+        'packages/lib/__tests__/helpers/make.js',
+        'packages/app/tests/conftest_helpers.py',
+      ]),
+    ).toHaveLength(4);
+  });
+
+  it('keeps source under a test-named folder inside a source tree in place', () => {
+    expect(
+      copied([
+        'app/models/spec/double.rb',
+        'app/test/double.js',
+        'src/app/test/double.ts',
+        'packages/web/app/models/spec/double.rb',
+        'packages/app/app/models/spec/double.rb',
+        'packages/app/src/test/double.ts',
+        'packages/app/lib/spec/double.rb',
+        'src/spec/double.js',
+      ]),
+    ).toEqual([]);
   });
 });
 

@@ -118,7 +118,16 @@ function headRunFinding(after: RunResult, timeoutMs: number | undefined): Findin
 // Source-kind files there are copied too (test helpers), unless the folder sits inside a source tree (`src/spec/`) and isn't a fixtures/testdata folder.
 const FIXTURE_DIR = /(^|\/)(fixtures?|testdata)\//;
 const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
-const SOURCE_TREE_DATA = /(^|\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
+// A folder directly under `packages/` or `apps/` is a workspace package (`packages/app`), not a source tree, so its
+// own top-level `test/` is treated like the repo's; `packages/web/app/models/spec/` is still a source tree.
+const SOURCE_TREE_DATA = /(^|\/)(?<!(?:^|\/)(?:packages|apps)\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
+
+/** Whether a changed file is copied from head into the base checkout before the base run. */
+export function copiedToBase(c: ChangedFile): boolean {
+  if (c.status === 'deleted') return false;
+  if (c.kind === 'test' || c.kind === 'snapshot') return true;
+  return TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path));
+}
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
@@ -224,13 +233,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
-    const toCopy = changes
-      .filter(
-        (c) =>
-          c.status !== 'deleted' &&
-          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path)))),
-      )
-      .map((c) => c.path);
+    const toCopy = changes.filter(copiedToBase).map((c) => c.path);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
     const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
     if (before.exitCode !== 0 && before.cases.length === 0) {
