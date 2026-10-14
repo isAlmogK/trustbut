@@ -13,7 +13,7 @@ export function parseModulePath(gomod: string): string | undefined {
 }
 
 /** The directory holding go.mod, walking up from `cwd` to the worktree top; undefined if none. */
-function findModuleRoot(cwd: string, worktree?: string): string | undefined {
+export function findModuleRoot(cwd: string, worktree?: string): string | undefined {
   const top = resolve(worktree ?? cwd);
   let dir = resolve(cwd);
   for (;;) {

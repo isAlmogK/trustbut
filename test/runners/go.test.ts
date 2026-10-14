@@ -215,6 +215,42 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     expect(receipt.verdict).toBe('warn');
   }, 180_000);
 
+  const helperUser = (imports: string[], body: string) =>
+    `package fx\n\nimport (\n\t"testing"\n${imports.map((i) => `\n\t"example.com/fx/${i}"`).join('')}\n)\n\n${body}\n`;
+
+  it('copies changed test-helper packages under internal/test/ and internal/testutil/ to base', async () => {
+    const dir = await scenario({
+      'internal/test/two.go': 'package test\n\nimport "testing"\n\nfunc Two(t testing.TB) int {\n\tt.Helper()\n\treturn 2\n}\n',
+      'internal/testutil/three.go': 'package testutil\n\nfunc Three() int { return 3 }\n',
+      'helpers_test.go': helperUser(
+        ['internal/test', 'internal/testutil'],
+        'func TestFive(t *testing.T) {\n\tif test.Two(t)+testutil.Three() != 5 {\n\t\tt.Fatal("bad")\n\t}\n}',
+      ),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.before, p.verdict])).toEqual([['TestFive', 'pass', 'does-not-constrain']]);
+  }, 180_000);
+
+  it('does not copy a package under internal/test/ that non-test code imports', async () => {
+    const dir = await scenario({
+      'internal/test/double.go': 'package test\n\nfunc Double(n int) int { return n * 2 }\n',
+      'quad.go': 'package fx\n\nimport "example.com/fx/internal/test"\n\nfunc Quad(n int) int { return test.Double(test.Double(n)) }\n',
+      'double_test.go': helperUser(['internal/test'], 'func TestDouble(t *testing.T) {\n\tif test.Double(2) != 4 {\n\t\tt.Fatal("bad")\n\t}\n}'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['TestDouble', 'proves-change']]);
+    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+  }, 180_000);
+
+  it('does not copy a package under internal/testutil/ whose own tests changed', async () => {
+    const dir = await scenario({
+      'internal/testutil/clock.go': 'package testutil\n\nfunc Now() int { return 7 }\n',
+      'internal/testutil/clock_test.go': 'package testutil\n\nimport "testing"\n\nfunc TestNow(t *testing.T) {\n\tif Now() != 7 {\n\t\tt.Fatal("bad")\n\t}\n}\n',
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['TestNow', 'proves-change']]);
+  }, 180_000);
+
   it("a go that can't be started is a runtime error, not a failing suite", async () => {
     const { dir } = await makeRepo({ ...BASE, '.trustbut.json': JSON.stringify({ env: { PATH: '/nonexistent' } }) });
     await branch(dir, 'agent-change');
