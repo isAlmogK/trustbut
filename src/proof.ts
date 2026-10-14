@@ -3,6 +3,7 @@ import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/prom
 import { dirname, join, sep } from 'node:path';
 import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
+import { goTestHelpers } from './go-helpers.js';
 import { SEVERITY } from './runners/cases.js';
 import { detectRunner } from './runners/registry.js';
 import { isNamedTestFile } from './languages/index.js';
@@ -116,9 +117,19 @@ function headRunFinding(after: RunResult, timeoutMs: number | undefined): Findin
 
 // Base gets the changed tests, snapshots, and files under a test or fixture folder (Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/`).
 // Source-kind files there are copied too (test helpers), unless the folder sits inside a source tree (`src/spec/`) and isn't a fixtures/testdata folder.
+// Go test-support packages (`internal/testutil/`) are added separately by `goTestHelpers`.
 const FIXTURE_DIR = /(^|\/)(fixtures?|testdata)\//;
 const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
-const SOURCE_TREE_DATA = /(^|\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
+// A folder directly under `packages/` or `apps/` is a workspace package (`packages/app`), not a source tree, so its
+// own top-level `test/` is treated like the repo's; `packages/web/app/models/spec/` is still a source tree.
+const SOURCE_TREE_DATA = /(^|\/)(?<!(?:^|\/)(?:packages|apps)\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
+
+/** Whether a changed file is copied from head into the base checkout before the base run. */
+export function copiedToBase(c: ChangedFile): boolean {
+  if (c.status === 'deleted') return false;
+  if (c.kind === 'test' || c.kind === 'snapshot') return true;
+  return TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path));
+}
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
@@ -224,13 +235,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
-    const toCopy = changes
-      .filter(
-        (c) =>
-          c.status !== 'deleted' &&
-          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path)))),
-      )
-      .map((c) => c.path);
+    const toCopy = new Set([...changes.filter(copiedToBase).map((c) => c.path), ...(await goTestHelpers(changes, headDir))]);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
     const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
     if (before.exitCode !== 0 && before.cases.length === 0) {

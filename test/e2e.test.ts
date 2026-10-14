@@ -333,6 +333,26 @@ describe('trustbut verify with a package root', () => {
     });
   }, 120_000);
 
+  it('copies changed test helpers under a package named app into the base checkout', async () => {
+    const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'packages/app' }) });
+    await writeFiles(dir, {
+      'packages/app/spec/helpers/make.js': 'export const make = () => 2;\n',
+      'packages/app/test/make.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { make } from '../spec/helpers/make.js';",
+        "it('makes two', () => expect(make()).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    await commitAll(dir, 'helper');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([
+      ['makes two', 'does-not-constrain'],
+      ['adds', 'proves-change'],
+    ]);
+    expect(receipt.findings.map((f) => f.id)).not.toContain('base-run-failed');
+  }, 120_000);
+
   it('--root overrides the config root', async () => {
     const dir = await monorepo({ '.trustbut.json': JSON.stringify({ root: 'elsewhere' }) });
     const { receipt } = await runVerify({ cwd: dir, root: 'packages/app/' });
