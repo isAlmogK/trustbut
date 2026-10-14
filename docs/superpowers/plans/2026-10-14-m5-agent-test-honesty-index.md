@@ -22,7 +22,7 @@
 - Repo bar: ≥ 1,000 stars, ≥ 10 contributors in the past year, pushed within 30 days, CI that runs tests, not a fork, not archived, not in `excluded-repos.txt`.
 - PR bar: merged in the window (default 90 days; may widen to 180), merged by someone other than the author, changes ≥ 1 source file. At most 3 agent PRs per repo, at most 80 per agent. An agent with < 30 selected PRs is "insufficient data".
 - Ecosystems: JS/TS (Vitest, Jest, node:test, Mocha) and Python (pytest).
-- Each run job: `ubuntu-24.04`, `timeout-minutes: 60`, a 20-minute install budget, a 40-minute verify budget.
+- Each run job: `ubuntu-24.04`, `timeout-minutes: 60`, a 20-minute install budget, a 35-minute verify budget (amended from 40 during the build).
 - Run statuses, exactly these: `ran`, `no-runner`, `setup-failed`, `timeout`, `trustbut-error`. Results that never arrive count as `missing` in aggregates.
 - Thresholds: precision ≥ 0.80, hit rate ≥ 0.10, run coverage ≥ 0.50.
 - Labels, exactly these: `real`, `true-but-benign`, `false`, `unclear`. Labeling targets: about 150 agent findings and about 50 human findings, at most 5 per PR, with the first 20 (in sample order) blind.
@@ -30,6 +30,37 @@
 - Never interact with studied repos: no comments, issues, PRs, stars or forks. Read-only API calls and clones only.
 - Findings and report text state facts, never intent ("passes without the change", never "cheats").
 - Commit after each task with a conventional message (`feat:`, `test:`, `docs:`, `ci:`), ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+## Amendments made during the build (2026-10-14)
+
+The tasks below keep their original text. The implementation in `trustbut-index` differs from it where the user approved these changes:
+
+- **Attribution:** commit trailers name the model that wrote each commit.
+- **Run budgets:** the verify budget is 35 minutes, leaving headroom inside the 60-minute job. trustbut is pinned to exactly `0.4.0`.
+- **Workflow security:**
+  - Inputs reach the shell only through env vars, and the CLI validates them.
+  - `GITHUB_OUTPUT` values reject newlines.
+  - Versions read from repo files must match a safe pattern.
+  - The ingest job checks the manifest and `receipt.subject`, has its actions SHA-pinned, and retries its push instead of using a concurrency group.
+- **Data integrity:**
+  - Ingest keeps the ran⇔receipt invariant and writes only known fields.
+  - Reads fall back only on missing files, and required inputs are strict.
+  - The API cache is kept per collection date.
+- **Blinding:**
+  - Proofs, paths, and vendor and model names are scrubbed.
+  - Underscore-joined markers are caught.
+  - The drafter doesn't receive the finding key.
+  - The review API omits the group and agent.
+- **Labels:** metrics and report examples use the latest label per finding. Examples never publish a test name.
+- **Reproducibility:** seeded and sorted steps use code-unit order, not locale order, and golden-value tests pin the RNG and the sample.
+- **Report:**
+  - The hit-rate interval is described as an envelope with about 90% joint coverage.
+  - A clustering caveat and a structural-tells caveat are included.
+  - Agent and human precision and the `unclear` count are shown, and n=0 is never drawn as a measured 0%.
+  - `og:image` is absolute (`--base-url`).
+  - Layout was fixed after a browser check.
+- **Pilot:** PRs in the pilot manifest are excluded from the full run (`collect --exclude-manifest`).
+- **Pre-registration:** `PREREGISTRATION.md` was rewritten to match the implemented rules exactly.
 
 ## File Structure
 
