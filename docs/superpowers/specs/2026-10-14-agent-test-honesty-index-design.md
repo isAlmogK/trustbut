@@ -48,7 +48,7 @@ report   → site/<date>/index.html + share.png
 
 Every artifact is committed. A study is rerun by dispatching the workflows with a new date. Old studies are never edited.
 
-trustbut is used unchanged, as a pinned `trustbut@0.4.x` from npm. The study reads only agent receipt v1 JSON, so it is also the first outside consumer of the open format.
+trustbut is used unchanged, as a pinned `trustbut@0.4.0` from npm (exact version; any other version is a deviation). The study reads only agent receipt v1 JSON, so it is also the first outside consumer of the open format.
 
 ## 1. Collection and attribution
 
@@ -59,7 +59,7 @@ trustbut is used unchanged, as a pinned `trustbut@0.4.x` from npm. The study rea
 - **Cap:** at most 3 agent PRs per repo.
 
 ### Agent attribution
-A PR is attributed to an agent by markers. The list below is a starting point, written from memory. The pilot checks each marker on about 20 PRs by hand before any full run, and the checked list goes into the pre-registration.
+A PR is attributed to an agent by markers. The list below is a starting point, written from memory. The pilot checks each marker on about 20 PRs by hand before any full run, and the checked list goes into the pre-registration. PRs in the pilot manifest are excluded from the full study (`collect --exclude-manifest`), so recipe tuning on pilot PRs can't inflate run coverage.
 
 | Agent | Candidate markers |
 |---|---|
@@ -104,7 +104,7 @@ The collector runs locally with the author's token (`GITHUB_TOKEN=$(gh auth toke
    - **Node:** the version from `.nvmrc`, `.node-version`, `engines.node` or `volta`. The package manager from the `packageManager` field or the lockfile (npm, pnpm, yarn or bun, via corepack). Then a frozen install.
    - **Python:** the version from `.python-version` or `requires-python`. Install with `uv`: the project plus its `test`/`dev` extras if declared, otherwise `requirements*.txt`.
    - Where trustbut needs more than its auto-detection (for example a package subfolder), the job writes a config outside the repo and passes it with `--config`.
-3. **Verify.** `trustbut@0.4.x verify --base <baseSha> --head <headSha> --json > receipt.json`. trustbut always runs on Node 22, through an absolute path. The repo's own Node version comes first on `PATH` for its tests.
+3. **Verify.** `trustbut@0.4.0 verify --base <baseSha> --head <headSha> --json > receipt.json`. trustbut always runs on Node 22, through an absolute path. The repo's own Node version comes first on `PATH` for its tests.
 4. **Record.** `run.json` holds: status, failure stage, the recipe used, durations, the runner image version, the trustbut version and the exit code.
 5. **Upload** both as job artifacts.
 
@@ -116,7 +116,7 @@ Every PR ends with exactly one status:
 | `ran` | A receipt was produced and at least one test passed at head |
 | `no-runner` | trustbut found no supported test setup |
 | `setup-failed` | Install failed |
-| `timeout` | The job hit 60 minutes |
+| `timeout` | Install exceeded its 20-minute budget, or the trustbut run exceeded its 35-minute budget |
 | `trustbut-error` | trustbut crashed. Each one is triaged as a product bug |
 
 A suite that's red at head still counts as `ran`. Whether the PR or the environment caused it is decided in labeling.
