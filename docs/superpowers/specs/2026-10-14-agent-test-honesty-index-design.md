@@ -84,10 +84,13 @@ About 400 agent PRs, capped at 80 per agent, plus about 400 matched human PRs.
 ```json
 {"repo":"owner/name","pr":123,"group":"agent","agent":"copilot","model":"unknown",
  "attribution":{"evidence":["author:Copilot","branch:copilot/fix-x"]},
- "baseRef":"main","headSha":"…","mergedAt":"…","selectedAt":"…","repoStars":4210}
+ "baseRef":"main","baseSha":"…","headSha":"…","mergedAt":"…","selectedAt":"…",
+ "repoStars":4210,"repoLanguage":"TypeScript"}
 ```
 
-The collector authenticates with the workflow's `GITHUB_TOKEN`, respects rate limits, and caches API responses under `cache/` so a rerun doesn't hit the API again.
+`baseSha` is the PR's recorded base commit (`base.sha` in the API). The base branch's current tip can't be used: for a PR merged with a merge commit, the merge-base of the head and today's tip is the head itself.
+
+The collector runs locally with the author's token (`GITHUB_TOKEN=$(gh auth token)`), because a workflow's `GITHUB_TOKEN` is capped at 1,000 requests an hour. It respects rate limits and caches API responses under `cache/` (git-ignored), so a rerun doesn't hit the API again.
 
 ## 2. Running and setup
 
@@ -95,12 +98,13 @@ The collector authenticates with the workflow's `GITHUB_TOKEN`, respects rate li
 `run.yml` is started by hand (`workflow_dispatch`) with a manifest path and a batch number. A matrix runs **one job per PR**, at most 250 jobs per dispatch (GitHub's matrix limit is 256). Jobs run on `ubuntu-24.04` with `timeout-minutes: 60`.
 
 ### Each job
-1. **Fetch.** Clone the repo and fetch `refs/pull/N/head`, which GitHub keeps even after squash merges. Fetch the base branch too. trustbut computes the merge-base itself (`--base`), the same comparison GitHub's "Files changed" tab shows.
+1. **Fetch.** Clone the repo and fetch `refs/pull/N/head`, which GitHub keeps even after squash merges. Fetch the base branch too. trustbut computes the merge-base itself, the same comparison GitHub's "Files changed" tab shows.
+   The PR's `baseSha` and `headSha` are fetched directly. If GitHub no longer serves the head SHA, the job falls back to `refs/pull/N/head`. trustbut gets `--base <baseSha>`.
 2. **Recipe.** Work out the setup from the repo alone, with no per-repo hand-tuning:
    - **Node:** the version from `.nvmrc`, `.node-version`, `engines.node` or `volta`. The package manager from the `packageManager` field or the lockfile (npm, pnpm, yarn or bun, via corepack). Then a frozen install.
    - **Python:** the version from `.python-version` or `requires-python`. Install with `uv`: the project plus its `test`/`dev` extras if declared, otherwise `requirements*.txt`.
    - Where trustbut needs more than its auto-detection (for example a package subfolder), the job writes a config outside the repo and passes it with `--config`.
-3. **Verify.** `npx trustbut@0.4.x verify --base <baseRef> --head <headSha> --json > receipt.json`.
+3. **Verify.** `trustbut@0.4.x verify --base <baseSha> --head <headSha> --json > receipt.json`. trustbut always runs on Node 22, through an absolute path. The repo's own Node version comes first on `PATH` for its tests.
 4. **Record.** `run.json` holds: status, failure stage, the recipe used, durations, the runner image version, the trustbut version and the exit code.
 5. **Upload** both as job artifacts.
 
@@ -118,7 +122,7 @@ Every PR ends with exactly one status:
 A suite that's red at head still counts as `ran`. Whether the PR or the environment caused it is decided in labeling.
 
 ### Security
-- The run jobs get `permissions: {}`, no secrets and `persist-credentials: false`. Network access stays on, because installs need it.
+- The run jobs get only `contents: read` on the public index repo, to check out the study's scripts. They get no secrets and `persist-credentials: false`. Network access stays on, because installs need it.
 - Results come back only through artifacts. A separate trusted `collect-results` job with `contents: write` downloads them and runs `trustbut validate` on each receipt. It commits only receipts that validate and never executes anything from the target repos.
 - Known gap: a malicious test suite could forge its own receipt. Validation catches malformed receipts, and labeling spot-checks findings against the real diff. The report states this.
 
