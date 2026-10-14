@@ -14,6 +14,7 @@ const ID_MESSAGE = 'must be a core finding id or a namespaced id (<namespace>/<i
 const INVALID: Record<string, { path: string; message: string }> = {
   'missing-verdict.json': { path: '/', message: "must have required property 'verdict'" },
   'bad-finding-id.json': { path: '/findings/0/id', message: ID_MESSAGE },
+  'bad-finding-id-newer-minor.json': { path: '/findings/0/id', message: ID_MESSAGE },
   'unknown-field.json': { path: '/', message: "must not have additional property 'durationMs'" },
   'bad-spec-version.json': { path: '/specVersion', message: 'must match pattern "^1\\.(0|[1-9][0-9]*)$"' },
   'verdict-mismatch.json': { path: '/verdict', message: "must be 'warn' for these findings (got 'pass')" },
@@ -136,6 +137,15 @@ describe('validateAgentReceipt', () => {
       expect(validateAgentReceipt({ ...future('1.1'), verdict: 'nope' }).valid).toBe(false);
       const badNs = { ...future('1.1'), findings: [{ id: 'Acme/leak', severity: 'warn', title: 'x' }] };
       expect(validateAgentReceipt(badNs).errors).toEqual([{ path: '/findings/0/id', message: ID_MESSAGE }]);
+    });
+
+    it('is invalid for a malformed id that is neither core-id shaped nor namespaced', () => {
+      for (const id of ['Not_Valid', 'Mutation-Survived', '-leading', 'has space', '']) {
+        const bad = { ...future('1.1'), findings: [{ id, severity: 'warn', title: 'x' }] };
+        const result = validateAgentReceipt(bad);
+        expect(result.valid, id).toBe(false);
+        expect(result.errors, id).toEqual([{ path: '/findings/0/id', message: ID_MESSAGE }]);
+      }
     });
   });
 

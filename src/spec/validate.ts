@@ -55,6 +55,8 @@ function schemaProblems(errors: ErrorObject[]): SchemaProblem[] {
 }
 
 const NEWER_MINOR = /^1\.(\d+)$/;
+/** The shape of a core id (`test-focused`): a newer minor's core ids have it too; anything else is malformed. */
+const CORE_ID_SHAPE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** Whether the receipt declares a 1.x minor newer than 1.0. */
 function isNewerMinor(value: unknown): boolean {
@@ -71,7 +73,8 @@ function findingIdAt(value: unknown, path: string): unknown {
 
 /**
  * For a newer 1.x receipt, the problems a 1.0 validator can't judge become warnings:
- * unknown fields, and unknown ids that aren't namespaced (they may be newer core ids).
+ * unknown fields, and unknown ids shaped like a core id (they may be newer core ids).
+ * A malformed id (`Not_Valid`, `Acme/leak`) is an error in every version.
  */
 function splitForNewerMinor(value: unknown, problems: SchemaProblem[]): { errors: ValidationProblem[]; warnings: ValidationProblem[] } {
   const errors: ValidationProblem[] = [];
@@ -80,7 +83,7 @@ function splitForNewerMinor(value: unknown, problems: SchemaProblem[]): { errors
     const id = p.findingId ? findingIdAt(value, p.path) : undefined;
     if (p.unknownProperty !== undefined) {
       warnings.push({ path: p.path, message: `unknown in spec 1.0: '${p.unknownProperty}' (allowed for a newer 1.x receipt)` });
-    } else if (typeof id === 'string' && !id.includes('/')) {
+    } else if (typeof id === 'string' && CORE_ID_SHAPE.test(id)) {
       warnings.push({ path: p.path, message: `'${id}' is not a 1.0 core id (allowed for a newer 1.x receipt)` });
     } else {
       errors.push({ path: p.path, message: p.message });

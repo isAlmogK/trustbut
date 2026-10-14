@@ -74,7 +74,7 @@ More in [`examples/valid/`](examples/valid/).
 
 ## Finding catalog
 
-Core ids have a fixed meaning. Producers SHOULD use the default severity; a validator reports a different severity as a warning, not an error.
+Core ids have a fixed meaning and match `[a-z0-9][a-z0-9-]*`. Producers SHOULD use the default severity; a validator reports a different severity as a warning, not an error.
 
 | Id | Default severity | Meaning |
 |---|---|---|
@@ -108,7 +108,7 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 
 ## Versioning
 
-`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. Receipts that declare `1.0` are validated strictly. Removing or changing the meaning of anything requires `2.0`.
+`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. Receipts that declare `1.0` are validated strictly. Removing or changing the meaning of anything requires `2.0`.
 
 ## Validating
 
@@ -116,12 +116,13 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 trustbut validate receipt.json         # or: some-tool --json | trustbut validate
 ```
 
-Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than `1.0`, unknown fields and unknown non-namespaced ids. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
+Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than `1.0`, unknown fields and unknown ids shaped like a core id. A malformed id is an error whatever the version. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
 
 | Example | Expected error |
 |---|---|
 | `invalid/missing-verdict.json` | `/`: must have required property 'verdict' |
 | `invalid/bad-finding-id.json` | `/findings/0/id`: must be a core finding id or a namespaced id (<namespace>/<id>) |
+| `invalid/bad-finding-id-newer-minor.json` | `/findings/0/id`: must be a core finding id or a namespaced id (<namespace>/<id>) |
 | `invalid/unknown-field.json` | `/`: must not have additional property 'durationMs' |
 | `invalid/bad-spec-version.json` | `/specVersion`: must match pattern "^1\.(0\|[1-9][0-9]*)$" |
 | `invalid/verdict-mismatch.json` | `/verdict`: must be 'warn' for these findings (got 'pass') |
