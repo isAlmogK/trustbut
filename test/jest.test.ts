@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { jest, parseJestJson } from '../src/runners/jest.js';
 import { detectRunner } from '../src/runners/registry.js';
-import { runVerify } from '../src/commands/verify.js';
+import { runVerify } from './helpers/verify.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 import { hasTool, requiredTools } from './helpers/toolchain.js';
 

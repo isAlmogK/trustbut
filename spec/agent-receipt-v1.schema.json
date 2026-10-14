@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
+  "title": "Agent receipt v1",
+  "description": "Deterministic evidence about a code change made by an AI coding agent. Spec: spec/agent-receipt-v1.md",
+  "type": "object",
+  "required": ["specVersion", "producer", "subject", "verdict", "findings"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "specVersion": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "subject": { "$ref": "#/$defs/subject" },
+    "verdict": { "$ref": "#/$defs/verdict" },
+    "tests": { "$ref": "#/$defs/tests" },
+    "proofs": { "type": "array", "items": { "$ref": "#/$defs/proof" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "risks": { "type": "array", "items": { "$ref": "#/$defs/risk" } }
+  },
+  "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+  "additionalProperties": false,
+  "$defs": {
+    "verdict": { "enum": ["pass", "warn", "fail"] },
+    "severity": { "enum": ["fail", "warn", "info"] },
+    "outcome": { "enum": ["pass", "fail", "error", "skip"] },
+    "count": { "type": "integer", "minimum": 0 },
+    "producer": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "minLength": 1 }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "required": ["base", "head"],
+      "properties": {
+        "base": { "type": "string", "minLength": 1 },
+        "head": { "type": "string", "minLength": 1 },
+        "headRef": { "type": "string", "minLength": 1 }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    },
+    "tests": {
+      "type": "object",
+      "required": ["passed", "failed", "errored", "skipped", "scope"],
+      "properties": {
+        "passed": { "$ref": "#/$defs/count" },
+        "failed": { "$ref": "#/$defs/count" },
+        "errored": { "$ref": "#/$defs/count" },
+        "skipped": { "$ref": "#/$defs/count" },
+        "scope": { "enum": ["full", "changed"] }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    },
+    "proof": {
+      "type": "object",
+      "required": ["file", "name", "before", "after", "verdict"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "before": { "enum": ["pass", "fail", "error", "skip", "missing"] },
+        "after": { "$ref": "#/$defs/outcome" },
+        "verdict": { "enum": ["proves-change", "does-not-constrain", "failing", "skipped"] }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    },
+    "findingId": {
+      "anyOf": [
+        {
+          "enum": [
+            "test-focused", "suite-failing", "test-failing",
+            "test-skipped", "tests-removed", "assertions-removed", "snapshot-changed", "test-config-changed",
+            "escape-added", "no-tests-changed", "no-test-results", "test-passes-without-change", "no-runner",
+            "base-run-failed", "proofs-unmatched", "deps-not-installed",
+            "deps-changed", "tests-outside-root", "uncommitted-changes"
+          ]
+        },
+        { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$" }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "severity", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/findingId" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "title": { "type": "string", "minLength": 1 },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "detail": { "type": "string" }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    },
+    "risk": {
+      "type": "object",
+      "required": ["file", "score", "reasons"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "score": { "type": "number", "minimum": 0 },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "patternProperties": { "^x-[a-z0-9][a-z0-9-]*$": true },
+      "additionalProperties": false
+    }
+  }
+}

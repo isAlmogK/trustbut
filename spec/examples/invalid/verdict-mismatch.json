@@ -1,0 +1,7 @@
+{
+  "specVersion": "1.0",
+  "producer": { "name": "trustbut", "version": "0.4.0" },
+  "subject": { "base": "main", "head": "HEAD" },
+  "verdict": "pass",
+  "findings": [{ "id": "test-skipped", "severity": "warn", "title": "Test skipped", "file": "test/a.test.js", "line": 9 }]
+}

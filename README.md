@@ -15,7 +15,7 @@
 
 🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
-[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [Receipt format](#the-agent-receipts-format) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
 
 </div>
 
@@ -45,7 +45,7 @@ $ npx trustbut verify
 2. `package.json`: dependencies
 ```
 
-When the suite fails at head, the receipt also lists the failing tests. If `package.json` declares dependencies that aren't installed in your `node_modules` (a stale install), a `deps-not-installed` warning names them, because both runs link and use your installed dependencies. See the finding ids in [docs/SPEC.md](docs/SPEC.md).
+When the suite fails at head, the receipt also lists the failing tests. If `package.json` declares dependencies that aren't installed in your `node_modules` (a stale install), a `deps-not-installed` warning names them, because both runs link and use your installed dependencies. See the finding ids in the spec's [finding catalog](spec/agent-receipt-v1.md#finding-catalog).
 
 The output is Markdown, so the same receipt reads cleanly in your terminal and renders properly in a pull request or a CI job summary.
 
@@ -166,7 +166,7 @@ trustbut verify --config ~/configs/myapp.trustbut.json
 # Gate a script or CI job on warnings as well as failures
 trustbut verify --strict
 
-# Machine-readable output
+# Machine-readable output (an agent receipt v1)
 trustbut verify --json > receipt.json
 ```
 
@@ -182,7 +182,7 @@ trustbut verify --json > receipt.json
 | `--config <path>` | Use this config file instead of `.trustbut.json` at head; it may live outside the repo | `.trustbut.json` |
 | `--quick` | At head, rerun only the new and changed test files | off (full suite) |
 | `--strict` | Exit with `1` on WARN as well as FAIL | off |
-| `--json` | Print the receipt as JSON instead of Markdown | off |
+| `--json` | Print the receipt as JSON: an [agent receipt v1](spec/agent-receipt-v1.md) | off |
 | `--receipt-json <path>` | Also write the JSON receipt to this file (relative to the current directory; parent folders are created) | off |
 | `--receipt-md <path>` | Also write the Markdown receipt to this file | off |
 
@@ -445,6 +445,19 @@ Checks look at real code and comments only, so a string or regex that merely *me
 
 A ranked list of the files that deserve your attention: auth and permissions, database migrations, CI pipelines, dependencies, secrets and env files, infrastructure, agent config (`.claude/`, `AGENTS.md`, …), files with findings, and very large changes.
 
+## The agent receipts format
+
+`trustbut verify --json` prints an **agent receipt**: an open, versioned JSON format for evidence about a code change. Any tool can produce one and any tool can read one, and trustbut is just the reference implementation. The [spec](spec/agent-receipt-v1.md) defines a small required core (`specVersion`, `producer`, `subject`, `verdict`, `findings`), optional standard sections (`tests`, `proofs`, `risks`), 19 core finding ids with fixed meanings, namespaced ids like `acme/secret-leak` for everything else, and `x-` keys for tool-specific data.
+
+Check any receipt, from trustbut or anything else, against the spec:
+
+```console
+$ trustbut verify --json | trustbut validate
+valid
+```
+
+The schema is [`spec/agent-receipt-v1.schema.json`](spec/agent-receipt-v1.schema.json), and examples are in [`spec/examples/`](spec/examples/). Building a tool that emits receipts? Open an issue and I'll link it here.
+
 ## Use it in CI
 
 The trustbut GitHub Action adds a receipt to your pull requests: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
@@ -561,7 +574,7 @@ From "trust, but verify." Agents are genuinely useful, so keep trusting them, bu
 
 - **v0.2 (done):** every language, a runner registry and `.trustbut.json`, `--working`
 - **v0.3 (done, released as 0.3.x on npm):** the GitHub Action with a sticky PR comment, hooks that stop an agent from saying "done" on a red receipt (Claude Code, Codex, Gemini CLI, OpenCode), and the npm release
-- **v0.4 (next):** the receipt format as an open spec with stable finding ids
+- **v0.4 (done):** the receipt format as an open spec ([agent receipts v1](spec/agent-receipt-v1.md)) with stable finding ids, and `trustbut validate`
 - **v0.5:** an agent test-honesty index, measured on real agent pull requests
 - **Later:** transcripts and claim checks, mutation testing on changed lines, `trustbut compare`, a local web UI
 

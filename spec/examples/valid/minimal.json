@@ -1,0 +1,7 @@
+{
+  "specVersion": "1.2",
+  "producer": { "name": "example-tool", "version": "1.0.0" },
+  "subject": { "base": "main", "head": "HEAD" },
+  "verdict": "pass",
+  "findings": []
+}

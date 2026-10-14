@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
-import { runVerify } from '../src/commands/verify.js';
+import { runVerify } from './helpers/verify.js';
 import { groupAlive, runInGroup, withAbort } from '../src/process.js';
 import { startSetup } from '../src/setup.js';
 import { makeRepo, writeFiles } from './helpers/repo.js';

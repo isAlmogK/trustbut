@@ -114,9 +114,11 @@ function headRunFinding(after: RunResult, timeoutMs: number | undefined): Findin
   return { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: timedOut ?? `exit code ${after.exitCode}` };
 }
 
-// Test data the changed tests may read at base: snapshots plus anything under a test or fixture directory.
-// Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/` projects included.
+// Base gets the changed tests, snapshots, and files under a test or fixture folder (Go `testdata/`, RSpec `spec/`, SwiftPM `Tests/`, .NET `X.Tests/`).
+// Source-kind files there are copied too (test helpers), unless the folder sits inside a source tree (`src/spec/`) and isn't a fixtures/testdata folder.
+const FIXTURE_DIR = /(^|\/)(fixtures?|testdata)\//;
 const TEST_DATA_DIR = /(^|\/)(tests?|__tests__|fixtures?|testdata|spec|Tests|[\w.-]+\.Tests?)\//;
+const SOURCE_TREE_DATA = /(^|\/)(src|lib|app|pkg|internal)\/(.*\/)?(spec|tests?|__tests__|Tests)\//;
 
 /** Writes the head version of `path` into `dir`, refusing targets that resolve outside `dir`. */
 async function copyFromHead(repo: string, head: string, dir: string, path: string): Promise<void> {
@@ -223,7 +225,11 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
     const toCopy = changes
-      .filter((c) => c.status !== 'deleted' && (c.kind === 'test' || c.kind === 'snapshot' || TEST_DATA_DIR.test(c.path)))
+      .filter(
+        (c) =>
+          c.status !== 'deleted' &&
+          (c.kind === 'test' || c.kind === 'snapshot' || (TEST_DATA_DIR.test(c.path) && (c.kind !== 'source' || FIXTURE_DIR.test(c.path) || !SOURCE_TREE_DATA.test(c.path)))),
+      )
       .map((c) => c.path);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
     const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);

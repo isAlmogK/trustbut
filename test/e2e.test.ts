@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
-import { runVerify } from '../src/commands/verify.js';
+import { runVerify } from './helpers/verify.js';
 import { buildProgram } from '../src/program.js';
+import { toAgentReceipt } from '../src/spec/serialize.js';
+import { VERSION } from '../src/version.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
 import { hasTool, requiredTools } from './helpers/toolchain.js';
 
@@ -135,6 +137,49 @@ describe('trustbut verify (end to end)', () => {
     ]);
   });
 
+  it('does not copy changed source code under a spec/ folder into the base checkout', async () => {
+    const dir = await scenario({
+      'src/spec/double.js': 'export const double = (n) => n * 2;\n',
+      'test/double.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { double } from '../src/spec/double.js';",
+        "it('doubles', () => expect(double(2)).toBe(4));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['doubles', 'proves-change']]);
+    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+  });
+
+  it('still copies changed code fixtures under fixtures/ into the base checkout', async () => {
+    const dir = await scenario({
+      'fixtures/data.js': 'export const value = 2;\n',
+      'test/data.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { value } from '../fixtures/data.js';",
+        "it('reads data', () => expect(value).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['reads data', 'does-not-constrain']]);
+  });
+
+  it('still copies changed test helpers under spec/ into the base checkout', async () => {
+    const dir = await scenario({
+      'spec/helpers/make.js': 'export const make = () => 2;\n',
+      'test/make.test.js': [
+        "import { it, expect } from 'vitest';",
+        "import { make } from '../spec/helpers/make.js';",
+        "it('makes two', () => expect(make()).toBe(2));",
+        '',
+      ].join('\n'),
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['makes two', 'does-not-constrain']]);
+  });
+
   it('WARN: a declared dependency is not installed', async () => {
     const dir = await scenario({
       'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' }, dependencies: { 'not-installed-zzz': '1' } }),
@@ -165,10 +210,13 @@ describe('trustbut verify (end to end)', () => {
     );
   });
 
-  it('prints JSON with --json', async () => {
+  it('prints JSON with --json: an agent receipt v1', async () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
     const { output } = await runVerify({ cwd: dir, json: true });
-    expect(JSON.parse(output)).toMatchObject({ version: 1, verdict: 'pass' });
+    const json = JSON.parse(output);
+    expect(json).toMatchObject({ specVersion: '1.0', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
+    expect(json).not.toHaveProperty('version');
+    expect(output).not.toContain('"output"');
   });
 
   it('registers the verify command', () => {
@@ -474,7 +522,7 @@ describe('--receipt-json / --receipt-md', () => {
     const jsonPath = join(out, 'a/b/receipt.json');
     const mdPath = join(out, 'c/receipt.md');
     const { receipt, output } = await runVerify({ cwd: dir, receiptJson: jsonPath, receiptMd: mdPath });
-    expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(JSON.parse(JSON.stringify(receipt)));
+    expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(JSON.parse(JSON.stringify(toAgentReceipt(receipt))));
     expect(await readFile(mdPath, 'utf8')).toBe(output);
   });
 

@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runVerify } from '../../src/commands/verify.js';
+import { runVerify } from '../helpers/verify.js';
 import { detectRunner } from '../../src/runners/registry.js';
 import { parseRspecJson, rspec, rspecArgs } from '../../src/runners/rspec.js';
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';

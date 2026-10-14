@@ -10,6 +10,7 @@ import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
 import { renderMarkdown } from '../render.js';
 import { getRunner, runnerNames } from '../runners/registry.js';
+import { toAgentReceipt } from '../spec/serialize.js';
 import type { Finding, Receipt } from '../types.js';
 
 export interface VerifyOptions {
@@ -137,7 +138,8 @@ async function verify(opts: VerifyOptions): Promise<VerifyResult> {
     findings: [...findings, ...proof.findings],
     changes,
   });
-  const output = opts.json ? `${JSON.stringify(receipt, null, 2)}\n` : renderMarkdown(receipt);
+  const json = `${JSON.stringify(toAgentReceipt(receipt), null, 2)}\n`;
+  const output = opts.json ? json : renderMarkdown(receipt);
   const writeErrors: VerifyResult['writeErrors'] = [];
   const write = async (path: string, text: string) => {
     try {
@@ -147,7 +149,7 @@ async function verify(opts: VerifyOptions): Promise<VerifyResult> {
       writeErrors.push({ path, message: (err as Error).message });
     }
   };
-  if (opts.receiptJson) await write(opts.receiptJson, `${JSON.stringify(receipt, null, 2)}\n`);
+  if (opts.receiptJson) await write(opts.receiptJson, json);
   if (opts.receiptMd) await write(opts.receiptMd, opts.json ? renderMarkdown(receipt) : output);
   const exitCode = receipt.verdict === 'fail' || (opts.strict && receipt.verdict === 'warn') ? 1 : 0;
   return { receipt, output, exitCode, writeErrors };

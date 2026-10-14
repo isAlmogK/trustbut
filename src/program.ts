@@ -37,7 +37,7 @@ export function buildProgram(): Command {
     .option('--root <dir>', 'package folder to run the tests in, relative to the repo root (overrides config root)')
     .option('--quick', 'at head, rerun only new/changed test files')
     .option('--strict', 'exit 1 on WARN as well as FAIL')
-    .option('--json', 'print the receipt as JSON')
+    .option('--json', 'print the receipt as JSON (agent receipt v1, see spec/agent-receipt-v1.md)')
     .option('--receipt-json <path>', 'also write the JSON receipt to this file (relative to the current directory)')
     .option('--receipt-md <path>', 'also write the Markdown receipt to this file (relative to the current directory)')
     .action(async (opts: VerifyOptions) => {
@@ -51,6 +51,21 @@ export function buildProgram(): Command {
         process.stderr.write(`trustbut: ${(err as Error).message}\n`);
         process.exitCode = 2;
       }
+    });
+
+  program
+    .command('validate')
+    .description('Check an agent receipt (JSON) against the agent receipts v1 spec')
+    .argument('[file]', 'the receipt file; "-" or omitted reads stdin')
+    .option('--json', 'print the result as JSON')
+    .action(async (file: string | undefined, opts: { json?: boolean }) => {
+      // Loaded here so other commands don't load ajv.
+      const { runValidate } = await import('./commands/validate.js');
+      // Hooks may hold stdin open, so `hook` times out; a pipe into validate ends when its producer exits.
+      const result = await runValidate({ file, json: opts.json, readStdin: () => readStdin(process.stdin, Infinity) });
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exitCode = result.exitCode;
     });
 
   program
@@ -115,14 +130,14 @@ export function buildProgram(): Command {
 const STDIN_WAIT_MS = 5000;
 const INTERRUPT_GRACE_MS = 2000;
 
-/** All of stdin, or what arrived within a few seconds if the agent leaves it open; '' for a terminal. */
-async function readStdin(stream: NodeJS.ReadStream = process.stdin): Promise<string> {
+/** All of stdin, or what arrived within waitMs if the agent leaves it open (Infinity: wait for the end); '' for a terminal. */
+async function readStdin(stream: NodeJS.ReadStream = process.stdin, waitMs: number = STDIN_WAIT_MS): Promise<string> {
   if (stream.isTTY) return '';
   let text = '';
   await new Promise<void>((done) => {
-    const timer = setTimeout(done, STDIN_WAIT_MS);
+    const timer = Number.isFinite(waitMs) ? setTimeout(done, waitMs) : undefined;
     const finish = () => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       done();
     };
     stream.setEncoding('utf8');

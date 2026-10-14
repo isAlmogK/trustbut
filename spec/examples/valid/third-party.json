@@ -1,0 +1,11 @@
+{
+  "specVersion": "1.0",
+  "producer": { "name": "acme-guard", "version": "2.1.0", "url": "https://example.com/acme-guard" },
+  "subject": { "base": "origin/main", "head": "feature/login", "x-acme": { "pr": 42 } },
+  "verdict": "warn",
+  "findings": [
+    { "id": "acme/secret-leak", "severity": "warn", "title": "Possible secret in a test fixture", "file": "test/fixtures/env.json", "line": 3, "x-acme": { "rule": "aws-access-key" } },
+    { "id": "deps-changed", "severity": "info", "title": "Dependencies changed" }
+  ],
+  "x-acme": { "scanMs": 120 }
+}

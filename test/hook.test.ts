@@ -269,7 +269,7 @@ describe.concurrent('trustbut hook: receipt location', () => {
   it('writes the receipt inside the linked worktree’s own git dir', async () => {
     const f = await fixture('no-changes');
     const wt = join(await realpath(await mkdtemp(join(tmpdir(), 'tb-wt-'))), 'wt');
-    await execa('git', ['worktree', 'add', '-q', '-b', 'side', wt], { cwd: f.dir });
+    await execa('git', ['worktree', 'add', '-b', 'side', wt], { cwd: f.dir });
     await writeFiles(wt, { 'src/lib.js': "export const v = 'bad';\n", 'test/lib.test.js': "it('works', () => {});\n" });
     const r = await f.hook('codex', { session_id: 's', cwd: wt });
     expect(r.exitCode).toBe(2);
