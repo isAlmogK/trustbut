@@ -1,6 +1,6 @@
 # v0.5 Agent test-honesty index: validation study design
 
-**Status:** approved design, 2026-10-14. Next: implementation plan.
+**Status:** Implemented (2026-10-14) in [trustbut-index](https://github.com/isAlmogK/trustbut-index). Collection amended 2026-10-15; see "As built".
 
 ## Goal
 
@@ -247,3 +247,21 @@ Following trustbut's test-first rule:
 - A public per-agent leaderboard and scheduled refreshes. These follow only if the thresholds are met.
 - Per-model results, except where a marker names the model.
 - Any change to trustbut itself. False positives found here go into trustbut as separate, test-first fixes.
+
+## As built
+
+The original text above describes the design as approved. The implementation in `trustbut-index` differs in the places listed here. Build-time changes to the tasks are listed in the plan's "Amendments" section.
+
+- **Collection is repo-first (2026-10-15).**
+  - **What failed:** the first pilot `collect` searched each agent's markers in weekly slices and then qualified every hit before selecting. It timed out after 5h30m. Search also returns at most 1,000 results per query, so the weekly slices saw only a capped, best-match-ordered subset.
+  - **What it does now:**
+    1. Lists the repos that pass the cheap rules, using a GraphQL repo search split by star range.
+    2. Searches agent PRs in batches of 40 of those repos. Any query over 1,000 results is split, first by repos and then by window, so no result is truncated.
+    3. Selects with the same seeded round-robin, loading each PR only when selection reaches it.
+  - **Changes in meaning:**
+    - A PR is a candidate only for an agent whose own search queries found it.
+    - Commit authors are counted only until 10 are seen.
+  - **Design:** [repo-first collect design](https://github.com/isAlmogK/trustbut-index/blob/main/docs/superpowers/specs/2026-10-15-repo-first-collect-design.md) in trustbut-index.
+- **Projects:** a new rule requires GitHub's primary language to be TypeScript, JavaScript, Python, Vue or Svelte. A repo whose primary language is something else no longer qualifies, even if it has a JS or Python test setup.
+- **Where collect runs:** collection runs in the `collect.yml` workflow with a read-only, fine-grained token secret (`INDEX_GH_TOKEN`), not only locally. The GitHub API cache is saved after every run, including failed and timed-out ones, so a rerun with the same `until` on the same UTC day resumes.
+- **Pre-registration:** `PREREGISTRATION.md` in trustbut-index states the implemented rules, including the search queries and the selection order.

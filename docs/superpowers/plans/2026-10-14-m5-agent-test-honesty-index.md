@@ -62,6 +62,22 @@ The tasks below keep their original text. The implementation in `trustbut-index`
 - **Pilot:** PRs in the pilot manifest are excluded from the full run (`collect --exclude-manifest`).
 - **Pre-registration:** `PREREGISTRATION.md` was rewritten to match the implemented rules exactly.
 
+## Amendment after the first pilot run (2026-10-15)
+
+Task 6's collection pipeline no longer exists. It searched in weekly slices with `weekSlices` and REST `search()`, then qualified every hit before selecting. The first pilot run timed out after 5h30m, and search truncated each query at 1,000 results.
+
+`collect` is now repo-first:
+1. A star-sliced GraphQL repo search lists the qualifying repos.
+2. Agent PRs are searched in batches of 40 repos, with splitting, so no result is truncated.
+3. A seeded round-robin loads each PR only when selection reaches it.
+4. Repo facts come from one GraphQL query per repo.
+
+The REST `search()` method and `weekSlices` are removed. The collect workflow saves its API cache after every run.
+
+The design and the implementation plan are in trustbut-index:
+- [repo-first collect design](https://github.com/isAlmogK/trustbut-index/blob/main/docs/superpowers/specs/2026-10-15-repo-first-collect-design.md)
+- [repo-first collect plan](https://github.com/isAlmogK/trustbut-index/blob/main/docs/superpowers/plans/2026-10-15-repo-first-collect.md)
+
 ## File Structure
 
 ```
