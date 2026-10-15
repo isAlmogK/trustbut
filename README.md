@@ -603,7 +603,7 @@ trustbut is free and open source, and I build it in my own time. If it saves you
 
 ## About me
 
-I'm Almog Koren, a software engineer in Tallinn with more than 15 years of shipping production software. I'm the founder and CTO of [DogBase](https://www.dogbase.co), and before that I was co-founder and CTO of Platfarm, which was acquired. These days I mostly build AI agents and the systems around them, and trustbut came out of that work: I needed to know what my agents had actually done.
+I'm Almog Koren, a software engineer in Tallinn with more than 15 years of shipping production software. I founded and built [DogBase](https://www.dogbase.co), a bootstrapped SaaS for working-dog teams that won the main pitch competition at Latitude59 2026, and before that I was co-founder and CTO of Platfarm, which was acquired. These days I mostly build AI agents and the systems around them, and trustbut came out of that work: I needed to know what my agents had actually done.
 
 **I'm open to work:** full-time roles, fractional CTO work and AI agent projects. My CV and contact details are at [almog.io](https://almog.io).
 
