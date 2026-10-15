@@ -12,10 +12,11 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](https://nodejs.org)
 [![Status](https://img.shields.io/badge/status-alpha-orange.svg)](docs/ROADMAP.md)
 [![Languages](https://img.shields.io/badge/languages-11-blueviolet.svg)](#supported-languages)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/isAlmogK)
 
 🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
-[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [Receipt format](#the-agent-receipts-format) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [Receipt format](#the-agent-receipts-format) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md) · [Sponsor](#sponsor) · [About me](#about-me)
 
 </div>
 
@@ -596,6 +597,16 @@ Every pull request gets a trustbut receipt in the CI job summary, and pull reque
 
 trustbut is built with AI coding agents and verified by itself: every pull request gets a trustbut receipt in CI (a sticky comment for branches in this repo; the job summary for forks). The rules agents follow in this repo are in [AGENTS.md](AGENTS.md).
 
+## Sponsor
+
+trustbut is free and open source, and I build it in my own time. If it saves you or your team from a bad merge, [sponsoring me on GitHub](https://github.com/sponsors/isAlmogK) keeps it maintained and moving down the [roadmap](docs/ROADMAP.md).
+
+## About me
+
+I'm Almog Koren, a software engineer in Tallinn with more than 15 years of shipping production software. I'm the founder and CTO of [DogBase](https://www.dogbase.co), and before that I was co-founder and CTO of Platfarm, which was acquired. These days I mostly build AI agents and the systems around them, and trustbut came out of that work: I needed to know what my agents had actually done.
+
+**I'm open to work:** full-time roles, fractional CTO work and AI agent projects. My CV and contact details are at [almog.io](https://almog.io).
+
 ## License
 
 [Apache-2.0](LICENSE)
@@ -604,6 +615,6 @@ trustbut is built with AI coding agents and verified by itself: every pull reque
 
 <div align="center">
 
-Built by **Almog Koren** · [almog.io](https://almog.io) · [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it.
+Built by **Almog Koren** · [almog.io](https://almog.io) · [@isAlmogK](https://github.com/isAlmogK). If trustbut saves you from a bad merge, a ⭐ helps others find it, and [sponsoring](https://github.com/sponsors/isAlmogK) helps keep it going.
 
 </div>
