@@ -104,6 +104,32 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.findings.filter((f) => f.id === 'test-regressed').map((f) => [f.file, f.detail])).toEqual([['test/sum.test.js', 'adds']]);
   });
 
+  it('INFO, not FAIL-regressed: a test that failed once at head and passed on the rerun', async () => {
+    // The marker file outside the repo makes the test fail on its first run only, wherever it runs.
+    const mark = join(await mkdtemp(join(tmpdir(), 'trustbut-flaky-')), 'ran');
+    const { dir } = await makeRepo({
+      ...BASE_FILES,
+      'test/flaky.test.js': [
+        "import { it } from 'vitest';",
+        "import { existsSync, writeFileSync } from 'node:fs';",
+        `const mark = ${JSON.stringify(mark)};`,
+        "it('fails once', () => {",
+        "  if (!existsSync(mark)) { writeFileSync(mark, ''); throw new Error('first run'); }",
+        '});',
+        '',
+      ].join('\n'),
+    });
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/sum.js': 'export const sum = (a, b) => a + b;\n' });
+    await commitAll(dir, 'agent change');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings.map((f) => f.id)).not.toContain('test-regressed');
+    expect(receipt.findings.filter((f) => f.id === 'trustbut/regression-not-reproduced').map((f) => [f.severity, f.file, f.detail])).toEqual([
+      ['info', 'test/flaky.test.js', 'fails once (rerun: pass at head, not run at base)'],
+    ]);
+  });
+
   it('WARN only for the new test when an existing test file gains one test', async () => {
     const dir = await scenario({
       'test/old.test.js': [
