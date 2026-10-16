@@ -101,13 +101,13 @@ Review these first
 
 ### 4. Proof engine (reruns)
 - **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL; an exit 0 without any test result is WARN (`no-test-results`). A test tool that can't be started at all (not on `PATH`, not executable) is a runtime error, `Couldn't start <tool>: …` (exit 2).
-- **Fail-before / pass-after:** copy the head version of every new or changed test file into a worktree at `base` and run just those files. Then, for each test case:
+- **Fail-before / pass-after:** copy the head version of every new or changed test file into a worktree at `base` and run those files, plus the files of tests failing at head that exist at base (below), in one run. Then, for each test case:
   - fails at base, passes at head → **proves the change** ✅
   - passes at base and at head → **passes without the change** ⚠ (the test doesn't constrain the new behavior)
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
-- The base run also gets the files of tests that fail at head, so `test-regressed` can tell a test the change broke from one that already failed; it runs even when no tests changed if something fails at head.
+- The base run also gets the files of tests that fail at head, when they exist at base, so `test-regressed` can tell a test the change broke from one that already failed; it runs even when no tests changed if something fails at head. Then `x-trustbut.before` holds only the results of those failing unchanged files.
 - Runners come from the **runner registry** (`src/runners/registry.ts`). Each `Runner` has a `detect(root)` score (0 = not this runner; the highest score wins, ties go to the earlier entry; detection runs on the package root of the head checkout, so it sees head's files, not the working tree's), a `run({ cwd, files, args, env, timeoutMs })` that returns per-test results, and an optional `casesInFile(c, file, readHead)` hook. Registered, in tie-break order (score in parentheses):
 
 | Runner | Language | Detected by |
@@ -196,6 +196,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `deps-changed` | A lockfile or requirements file changes (`package-lock.json`, `yarn.lock`, `go.sum`, `requirements*.txt`, …); both runs use the installed dependencies. |
   | `tests-outside-root` | Changed test files outside the package root were not run; gives the count and the first 3 paths. |
   | `uncommitted-changes` | The working tree has uncommitted work. Not emitted with `--working`. |
+- **Which failing tests are compared with base:** an unchanged failing test gets a base result only when its runner reports a case `file` that resolves to a file in the package root: vitest, jest, mocha, node-test, pytest, RSpec, PHPUnit, Dart, Cargo (the test binary's source file; not doc-tests), and `command` when its JUnit report names files. Go (package directory), Maven, Gradle, .NET (class names) and Swift (type names) don't, so an unchanged failing test there never gets `test-regressed`. To tell "not compared" from "already failing": a head `fail` or `error` case whose `id` is absent from `x-trustbut.before.cases` (or `before` is absent) had no base result. `x-trustbut.before` can exist when no tests changed; it then holds only the failing unchanged files' results.
 - **Validate:** `trustbut validate [file]` (stdin for `-` or no argument; `--json` for a machine-readable result) checks any receipt: schema, then the verdict rule; a core id with a non-default severity is a warning, and so are unknown fields and unknown ids shaped like a core id (`[a-z0-9][a-z0-9-]*`) in a receipt that declares a minor newer than `1.1`; a core id newer than the receipt's declared minor (`test-regressed` in a `1.0` receipt) is an error; a malformed id is an error in every version. Exit 0 valid, 1 invalid, 2 unreadable input (with `--json`, also printed as `{ "valid": false, "errors": [{ "path": "/", "message": … }], "warnings": [] }`).
 
 - **Verdict:** FAIL if any FAIL finding, failing test or nonzero rerun; WARN if any warning or non-constraining test; otherwise PASS.

@@ -76,7 +76,11 @@ A 1.0 validator (trustbut 0.4.x) accepts a 1.1 receipt with a warning for the un
 ### Contract for consumers (trustbut-index)
 
 - `findings[].id === "test-regressed"`: a test that passed at base and fails at head. Absence means no failing test passed at base, or no base result was available for it.
+- Which runners can compare an unchanged failing test with base: those whose case `file` resolves to a file in the package root, so its file can be rerun at base: vitest, jest, mocha, node-test, pytest, RSpec, PHPUnit, Dart, Cargo (the test binary's source file, e.g. `tests/api.rs`; not doc-tests), and `command` when its JUnit report names files. Go (the case `file` is the package directory), Maven, Gradle and .NET (class names) and Swift (type names) get no base result for an unchanged failing test, so never a `test-regressed` for one. A changed test file is run at base with every runner.
+- Detecting "not compared": a head case in `x-trustbut.after.cases` with outcome `fail` or `error` whose `id` is absent from `x-trustbut.before.cases`, or any such case when `x-trustbut.before` is absent, had no base result. Its missing `test-regressed` says nothing about base.
+- `x-trustbut.before` can exist when no tests changed; it then holds only the results of the failing unchanged files.
 - `x-trustbut.after.outputTail`, `x-trustbut.before.outputTail`: optional strings, present only with `--output-tail` and only for a run that exited non-zero.
+- `outputTail` quotes the runner's output as printed, including local paths (temporary worktree folders, home folders), so it differs between machines and runs and isn't deterministic. Consumers that publish receipts should scrub it.
 - `specVersion` is `"1.1"`.
 
 ## Testing
@@ -98,7 +102,11 @@ A 1.0 validator (trustbut 0.4.x) accepts a 1.1 receipt with a warning for the un
 - The e2e `--output-tail` test asserts the tail contains "JUNIT report written", not a test name. trustbut runs vitest with `--reporter=junit`, so failure text lives in `cases[].message`, not in the run's output.
 - Markdown leaves `test-regressed` findings out of Findings only when the Failing tests list is shown (the head run has `suite-failing`). Without it, they stay in Findings. The spec says "listed once" without that condition.
 - The validator rejects a core id newer than the declared minor (`test-regressed` in a `1.0` receipt) through a `CORE_FINDING_SINCE` table, and treats only minors newer than 1.1 as lenient. The `since` message reads `'test-regressed' is a core id since 1.1 (the receipt declares 1.0)`.
-- With `--quick` and no changed tests, the scope falls back to full, so the failing files are not already changed test files. A red suite then also triggers a base run.
-- The hook summary adds `N passed at base` only when a failing-test count is shown.
+- With `--quick` and no changed tests, the scope falls back to full, so the failing files are not already changed test files. A red suite then also triggers a base run. This includes the agent hook's default quick mode: with no changed tests, a red suite also creates a base worktree and runs at base. If the head and base runs together exceed the hook budget (`hook.timeoutSec`, or the agent's remaining hook timeout), the hook reports `trustbut couldn't verify: timed out …; not blocking` and lets the agent finish.
+- Failing files are kept only when they exist as a file in the base checkout, checked after the head test files are copied in. A failing file that exists only at head and isn't copied (a pytest-django `app/tests.py`, which is classified as source) would make the runner error out and hide the changed tests' base results. When no changed test and no failing file is left, base is not run.
+- Resolved failing files are normalized (`./spec/x_spec.rb` → `spec/x_spec.rb`), so they dedupe against the changed test files.
+- A `test-regressed` finding has no `file` when the runner reported none (the spec said the package-root prefix plus the runner's `file`, which gave `""` or `pkg/`).
+- The hook summary adds `N passed at base` after a failing-test count. When no failing test is counted, it adds `N test(s) passed at base and fail(s) at head` instead, so the regressions aren't dropped.
+- Known limitation: changed tests and failing unchanged files share one base run. pytest has no option to continue past collection errors, so a collection error in a failing unchanged file at base stops the whole base run and hides the changed tests' base results (`base-run-failed`).
 - `--output-tail` is accepted with any output mode; it only changes JSON receipts (stdout with `--json`, and `--receipt-json` files).
 - Docs touched beyond the spec: `spec/agent-receipt-v1.md` (Status v1.1, Extensions, Versioning and Changes wording, `outputTail`), `docs/SPEC.md`, README (flag row, 20 core ids).
