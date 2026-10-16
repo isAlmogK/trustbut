@@ -140,3 +140,35 @@ describe('summarize (one line for systemMessage)', () => {
     expect(summarize(receipt([]))).toBe('tests not run');
   });
 });
+
+describe('regressed tests', () => {
+  const regressedReceipt = () =>
+    buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', scope: 'full', proofs: [], changes: [],
+      after: run([tc('lib > works', 'fail'), tc('lib > old', 'fail'), tc('ok', 'pass')]),
+      before: run([tc('lib > works', 'pass'), tc('lib > old', 'fail')]),
+      findings: [
+        { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
+        { id: 'test-regressed', severity: 'fail', title: 'Test passes at base and fails at head', file: 'test/lib.test.js', detail: 'lib > works' },
+      ],
+    });
+
+  it('marks the failing tests that passed at base and does not repeat them under Must fix', () => {
+    const out = renderForAgent(regressedReceipt(), undefined);
+    expect(out).toContain('- `test/lib.test.js` › lib > works (passed at base)');
+    expect(out).toContain('- `test/lib.test.js` › lib > old\n');
+    expect(out).not.toContain('Test passes at base and fails at head');
+  });
+
+  it('says how many failing tests passed at base in the one-line summary', () => {
+    expect(summarize(regressedReceipt())).toBe('2 failing tests, 1 passed at base');
+  });
+
+  it('still counts tests that passed at base when no failing test is counted', () => {
+    const r = regressedReceipt();
+    const noCases = { ...r, after: run([tc('ok', 'pass')]) };
+    expect(summarize(noCases)).toBe('test suite fails at head (clean checkout), 1 test passed at base and fails at head');
+    const two = { ...noCases, findings: [...noCases.findings, { ...noCases.findings[1]!, detail: 'lib > other' }] };
+    expect(summarize(two)).toBe('test suite fails at head (clean checkout), 2 tests passed at base and fail at head');
+  });
+});

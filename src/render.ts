@@ -1,3 +1,4 @@
+import { regressedCases } from './proof.js';
 import { ANSI } from './runners/cases.js';
 import type { Finding, Receipt, RunResult, TestCaseResult } from './types.js';
 
@@ -43,6 +44,13 @@ export function failingCases(r: Receipt): TestCaseResult[] {
   return r.findings.some((f) => f.id === 'suite-failing') ? (r.after?.cases ?? []).filter((c) => c.outcome === 'fail' || c.outcome === 'error') : [];
 }
 
+/** Ids of failing head results that passed at base. */
+export function regressedIds(r: Receipt): Set<string> {
+  return r.before && r.after ? new Set(regressedCases(r.before, r.after).map((c) => c.id)) : new Set();
+}
+
+const atBase = (ids: Set<string>, c: TestCaseResult): string => (ids.has(c.id) ? ' (passed at base)' : '');
+
 export function renderMarkdown(r: Receipt): string {
   const lines: string[] = [];
   lines.push(`## 🧾 Receipt: ${r.verdict.toUpperCase()}`, '');
@@ -63,13 +71,16 @@ export function renderMarkdown(r: Receipt): string {
   }
 
   lines.push('', '### Findings');
-  if (!r.findings.length) lines.push('None.');
-  for (const f of r.findings) lines.push(findingLine(f));
-
   const failing = failingCases(r);
+  // A regressed test is marked in the failing tests below; list it once.
+  const listed = r.findings.filter((f) => !(failing.length && f.id === 'test-regressed'));
+  if (!listed.length) lines.push('None.');
+  for (const f of listed) lines.push(findingLine(f));
+
   if (failing.length) {
     lines.push('', '### Failing tests');
-    for (const c of failing.slice(0, MAX_FAILING)) lines.push(`- ${c.file ? `${code(c.file)} › ` : ''}${text(c.name)}`);
+    const regressed = regressedIds(r);
+    for (const c of failing.slice(0, MAX_FAILING)) lines.push(`- ${c.file ? `${code(c.file)} › ` : ''}${text(c.name)}${atBase(regressed, c)}`);
     if (failing.length > MAX_FAILING) lines.push(`- and ${failing.length - MAX_FAILING} more`);
   }
 
@@ -105,12 +116,12 @@ export interface AgentFeedbackOptions {
   maxChars?: number;
 }
 
-/** The last lines (at most 20 and 1,500 characters) of a run's output, without colour codes. */
-export function outputTail(output: string): string {
-  const lines = output.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/).slice(-OUTPUT_LINES);
-  while (lines.length > 1 && lines.join('\n').length > OUTPUT_MAX) lines.shift();
+/** The last lines (default at most 20 and 1,500 characters) of a run's output, without colour codes. */
+export function outputTail(output: string, maxLines = OUTPUT_LINES, maxChars = OUTPUT_MAX): string {
+  const lines = output.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/).slice(-maxLines);
+  while (lines.length > 1 && lines.join('\n').length > maxChars) lines.shift();
   const text = lines.join('\n');
-  return text.length > OUTPUT_MAX ? text.slice(-OUTPUT_MAX) : text;
+  return text.length > maxChars ? text.slice(-maxChars) : text;
 }
 
 /** A fenced code block whose fence is longer than any backtick run inside. */
@@ -140,13 +151,14 @@ export function renderForAgent(r: Receipt, receiptPath: string | undefined, opts
   // Each entry is one item; an item may span lines (the output block) and is kept or dropped whole.
   const body: string[] = [];
   const failing = failingCases(r);
-  // A changed test that fails at head is also in the failing tests below; list it once.
-  const fails = r.findings.filter((f) => f.severity === 'fail' && !(failing.length && f.id === 'test-failing'));
+  // A changed or regressed test that fails at head is also in the failing tests below; list it once.
+  const fails = r.findings.filter((f) => f.severity === 'fail' && !(failing.length && (f.id === 'test-failing' || f.id === 'test-regressed')));
   if (fails.length) body.push('', '### Must fix', ...fails.map(agentFinding));
   if (failing.length) {
     body.push('', '### Failing tests');
+    const regressed = regressedIds(r);
     for (const c of failing.slice(0, MAX_FAILING)) {
-      body.push(clip(`- ${c.file ? `${code(c.file)} › ` : ''}${oneLine(c.name)}${c.message ? `: ${oneLine(c.message)}` : ''}`));
+      body.push(clip(`- ${c.file ? `${code(c.file)} › ` : ''}${oneLine(c.name)}${atBase(regressed, c)}${c.message ? `: ${oneLine(c.message)}` : ''}`));
     }
     if (failing.length > MAX_FAILING) body.push(more(failing.length - MAX_FAILING, 'failing test'));
   }

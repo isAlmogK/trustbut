@@ -84,6 +84,26 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.findings.map((f) => f.id)).toEqual(expect.arrayContaining(['suite-failing', 'test-failing']));
   });
 
+  it('FAIL: reports the test the change broke, not the one that was already red', async () => {
+    const { dir } = await makeRepo({
+      '.gitignore': 'node_modules\n',
+      'package.json': JSON.stringify({ name: 'fx', private: true, type: 'module', devDependencies: { vitest: '*' } }),
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test/sum.test.js': sumTest("it('adds', () => expect(sum(2, 3)).toBe(5));"),
+      'test/broken.test.js': "import { it, expect } from 'vitest';\nit('already red', () => expect(1).toBe(2));\n",
+    });
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/sum.js': 'export const sum = (a, b) => a - b;\n' });
+    await commitAll(dir, 'agent change');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.verdict).toBe('fail');
+    const ids = receipt.findings.map((f) => f.id);
+    expect(ids).toContain('suite-failing');
+    expect(ids).not.toContain('test-failing');
+    expect(receipt.findings.filter((f) => f.id === 'test-regressed').map((f) => [f.file, f.detail])).toEqual([['test/sum.test.js', 'adds']]);
+  });
+
   it('WARN only for the new test when an existing test file gains one test', async () => {
     const dir = await scenario({
       'test/old.test.js': [
@@ -214,9 +234,18 @@ describe('trustbut verify (end to end)', () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
     const { output } = await runVerify({ cwd: dir, json: true });
     const json = JSON.parse(output);
-    expect(json).toMatchObject({ specVersion: '1.0', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
+    expect(json).toMatchObject({ specVersion: '1.1', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
     expect(json).not.toHaveProperty('version');
     expect(output).not.toContain('"output"');
+  });
+
+  it('--output-tail puts the end of a failed head run in the JSON receipt', async () => {
+    const dir = await scenario({ 'test/old.test.js': "import { it, expect } from 'vitest';\nit('truth', () => expect(1).toBe(2));\n" });
+    const { output } = await runVerify({ cwd: dir, json: true, outputTail: true });
+    const json = JSON.parse(output);
+    expect(json['x-trustbut'].after.outputTail).toContain('JUNIT report written');
+    const plain = JSON.parse((await runVerify({ cwd: dir, json: true })).output);
+    expect(plain['x-trustbut'].after).not.toHaveProperty('outputTail');
   });
 
   it('registers the verify command', () => {

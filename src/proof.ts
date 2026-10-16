@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, sep } from 'node:path';
 import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import { goTestHelpers } from './go-helpers.js';
-import { SEVERITY } from './runners/cases.js';
+import { SEVERITY, addCase } from './runners/cases.js';
 import { detectRunner } from './runners/registry.js';
 import { isNamedTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
@@ -97,6 +97,49 @@ const lastLine = (output: string): string =>
 
 /** A placeholder the runner reports when its tool failed before any test ran (`[cargo]::[build]`, `[phpunit]::[run]`). */
 export const isSynthetic = (c: TestCaseResult): boolean => c.file.startsWith('[');
+
+const isFileAt = (root: string, rel: string): boolean => statSync(join(root, rel), { throwIfNoEntry: false })?.isFile() === true;
+const PY_MODULE = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$/;
+
+/**
+ * A runner-reported case file as a path relative to `root` that exists as a file there: a relative path,
+ * an absolute path under `root`, or a pytest module name (`tests.api.test_x[.TestY]` → `tests/api/test_x.py`).
+ * The result is normalized (`./spec/x_spec.rb` → `spec/x_spec.rb`), so it compares equal to changed-file paths.
+ */
+export function resolveCaseFile(file: string, root: string): string | undefined {
+  if (!file || file.startsWith('[')) return undefined;
+  let rel = file;
+  if (isAbsolute(file)) {
+    const roots = [root, realpathSync(root)];
+    const under = roots.find((r) => file.startsWith(r + sep));
+    if (!under) return undefined;
+    rel = relative(under, file);
+  }
+  rel = posix.normalize(rel.split(sep).join('/'));
+  if (rel.split(/[\\/]/).includes('..')) return undefined;
+  if (isFileAt(root, rel)) return rel;
+  if (!PY_MODULE.test(rel)) return undefined;
+  const parts = rel.split('.');
+  for (let n = parts.length; n >= 1; n--) {
+    const candidate = `${parts.slice(0, n).join('/')}.py`;
+    if (isFileAt(root, candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** Each id's worst result (error > fail > skip > pass), in first-seen order. */
+function worstById(cases: TestCaseResult[]): TestCaseResult[] {
+  const out: TestCaseResult[] = [];
+  const index = new Map<string, number>();
+  for (const c of cases) addCase(out, index, c);
+  return out;
+}
+
+/** Head failures and errors (not placeholders) whose test passed at base, matched by id. */
+export function regressedCases(before: RunResult, after: RunResult): TestCaseResult[] {
+  const base = new Map(worstById(before.cases).map((c) => [c.id, c.outcome]));
+  return worstById(after.cases).filter((c) => !isSynthetic(c) && (c.outcome === 'fail' || c.outcome === 'error') && base.get(c.id) === 'pass');
+}
 
 /** Whether the run reported nothing but placeholders for a failed build or start-up. */
 const onlySynthetic = (r: RunResult): boolean => r.cases.length > 0 && r.cases.every(isSynthetic);
@@ -231,14 +274,23 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     if (after.exitCode === 0 && after.cases.length === 0) {
       findings.push({ id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' });
     }
-    if (!testFiles.length) return { runner, scope, after, proofs: [], findings };
+    // Files of tests failing at head also run at base, so a failure can be told apart from one that was already there.
+    const failingFiles = after.cases
+      .filter((c) => (c.outcome === 'fail' || c.outcome === 'error') && !isSynthetic(c))
+      .map((c) => resolveCaseFile(c.file, headRoot))
+      .filter((f): f is string => f !== undefined);
+    if (!testFiles.length && !failingFiles.length) return { runner, scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
     const toCopy = new Set([...changes.filter(copiedToBase).map((c) => c.path), ...(await goTestHelpers(changes, headDir))]);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
-    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
-    if (before.exitCode !== 0 && before.cases.length === 0) {
+    // A failing file missing at base (added at head and not copied, e.g. pytest-django `app/tests.py`) would make the runner error out.
+    const baseRoot = join(baseDir, root);
+    const baseFiles = [...new Set([...testFiles, ...failingFiles.filter((f) => isFileAt(baseRoot, f))])];
+    if (!baseFiles.length) return { runner, scope, after, proofs: [], findings };
+    const before = await runWithSetup(runner, { ...runOptions, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup);
+    if (testFiles.length && before.exitCode !== 0 && before.cases.length === 0) {
       const detail = timeoutDetail(before, runOptions.timeoutMs);
       findings.push({
         id: 'base-run-failed',
@@ -247,6 +299,17 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
         ...(detail ? { detail } : {}),
       });
     }
+    for (const c of regressedCases(before, after)) {
+      const file = resolveCaseFile(c.file, headRoot) ?? c.file;
+      findings.push({
+        id: 'test-regressed',
+        severity: 'fail',
+        title: 'Test passes at base and fails at head',
+        ...(file ? { file: `${prefix}${file}` } : {}),
+        detail: c.name,
+      });
+    }
+    if (!testFiles.length) return { runner, scope, after, before, proofs: [], findings };
 
     const headCache = new Map<string, string>();
     const readHead: ReadHead = (file) => {

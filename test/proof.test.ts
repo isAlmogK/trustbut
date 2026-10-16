@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { execa } from 'execa';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
-import { buildProofs, caseInFile, copiedToBase, proveTests } from '../src/proof.js';
+import { buildProofs, caseInFile, copiedToBase, proveTests, regressedCases, resolveCaseFile } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
 import type { RunOptions, Runner } from '../src/runners/types.js';
 import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
@@ -31,6 +31,62 @@ describe('caseInFile', () => {
   it('matches a runner path relative to a subdirectory of the repo', () => {
     expect(caseInFile(tc('test/a.test.ts', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(true);
     expect(caseInFile(tc('', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(false);
+  });
+});
+
+describe('resolveCaseFile', () => {
+  async function tree() {
+    const root = await mkdtemp(join(tmpdir(), 'resolve-'));
+    await mkdir(join(root, 'test'), { recursive: true });
+    await mkdir(join(root, 'tests', 'api'), { recursive: true });
+    await writeFile(join(root, 'test', 'a.test.js'), '');
+    await writeFile(join(root, 'tests', 'api', 'test_x.py'), '');
+    return root;
+  }
+
+  it('keeps an existing relative path and makes an absolute one under the root relative', async () => {
+    const root = await tree();
+    expect(resolveCaseFile('test/a.test.js', root)).toBe('test/a.test.js');
+    expect(resolveCaseFile(join(root, 'test', 'a.test.js'), root)).toBe('test/a.test.js');
+  });
+
+  it('maps a pytest module name, with or without a class, to its .py file', async () => {
+    const root = await tree();
+    expect(resolveCaseFile('tests.api.test_x', root)).toBe('tests/api/test_x.py');
+    expect(resolveCaseFile('tests.api.test_x.TestY', root)).toBe('tests/api/test_x.py');
+  });
+
+  it('normalizes a ./-prefixed or dotted path to a plain relative path', async () => {
+    const root = await tree();
+    expect(resolveCaseFile('./test/a.test.js', root)).toBe('test/a.test.js');
+    expect(resolveCaseFile('test/../test/./a.test.js', root)).toBe('test/a.test.js');
+    expect(resolveCaseFile('test/../../a.test.js', root)).toBeUndefined();
+  });
+
+  it('resolves nothing that is empty, synthetic, missing, outside the root or a folder', async () => {
+    const root = await tree();
+    for (const file of ['', '[cargo]', 'test/missing.test.js', '../a.test.js', '/etc/hosts', 'tests.api.nope', 'test']) {
+      expect(resolveCaseFile(file, root), file).toBeUndefined();
+    }
+  });
+});
+
+describe('regressedCases', () => {
+  it('reports head failures and errors that passed at base, once, in head order', () => {
+    const before = run([tc('t/a', 'x', 'pass'), tc('t/a', 'y', 'pass'), tc('t/a', 'z', 'fail'), tc('t/a', 'w', 'skip'), tc('t/a', 'v', 'pass'), tc('t/a', 'v', 'fail')]);
+    const after = run([
+      tc('t/a', 'y', 'error'), tc('t/a', 'x', 'fail'), tc('t/a', 'x', 'fail'),
+      tc('t/a', 'z', 'fail'), tc('t/a', 'w', 'fail'), tc('t/a', 'new', 'fail'), tc('t/a', 'v', 'fail'),
+      tc('t/a', 'u', 'pass'), tc('t/a', 'u', 'fail'),
+    ], 1);
+    expect(regressedCases(before, after).map((c) => [c.name, c.outcome])).toEqual([['y', 'error'], ['x', 'fail']]);
+  });
+
+  it('counts a head id that passes once and fails once as failing, and ignores synthetic cases', () => {
+    const synthetic: TestCaseResult = { id: '[cargo]::[build]', file: '[cargo]', name: '[build or run failed]', outcome: 'error' };
+    const before = run([tc('t/a', 'u', 'pass'), { ...synthetic, outcome: 'pass' }]);
+    const after = run([tc('t/a', 'u', 'pass'), tc('t/a', 'u', 'fail'), synthetic], 1);
+    expect(regressedCases(before, after).map((c) => c.name)).toEqual(['u']);
   });
 });
 
@@ -153,6 +209,30 @@ function stubRunner(head: RunResult, base?: RunResult): Runner {
   return { name: 'vitest', detect: async () => 0, run: async () => (calls++ === 0 ? head : (base ?? run([]))) };
 }
 
+/** A runner that records its calls: the first call is the head run, every later one the base run. */
+function recordingRunner(head: RunResult, base: RunResult) {
+  const calls: RunOptions[] = [];
+  const runner: Runner = { name: 'vitest', detect: async () => 0, run: async (opts) => { calls.push(opts); return calls.length === 1 ? head : base; } };
+  return { runner, calls };
+}
+
+async function repoWithExistingTests(root = '.') {
+  const p = root === '.' ? '' : `${root}/`;
+  const { dir, base } = await makeRepo({
+    [`${p}src/a.js`]: 'export const a = 1;\n',
+    [`${p}test/old.test.js`]: "it('old', () => {});\n",
+    [`${p}test/flaky.test.js`]: "it('flaky', () => {});\n",
+    [`${p}tests/test_mod.py`]: 'def test_m(): pass\n',
+  });
+  await writeFiles(dir, { [`${p}src/a.js`]: 'export const a = 2;\n' });
+  const head = await commitAll(dir, 'source only');
+  return { dir, base, head, changes: parseChanges(await diffText(dir, base, head)) };
+}
+
+const regressed = (file: string, name: string) => ({ id: 'test-regressed', severity: 'fail', title: 'Test passes at base and fails at head', file, detail: name });
+const suiteRed = { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' };
+const pyCase = (outcome: TestCaseResult['outcome']): TestCaseResult => ({ id: 'tests.test_mod::test_m', file: 'tests.test_mod', name: 'test_m', outcome });
+
 async function repoWithNewTest() {
   const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
   await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('a', () => {});\n" });
@@ -257,6 +337,114 @@ describe('proveTests evidence findings', () => {
     expect(result.findings).toEqual([
       { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
     ]);
+  });
+});
+
+describe('proveTests regressions', () => {
+  it('reruns the files of tests failing at head at base and reports those that passed there', async () => {
+    const { dir, base, head, changes } = await repoWithExistingTests();
+    const synthetic: TestCaseResult = { id: '[x]::[y]', file: '[x]', name: '[build]', outcome: 'error' };
+    const { runner, calls } = recordingRunner(
+      run([tc('test/old.test.js', 'old', 'fail'), tc('test/flaky.test.js', 'flaky', 'fail'), pyCase('error'),
+        tc('test/gone.test.js', 'gone', 'fail'), synthetic, tc('test/old.test.js', 'ok', 'pass')], 1),
+      run([tc('test/old.test.js', 'old', 'pass'), tc('test/flaky.test.js', 'flaky', 'fail'), pyCase('pass')], 1),
+    );
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls.map((c) => c.files)).toEqual([undefined, ['test/old.test.js', 'test/flaky.test.js', 'tests/test_mod.py']]);
+    expect(result.findings).toEqual([suiteRed, regressed('test/old.test.js', 'old'), regressed('tests/test_mod.py', 'test_m')]);
+    expect(result.proofs).toEqual([]);
+    expect(result.before?.cases).toHaveLength(3);
+  });
+
+  it('does not run base when nothing fails and no tests changed', async () => {
+    const { dir, base, head, changes } = await repoWithExistingTests();
+    const { runner, calls } = recordingRunner(run([tc('test/old.test.js', 'old', 'pass')]), run([]));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls).toHaveLength(1);
+    expect(result.findings).toEqual([]);
+  });
+
+  it('reports no base-run-failed when only failing unchanged tests ran at base and reported nothing', async () => {
+    const { dir, base, head, changes } = await repoWithExistingTests();
+    const { runner } = recordingRunner(run([tc('test/old.test.js', 'old', 'fail')], 1), run([], 1, 'boom'));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(result.findings).toEqual([suiteRed]);
+  });
+
+  it('runs changed tests and failing unchanged tests in one base run', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n', 'test/old.test.js': "it('old', () => {});\n" });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('a', () => {});\n" });
+    const head = await commitAll(dir, 'change');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const { runner, calls } = recordingRunner(
+      run([tc('test/a.test.js', 'a', 'pass'), tc('test/old.test.js', 'old', 'fail')], 1),
+      run([tc('test/a.test.js', 'a', 'fail'), tc('test/old.test.js', 'old', 'pass')], 1),
+    );
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls[1]?.files).toEqual(['test/a.test.js', 'test/old.test.js']);
+    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['test/a.test.js', 'proves-change']]);
+    expect(result.findings).toEqual([suiteRed, regressed('test/old.test.js', 'old')]);
+  });
+
+  it('leaves out failing files that exist only at head, keeping the changed tests and their proofs', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test/a.test.js': "it('a', () => {});\n", 'app/tests.py': 'def test_v(): assert False\n' });
+    const head = await commitAll(dir, 'change');
+    const changes = parseChanges(await diffText(dir, base, head));
+    expect(changes.find((c) => c.path === 'app/tests.py')?.kind).toBe('source');
+    const { runner, calls } = recordingRunner(
+      run([tc('test/a.test.js', 'a', 'pass'), tc('app/tests.py', 'test_v', 'fail')], 1),
+      run([tc('test/a.test.js', 'a', 'fail')], 1),
+    );
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls[1]?.files).toEqual(['test/a.test.js']);
+    expect(result.findings).toEqual([suiteRed]);
+    expect(result.proofs.map((p) => [p.file, p.verdict])).toEqual([['test/a.test.js', 'proves-change']]);
+  });
+
+  it('does not run base when no tests changed and the only failing file exists only at head', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'app/tests.py': 'def test_v(): assert False\n' });
+    const head = await commitAll(dir, 'change');
+    const changes = parseChanges(await diffText(dir, base, head));
+    const { runner, calls } = recordingRunner(run([tc('app/tests.py', 'test_v', 'fail')], 1), run([], 4, 'file or directory not found'));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls).toHaveLength(1);
+    expect(result.before).toBeUndefined();
+    expect(result.findings).toEqual([suiteRed]);
+    const worktrees = await execa('git', ['worktree', 'list', '--porcelain'], { cwd: dir });
+    expect(worktrees.stdout.match(/^worktree /gm)).toHaveLength(1);
+  });
+
+  it('leaves out the file of a regressed test the runner reported without one', async () => {
+    const { dir, base, head, changes } = await repoWithExistingTests('pkg');
+    const noFile: TestCaseResult = { id: 'nofile::x', file: '', name: 'x', outcome: 'fail' };
+    const { runner } = recordingRunner(
+      run([tc('test/old.test.js', 'old', 'fail'), noFile], 1),
+      run([tc('test/old.test.js', 'old', 'pass'), { ...noFile, outcome: 'pass' }]),
+    );
+    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg' });
+    expect(result.findings).toEqual([
+      suiteRed,
+      regressed('pkg/test/old.test.js', 'old'),
+      { id: 'test-regressed', severity: 'fail', title: 'Test passes at base and fails at head', detail: 'x' },
+    ]);
+  });
+
+  it('dedupes a ./-prefixed failing file against the changed test files', async () => {
+    const { dir, base, head, changes } = await repoWithNewTest();
+    const { runner, calls } = recordingRunner(run([tc('./test/a.test.js', 'a', 'fail')], 1), run([tc('./test/a.test.js', 'a', 'pass')]));
+    const result = await proveTests({ repo: dir, base, head, changes, runner });
+    expect(calls[1]?.files).toEqual(['test/a.test.js']);
+    expect(result.findings).toEqual([suiteRed, regressed('test/a.test.js', 'a')]);
+  });
+
+  it('reports the repo path of a regressed test in a package root', async () => {
+    const { dir, base, head, changes } = await repoWithExistingTests('pkg');
+    const { runner, calls } = recordingRunner(run([tc('test/old.test.js', 'old', 'fail')], 1), run([tc('test/old.test.js', 'old', 'pass')]));
+    const result = await proveTests({ repo: dir, base, head, changes, runner, root: 'pkg' });
+    expect(calls[1]?.files).toEqual(['test/old.test.js']);
+    expect(result.findings).toEqual([suiteRed, regressed('pkg/test/old.test.js', 'old')]);
   });
 });
 

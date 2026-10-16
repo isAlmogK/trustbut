@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+**Regressed tests.** A red suite no longer looks the same whether the change broke a test or the test was already failing.
+
+- New finding `test-regressed` (fail): a test that passes at base and fails at head. The base run now also gets the files of tests failing at head (pytest module names map to their `.py` file), and runs even when no tests changed if something fails at head. Markdown and agent feedback mark these tests "(passed at base)", and the hook summary counts them.
+- Receipt spec **1.1**: adds the core id `test-regressed`. trustbut writes `specVersion: "1.1"`. `trustbut validate` accepts 1.1, treats only minors newer than 1.1 leniently, and rejects `test-regressed` in a receipt that declares `1.0`.
+- New: `verify --output-tail` adds the end of each failed run's output (last 50 lines, at most 4,000 characters) under `x-trustbut` in JSON receipts. Off by default; receipts stay output-free without it.
+
 ## 0.4.0
 
 **Agent receipts, spec v1.** trustbut's receipt is now an open, versioned format that any tool can produce or read: [`spec/agent-receipt-v1.md`](spec/agent-receipt-v1.md), with a JSON Schema and examples.

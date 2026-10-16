@@ -68,6 +68,7 @@ describe('cli process exit codes', () => {
     expect(sub.stdout).toContain('--strict');
     expect(sub.stdout).toContain('--config <path>');
     expect(sub.stdout).toContain('--root <dir>');
+    expect(sub.stdout).toContain('--output-tail');
   }, 60_000);
 });
 
