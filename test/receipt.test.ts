@@ -68,6 +68,22 @@ describe('derived findings and verdict', () => {
 });
 
 describe('renderMarkdown', () => {
+  it('marks failing tests that passed at base and lists them once', () => {
+    const c = (name: string, outcome: 'pass' | 'fail') => ({ id: `t.test.js::${name}`, file: 't.test.js', name, outcome });
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', proofs: [], changes: [],
+      after: { exitCode: 1, durationMs: 1, output: '', cases: [c('x', 'fail'), c('y', 'fail')] },
+      before: { exitCode: 0, durationMs: 1, output: '', cases: [c('x', 'pass')] },
+      findings: [
+        { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
+        { id: 'test-regressed', severity: 'fail', title: 'Test passes at base and fails at head', file: 't.test.js', detail: 'x' },
+      ],
+    });
+    const md = renderMarkdown(r);
+    expect(md).toContain('- `t.test.js` › x (passed at base)');
+    expect(md).toContain('- `t.test.js` › y\n');
+    expect(md).not.toContain('Test passes at base and fails at head');
+  });
   it('renders the verdict, test summary, findings and review list', () => {
     const receipt = buildReceipt({
       base: '3f2a91c0000000000000000000000000000000000',

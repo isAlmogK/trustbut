@@ -14,9 +14,11 @@ function failParts(r: Receipt): string[] {
   const suite = fails.find((f) => f.id === 'suite-failing');
   if (failing) parts.push(count(failing, 'failing test'));
   else if (suite) parts.push(lowerFirst(suite.title));
+  const regressed = fails.filter((f) => f.id === 'test-regressed').length;
+  if (failing && regressed) parts.push(`${regressed} passed at base`);
   const focused = fails.filter((f) => f.id === 'test-focused').length;
   if (focused) parts.push(count(focused, 'focused test'));
-  const known = new Set(['suite-failing', 'test-failing', 'test-focused']);
+  const known = new Set(['suite-failing', 'test-failing', 'test-regressed', 'test-focused']);
   for (const title of new Set(fails.filter((f) => !known.has(f.id)).map((f) => f.title))) parts.push(lowerFirst(title));
   const warns = r.findings.filter((f) => f.severity === 'warn');
   const loose = warns.filter((f) => f.id === 'test-passes-without-change').length;
