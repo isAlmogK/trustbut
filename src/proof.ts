@@ -272,14 +272,20 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     if (after.exitCode === 0 && after.cases.length === 0) {
       findings.push({ id: 'no-test-results', severity: 'warn', title: 'The test runner reported no test results' });
     }
-    if (!testFiles.length) return { runner, scope, after, proofs: [], findings };
+    // Files of tests failing at head also run at base, so a failure can be told apart from one that was already there.
+    const failingFiles = after.cases
+      .filter((c) => (c.outcome === 'fail' || c.outcome === 'error') && !isSynthetic(c))
+      .map((c) => resolveCaseFile(c.file, headRoot))
+      .filter((f): f is string => f !== undefined);
+    const baseFiles = [...new Set([...testFiles, ...failingFiles])];
+    if (!baseFiles.length) return { runner, scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
     const toCopy = new Set([...changes.filter(copiedToBase).map((c) => c.path), ...(await goTestHelpers(changes, headDir))]);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
-    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: testFiles }, setup);
-    if (before.exitCode !== 0 && before.cases.length === 0) {
+    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: baseFiles }, setup);
+    if (testFiles.length && before.exitCode !== 0 && before.cases.length === 0) {
       const detail = timeoutDetail(before, runOptions.timeoutMs);
       findings.push({
         id: 'base-run-failed',
@@ -288,6 +294,16 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
         ...(detail ? { detail } : {}),
       });
     }
+    for (const c of regressedCases(before, after)) {
+      findings.push({
+        id: 'test-regressed',
+        severity: 'fail',
+        title: 'Test passes at base and fails at head',
+        file: `${prefix}${resolveCaseFile(c.file, headRoot) ?? c.file}`,
+        detail: c.name,
+      });
+    }
+    if (!testFiles.length) return { runner, scope, after, before, proofs: [], findings };
 
     const headCache = new Map<string, string>();
     const readHead: ReadHead = (file) => {
