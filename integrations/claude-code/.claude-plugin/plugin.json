@@ -1,6 +1,6 @@
 {
   "name": "trustbut",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Verifiable receipts for code written by AI coding agents: Claude Code cannot finish on a FAIL receipt",
   "author": { "name": "Almog Koren", "url": "https://almog.io" },
   "homepage": "https://github.com/isAlmogK/trustbut#readme",
