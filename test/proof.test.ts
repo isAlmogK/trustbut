@@ -515,6 +515,24 @@ describe('proveTests confirms regressions with a rerun', () => {
   });
 });
 
+describe('proveTests with type-test files', () => {
+  async function repoWithTypeTest() {
+    const { dir, base } = await makeRepo({ 'src/a.js': 'export const a = 1;\n' });
+    await writeFiles(dir, { 'src/a.js': 'export const a = 2;\n', 'test-dts/a.d-test.ts': "// @ts-expect-error -- a is a number\nconst s: string = a;\n" });
+    const head = await commitAll(dir, 'type test');
+    return { dir, base, head, changes: parseChanges(await diffText(dir, base, head)) };
+  }
+
+  it('never passes type-test files to the runner, so they cause no base run', async () => {
+    const { dir, base, head, changes } = await repoWithTypeTest();
+    expect(changes.find((c) => c.path === 'test-dts/a.d-test.ts')?.kind).toBe('test');
+    const { runner, calls } = recordingRunner(run([tc('test/old.test.js', 'old', 'pass')]), run([], 1, 'No test files found'));
+    const result = await proveTests({ repo: dir, base, head, changes, runner, quick: true });
+    expect(calls.map((c) => c.files)).toEqual([undefined]);
+    expect(result.findings).toEqual([]);
+  });
+});
+
 describe('proveTests copying test data into base', () => {
   it('never writes outside the base checkout through a symlinked directory', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'outside-'));

@@ -6,7 +6,7 @@ import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import { goTestHelpers } from './go-helpers.js';
 import { SEVERITY, addCase } from './runners/cases.js';
 import { detectRunner } from './runners/registry.js';
-import { isNamedTestFile } from './languages/index.js';
+import { isNamedTestFile, isTypeTestFile } from './languages/index.js';
 import type { ReadHead, RunOptions, Runner } from './runners/types.js';
 import { startSetup, type SetupOptions } from './setup.js';
 import type { ChangedFile, Finding, RunResult, RunScope, TestCaseResult, TestProof } from './types.js';
@@ -265,7 +265,8 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
   const prefix = root === '.' ? '' : `${root}/`;
   /** Path relative to the package root. */
   const rel = (path: string) => path.slice(prefix.length);
-  const liveTests = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted');
+  // Type tests are checked by the type checker; given to a runner, they match no runtime test file.
+  const liveTests = changes.filter((c) => c.kind === 'test' && c.status !== 'deleted' && !isTypeTestFile(c.path));
   const changedTests = liveTests.filter((c) => c.path.startsWith(prefix));
   const testFiles = changedTests.map((c) => rel(c.path));
   const findings: Finding[] = [];

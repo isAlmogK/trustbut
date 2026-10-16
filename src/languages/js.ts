@@ -1,9 +1,14 @@
 import type { Language } from './types.js';
 
+// Type tests: tsd (`test-d/`, `*.test-d.ts`), Vitest typecheck (`*.test-d.ts`, `*.spec-d.ts`), Vue (`test-dts/`, `*.d-test.ts`),
+// jest-runner-tsd (`__typetests__/`).
+const TYPE_TEST = /(^|\/)(test-dts|test-d|__typetests__)\/|\.(test|spec)-d\.[cm]?tsx?$|\.d-test\.[cm]?tsx?$/;
+
 export const js: Language = {
   id: 'js',
   extensions: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts'],
-  testFile: /(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/,
+  testFile: new RegExp(`(^|\\/)(tests?|__tests__)\\/|\\.(test|spec)\\.[cm]?[jt]sx?$|${TYPE_TEST.source}`),
+  typeTestFile: TYPE_TEST,
   testFileName: /\.(test|spec)\.[^/]*$/,
   comments: { line: ['//'], block: ['/*', '*/'] },
   strings: ['"', "'", '`'],

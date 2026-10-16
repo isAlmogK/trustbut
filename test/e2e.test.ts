@@ -130,6 +130,17 @@ describe('trustbut verify (end to end)', () => {
     ]);
   });
 
+  it('a type-test file counts as a changed test, and its @ts-expect-error is not an escape', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test-dts/sum.d-test.ts': "import { sum } from '../src/sum.js';\n// @ts-expect-error -- sum takes numbers\nsum('a', 1);\n",
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    const ids = receipt.findings.map((f) => f.id);
+    for (const id of ['no-tests-changed', 'escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
+    expect(receipt.verdict).toBe('pass');
+  });
+
   it('WARN only for the new test when an existing test file gains one test', async () => {
     const dir = await scenario({
       'test/old.test.js': [
