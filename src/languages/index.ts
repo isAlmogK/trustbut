@@ -33,3 +33,8 @@ export function isNamedTestFile(path: string): boolean {
   const lang = languageOf(path);
   return lang ? (lang.testFileName ?? lang.testFile).test(path) : GENERIC_TEST_NAME.test(path);
 }
+
+/** Whether the file is a type test: a test the type checker checks and no runner runs; see `Language.typeTestFile`. */
+export function isTypeTestFile(path: string): boolean {
+  return !!languageOf(path)?.typeTestFile?.test(path);
+}

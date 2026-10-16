@@ -84,6 +84,25 @@ describe('renderMarkdown', () => {
     expect(md).toContain('- `t.test.js` › y\n');
     expect(md).not.toContain('Test passes at base and fails at head');
   });
+  it('does not mark a failing test as passed at base when its regression was not reproduced', () => {
+    const c = (name: string, outcome: 'pass' | 'fail') => ({ id: `t.test.js::${name}`, file: 't.test.js', name, outcome });
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', proofs: [], changes: [],
+      after: { exitCode: 1, durationMs: 1, output: '', cases: [c('x', 'fail')] },
+      before: { exitCode: 0, durationMs: 1, output: '', cases: [c('x', 'pass')] },
+      findings: [
+        { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
+        {
+          id: 'trustbut/regression-not-reproduced', severity: 'info', file: 't.test.js', detail: 'x (rerun: pass at head, not run at base)',
+          title: 'Test failed at head and passed at base, but a rerun did not reproduce both results',
+        },
+      ],
+    });
+    const md = renderMarkdown(r);
+    expect(md).toContain('- `t.test.js` › x\n');
+    expect(md).not.toContain('(passed at base)');
+    expect(md).toContain('Test failed at head and passed at base, but a rerun did not reproduce both results');
+  });
   it('renders the verdict, test summary, findings and review list', () => {
     const receipt = buildReceipt({
       base: '3f2a91c0000000000000000000000000000000000',

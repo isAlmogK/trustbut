@@ -104,6 +104,53 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.findings.filter((f) => f.id === 'test-regressed').map((f) => [f.file, f.detail])).toEqual([['test/sum.test.js', 'adds']]);
   });
 
+  it('INFO, not FAIL-regressed: a test that failed once at head and passed on the rerun', async () => {
+    // The marker file outside the repo makes the test fail on its first run only, wherever it runs.
+    const mark = join(await mkdtemp(join(tmpdir(), 'trustbut-flaky-')), 'ran');
+    const { dir } = await makeRepo({
+      ...BASE_FILES,
+      'test/flaky.test.js': [
+        "import { it } from 'vitest';",
+        "import { existsSync, writeFileSync } from 'node:fs';",
+        `const mark = ${JSON.stringify(mark)};`,
+        "it('fails once', () => {",
+        "  if (!existsSync(mark)) { writeFileSync(mark, ''); throw new Error('first run'); }",
+        '});',
+        '',
+      ].join('\n'),
+    });
+    await linkNodeModules(dir);
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, { 'src/sum.js': 'export const sum = (a, b) => a + b;\n' });
+    await commitAll(dir, 'agent change');
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings.map((f) => f.id)).not.toContain('test-regressed');
+    expect(receipt.findings.filter((f) => f.id === 'trustbut/regression-not-reproduced').map((f) => [f.severity, f.file, f.detail])).toEqual([
+      ['info', 'test/flaky.test.js', 'fails once (rerun: pass at head, not run at base)'],
+    ]);
+  });
+
+  it('a type-test file counts as a changed test, and its @ts-expect-error is not an escape', async () => {
+    const dir = await scenario({
+      'src/sum.js': 'export const sum = (a, b) => a + b;\n',
+      'test-dts/sum.d-test.ts': "import { sum } from '../src/sum.js';\n// @ts-expect-error -- sum takes numbers\nsum('a', 1);\n",
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    const ids = receipt.findings.map((f) => f.id);
+    for (const id of ['no-tests-changed', 'escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
+    expect(receipt.verdict).toBe('pass');
+  });
+
+  it('no escape-added in files .gitattributes marks linguist-generated', async () => {
+    const dir = await scenario({
+      '.gitattributes': 'gen/** linguist-generated=true\n',
+      'gen/client.ts': 'export const c = {} as any;\n',
+      'src/client.ts': 'export const d = {} as any;\n',
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings.filter((f) => f.id === 'escape-added').map((f) => f.file)).toEqual(['src/client.ts']);
+  });
+
   it('WARN only for the new test when an existing test file gains one test', async () => {
     const dir = await scenario({
       'test/old.test.js': [

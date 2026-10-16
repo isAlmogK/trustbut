@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LANGUAGES, isNamedTestFile, languageById, languageOf } from '../src/languages/index.js';
+import { LANGUAGES, isNamedTestFile, isTypeTestFile, languageById, languageOf } from '../src/languages/index.js';
+import { classify } from '../src/classify.js';
 import type { Language } from '../src/languages/types.js';
 import { splitLine } from '../src/lex.js';
 
@@ -103,4 +104,18 @@ describe('files whose name says they define tests (proofs-unmatched)', () => {
     'src/test/java/a/TestUtils.java', 'src/main/java/a/ABTest.java', 'spec/spec_helper.rb', 'test/test_helper.rb', 'test/helpers.dart',
     'Tests/CalcTests/Fixtures.swift', 'src/calc.ts', 'README.md',
   ])('%s is not a named test file', (p) => expect(isNamedTestFile(p)).toBe(false));
+});
+
+describe('type-test files (checked by the type checker, not run)', () => {
+  it.each([
+    'test-dts/genericComponent.d-test.ts', 'test-d/index.ts', 'index.test-d.ts', 'src/a.spec-d.tsx', 'types/__typetests__/a.ts', 'src/x.test-d.mts',
+    'packages/core/test-dts/props.d-test.tsx',
+  ])('%s is a test file and a type test, but not a named test file', (p) => {
+    expect(classify(p)).toBe('test');
+    expect(isTypeTestFile(p)).toBe(true);
+    expect(isNamedTestFile(p)).toBe(false);
+  });
+  it.each(['src/a.test.ts', 'src/types.d.ts', 'src/test-data.ts', 'src/latest-d/a.ts', 'test/a.py', 'test-d/a.py'])('%s is not a type test', (p) => {
+    expect(isTypeTestFile(p)).toBe(false);
+  });
 });

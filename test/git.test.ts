@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { parseChanges } from '../src/diff.js';
 import {
-  addWorktree, diffText, isDirty, mergeBase, removeWorktree, repoRoot, resolveRef, showFile, showFileBuffer, snapshotWorkingTree,
+  addWorktree, diffText, generatedPaths, isDirty, mergeBase, removeWorktree, repoRoot, resolveRef, showFile, showFileBuffer, snapshotWorkingTree,
 } from '../src/git.js';
 import { branch, commitAll, makeRepo, writeFiles } from './helpers/repo.js';
 
@@ -146,5 +146,25 @@ describe('snapshotWorkingTree', () => {
     const dir = await mkdtemp(join(tmpdir(), 'trustbut-empty-'));
     await execa('git', ['init', '-q'], { cwd: dir });
     await expect(snapshotWorkingTree(dir)).rejects.toThrow(/no commits/i);
+  });
+});
+
+describe('generatedPaths', () => {
+  it("reads linguist-generated from the ref's .gitattributes files, not the working tree", async () => {
+    const { dir, base } = await makeRepo({
+      '.gitattributes': 'seed/** linguist-generated=true\ngen.ts linguist-generated\nseed/keep.ts -linguist-generated\nold/** linguist-generated=false\n',
+      'sub/.gitattributes': '*.g.ts linguist-generated\n',
+      'a.txt': 'a\n',
+    });
+    await writeFiles(dir, { '.gitattributes': null, 'sub/.gitattributes': null });
+    const paths = ['seed/a.rb', 'seed/keep.ts', 'x/gen.ts', 'sub/deep/a.g.ts', 'old/a.ts', 'src/a.ts', 'dir with space/gen.ts'];
+    expect(await generatedPaths(dir, base, paths)).toEqual(new Set(['seed/a.rb', 'x/gen.ts', 'sub/deep/a.g.ts', 'dir with space/gen.ts']));
+    expect(await isDirty(dir)).toBe(true);
+    expect(await generatedPaths(dir, base, [])).toEqual(new Set());
+  });
+
+  it('finds nothing generated in a ref without .gitattributes', async () => {
+    const { dir, base } = await makeRepo({ 'a.txt': 'a\n' });
+    expect(await generatedPaths(dir, base, ['a.txt'])).toEqual(new Set());
   });
 });

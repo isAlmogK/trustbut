@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Less noise from the trustbut-index pilot.** Fixes for findings that were true only by accident, or not at all.
+
+- `test-regressed` is now confirmed by a rerun. A test that fails at head and passed at base is rerun with the base run's files at head, then at base; it is reported only when it fails again at head and passes again at base. Otherwise trustbut adds the info finding `trustbut/regression-not-reproduced` with the rerun outcomes. This drops failures that happen only in the full suite or only once. "(passed at base)" in Markdown and agent feedback follows the confirmed findings.
+- Type-test files are tests: `test-d/`, `test-dts/`, `__typetests__/`, `*.test-d.ts`, `*.spec-d.ts`, `*.d-test.ts`. Adding one no longer gives `no-tests-changed`, and its `@ts-expect-error` lines are no longer `escape-added`. They are never passed to a test runner.
+- `escape-added` no longer reports a JS directive mentioned in comment prose (`@ts-…`, `eslint-disable`, coverage ignores count only right after a comment marker), `any` in a generic constraint (`T extends (...args: any[]) => R`), or anything in files `.gitattributes` marks `linguist-generated`. `any` in a type signature and suppressions with a rule code or a written reason are still reported.
+
 ## 0.5.0
 
 **Regressed tests.** A red suite no longer looks the same whether the change broke a test or the test was already failing.

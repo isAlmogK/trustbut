@@ -54,6 +54,11 @@ export interface Language {
    * of them, the proof engine reports `proofs-unmatched`. Defaults to `testFile`.
    */
   testFileName?: RegExp;
+  /**
+   * Test files checked by the type checker, not run by a test runner (TypeScript `*.test-d.ts`, `test-dts/`): they count
+   * as tests for the static checks, but the proof engine never passes them to a runner. A subset of `testFile`.
+   */
+  typeTestFile?: RegExp;
   /** Tests also live inside source files (Rust `#[cfg(test)]` modules): the skip and test-definition checks run on source files too. */
   inlineTests?: boolean;
   comments: CommentSyntax;

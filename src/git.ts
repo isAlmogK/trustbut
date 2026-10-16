@@ -71,6 +71,30 @@ export async function isDirty(cwd: string): Promise<boolean> {
 }
 
 /**
+ * The `paths` that `.gitattributes` at `ref` marks `linguist-generated` (set or `true`). Reads the attributes through a
+ * temporary index of `ref` (`check-attr --source` needs git 2.40), so nested `.gitattributes` files and git's own pattern
+ * rules apply and the working tree is never read.
+ */
+export async function generatedPaths(repo: string, ref: string, paths: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!paths.length) return out;
+  const dir = await mkdtemp(join(tmpdir(), 'trustbut-index-'));
+  try {
+    const env = { GIT_INDEX_FILE: join(dir, 'index') };
+    await execa('git', ['read-tree', ref], { cwd: repo, env });
+    const { stdout } = await execa('git', ['check-attr', '--cached', '-z', '--stdin', 'linguist-generated'], { cwd: repo, env, input: paths.join('\0') });
+    // Records of path NUL attribute NUL value NUL.
+    const parts = stdout.split('\0');
+    for (let i = 0; i + 2 < parts.length; i += 3) {
+      if (parts[i + 2] === 'set' || parts[i + 2] === 'true') out.add(parts[i]!);
+    }
+    return out;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Commit SHA for HEAD plus every tracked modification and untracked, non-ignored file.
  * Built with a temporary index, so the real index, HEAD and refs are never touched. The commit
  * is unreferenced (git gc will collect it).
