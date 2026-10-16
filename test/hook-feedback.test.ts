@@ -163,4 +163,12 @@ describe('regressed tests', () => {
   it('says how many failing tests passed at base in the one-line summary', () => {
     expect(summarize(regressedReceipt())).toBe('2 failing tests, 1 passed at base');
   });
+
+  it('still counts tests that passed at base when no failing test is counted', () => {
+    const r = regressedReceipt();
+    const noCases = { ...r, after: run([tc('ok', 'pass')]) };
+    expect(summarize(noCases)).toBe('test suite fails at head (clean checkout), 1 test passed at base and fails at head');
+    const two = { ...noCases, findings: [...noCases.findings, { ...noCases.findings[1]!, detail: 'lib > other' }] };
+    expect(summarize(two)).toBe('test suite fails at head (clean checkout), 2 tests passed at base and fail at head');
+  });
 });

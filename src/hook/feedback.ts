@@ -16,6 +16,7 @@ function failParts(r: Receipt): string[] {
   else if (suite) parts.push(lowerFirst(suite.title));
   const regressed = fails.filter((f) => f.id === 'test-regressed').length;
   if (failing && regressed) parts.push(`${regressed} passed at base`);
+  else if (regressed) parts.push(`${count(regressed, 'test')} passed at base and ${regressed === 1 ? 'fails' : 'fail'} at head`);
   const focused = fails.filter((f) => f.id === 'test-focused').length;
   if (focused) parts.push(count(focused, 'focused test'));
   const known = new Set(['suite-failing', 'test-failing', 'test-regressed', 'test-focused']);
