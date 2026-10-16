@@ -1,6 +1,6 @@
 # Pilot noise fixes: unconfirmed regressions, type tests, narrower escapes
 
-**Status:** Draft (2026-10-17)
+**Status:** Implemented (2026-10-17)
 **Feature:** trustbut-index pilot `results/pilot-2026-10-16` in [trustbut-index](https://github.com/isAlmogK/trustbut-index). This spec covers trustbut changes only. No receipt spec bump: the one new finding uses a namespaced id.
 
 ## Problem
@@ -93,3 +93,10 @@ Test first, per AGENTS.md.
 - Skipping generated files in other checks (`no-tests-changed`, risk ranking).
 - Running type tests (`tsc`, `tsd`, Vitest typecheck).
 - Receipt spec changes; a version bump or release (the study pins the trustbut version, so the user decides).
+
+## As built
+
+- `confirmRegressions` returns one record per candidate (`{ c, confirmed, head, base }`) instead of separate confirmed and unconfirmed lists.
+- When one test fails again on the head rerun, the base rerun happens for every candidate, so another candidate that passed on the head rerun reports its base rerun outcome (`pass at head, pass at base`), not `not run`. `not run` appears only when no candidate failed again at head.
+- `generatedPaths` is asked only for source files with added lines whose language has escape rules (the spec said "a registered language").
+- Otherwise as specified.
