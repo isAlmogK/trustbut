@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../helpers/verify.js';
 import { gradle, gradleArgs } from '../../src/runners/gradle.js';
@@ -11,7 +12,7 @@ import { detectRunner } from '../../src/runners/registry.js';
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';
 import { hasTool, requiredTools } from '../helpers/toolchain.js';
 
-const fx = (name: string) => new URL(`../fixtures/runners/jvm/${name}`, import.meta.url).pathname;
+const fx = (name: string) => fileURLToPath(new URL(`../fixtures/runners/jvm/${name}`, import.meta.url));
 
 describe('parseJvmJUnit', () => {
   it('reads a Surefire report: outcomes, parameterized names, nested classes', async () => {

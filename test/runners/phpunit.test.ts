@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../helpers/verify.js';
 import { detectRunner } from '../../src/runners/registry.js';
@@ -8,7 +9,7 @@ import { declaredPhpClasses, parsePhpunitJUnit, phpunit, phpunitArgs } from '../
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';
 import { hasTool, requiredTools } from '../helpers/toolchain.js';
 
-const fixturePath = new URL('../fixtures/runners/phpunit/junit-phpunit11.xml', import.meta.url).pathname;
+const fixturePath = fileURLToPath(new URL('../fixtures/runners/phpunit/junit-phpunit11.xml', import.meta.url));
 
 describe('parsePhpunitJUnit', () => {
   it('maps nested suites, data sets, skipped/failure/error, with files relative to the root', async () => {
