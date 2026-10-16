@@ -1,4 +1,4 @@
-import { regressedCases } from './proof.js';
+import { caseInFile } from './proof.js';
 import { ANSI } from './runners/cases.js';
 import type { Finding, Receipt, RunResult, TestCaseResult } from './types.js';
 
@@ -44,9 +44,11 @@ export function failingCases(r: Receipt): TestCaseResult[] {
   return r.findings.some((f) => f.id === 'suite-failing') ? (r.after?.cases ?? []).filter((c) => c.outcome === 'fail' || c.outcome === 'error') : [];
 }
 
-/** Ids of failing head results that passed at base. */
+/** Ids of failing head results that have a `test-regressed` finding (same name, matching file). */
 export function regressedIds(r: Receipt): Set<string> {
-  return r.before && r.after ? new Set(regressedCases(r.before, r.after).map((c) => c.id)) : new Set();
+  const regressed = r.findings.filter((f) => f.id === 'test-regressed');
+  const failing = (r.after?.cases ?? []).filter((c) => c.outcome === 'fail' || c.outcome === 'error');
+  return new Set(failing.filter((c) => regressed.some((f) => f.detail === c.name && (!f.file || caseInFile(c, f.file)))).map((c) => c.id));
 }
 
 const atBase = (ids: Set<string>, c: TestCaseResult): string => (ids.has(c.id) ? ' (passed at base)' : '');
