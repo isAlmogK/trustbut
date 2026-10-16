@@ -28,7 +28,13 @@ Today `proveTests` (`src/proof.ts`) runs the full suite at head and, only when t
 
 New behavior, after the head run:
 
-1. **Failing files.** Collect the head cases with outcome `fail` or `error` that are not synthetic placeholders (`isSynthetic`). Their files are the *failing files*: each case's `file`, kept only if `<head package root>/<file>` exists as a file. A case whose `file` doesn't resolve (a pytest module name, a runner-specific label) gets no base result, so it is never reported as regressed.
+1. **Failing files.** Collect the head cases with outcome `fail` or `error` that are not synthetic placeholders (`isSynthetic`). Each case's `file` is resolved to a path relative to the package root that exists as a file at head:
+   - a relative path that exists is used as is;
+   - an absolute path inside the head package root becomes relative;
+   - a dotted module name (pytest reports `tests.api.test_x` or `tests.api.test_x.TestY`) becomes the longest prefix that exists as a `.py` file (`tests/api/test_x.py`);
+   - anything else (empty, `..` segments, a path outside the package root, a runner-specific label) doesn't resolve.
+
+   The resolved paths, deduplicated, are the *failing files*. A case whose file doesn't resolve isn't added to the base run.
 2. **One base run.** The base run's files are the changed test files plus the failing files, deduplicated, in that order. The base run now happens when either set is non-empty; before, it happened only for changed tests. In `quick` scope the failing files are already changed test files, so nothing extra runs.
 3. **What base runs.** Unchanged: the base worktree gets the changed tests, snapshots and test data copied from head (`copiedToBase`). A failing file the change didn't touch is run as it exists at base.
 4. **Existing findings keep their rules.** `base-run-failed` still means "the changed tests could not run at base" and is emitted only when there are changed test files. `proofs` and `proofs-unmatched` still cover only changed test files.
@@ -41,7 +47,7 @@ A runner that ignores `files` (`command`, some build-tool runners) runs its whol
 |---|---|---|
 | `test-regressed` | `fail` | A test passes at base and fails at head. |
 
-One finding per head case whose outcome is `fail` or `error` and whose base outcome, matched by case `id`, is `pass`. A repeated id keeps its worst outcome on each side (the rule `buildProofs` already uses). `file` is the repo-relative path (package-root prefix added), `detail` is the case name, title `Test passes at base and fails at head`.
+One finding per head case that isn't synthetic, whose outcome is `fail` or `error`, and whose base outcome, matched by case `id`, is `pass`. A repeated id keeps its worst outcome on each side (the rule `buildProofs` already uses) and is reported once. The rule reads only the two runs, so a runner that runs its whole suite at base can report a case whose file didn't resolve. `file` is the repo-relative path: the package-root prefix plus the resolved path, or plus the runner's `file` when it didn't resolve. `detail` is the case name, title `Test passes at base and fails at head`.
 
 A changed test that fails at head and passed at base gets both `test-failing` and `test-regressed`: each is a separate fact. A test that failed at base too gets no `test-regressed`. That's how a red suite caused by the environment shows up: `suite-failing` with no `test-regressed`.
 
@@ -52,7 +58,7 @@ Output:
 
 ### Output tail in `x-trustbut`
 
-`x-trustbut.after` and `x-trustbut.before` gain an optional `outputTail` string when that run's exit code is non-zero and its output isn't empty. It reuses `outputTail` from `src/render.ts`, which gains optional limits (its defaults stay 20 lines and 1,500 characters for agent feedback). The receipt keeps the last 50 lines, ANSI escape codes removed, at most 4,000 characters (the end is kept). Output is not part of the core receipt. The spec's extension rule already allows it under `x-trustbut`, and consumers ignore `x-` keys they don't know.
+Receipts have carried no raw output since 0.4.0, on purpose: tests can print secrets. So the tail is opt-in. With `trustbut verify --output-tail` (JSON output only: `--json` or `--receipt-json`), `x-trustbut.after` and `x-trustbut.before` gain an optional `outputTail` string when that run's exit code is non-zero and its output isn't empty. Without the flag, receipts are unchanged. It reuses `outputTail` from `src/render.ts`, which gains optional limits (its defaults stay 20 lines and 1,500 characters for agent feedback). The receipt keeps the last 50 lines, ANSI escape codes removed, at most 4,000 characters (the end is kept). Output is not part of the core receipt. The spec's extension rule already allows it under `x-trustbut`, and consumers ignore `x-` keys they don't know.
 
 Output tails can quote whatever the tests print. trustbut writes receipts only where the caller asks, so the caller decides whether to publish them.
 
@@ -62,12 +68,15 @@ Adding a core id is a minor revision under the spec's Versioning rule. trustbut 
 
 - adds `test-regressed` to `spec/agent-receipt-v1.md` (catalog row, Changes entry **1.1**), the schema's core id list and `CORE_FINDINGS`;
 - emits `specVersion: "1.1"` on every receipt;
-- validates `test-regressed` as a known core id. A 1.0 validator (trustbut 0.4.x) accepts a 1.1 receipt with a warning for the unknown id, as the spec already requires.
+- validates `test-regressed` as a known core id in a receipt that declares `1.1` or later. A receipt that declares `1.0` and uses it is invalid (`'test-regressed' is a core id since 1.1 (the receipt declares 1.0)`), because 1.0 receipts are validated strictly;
+- treats only minors newer than `1.1` as newer: their unknown fields and core-shaped ids are warnings, and the messages name `1.1` (`unknown in spec 1.1`, `is not a 1.1 core id`).
+
+A 1.0 validator (trustbut 0.4.x) accepts a 1.1 receipt with a warning for the unknown id, as the spec already requires.
 
 ### Contract for consumers (trustbut-index)
 
 - `findings[].id === "test-regressed"`: a test that passed at base and fails at head. Absence means no failing test passed at base, or no base result was available for it.
-- `x-trustbut.after.outputTail`, `x-trustbut.before.outputTail`: optional strings, present only for a run that exited non-zero.
+- `x-trustbut.after.outputTail`, `x-trustbut.before.outputTail`: optional strings, present only with `--output-tail` and only for a run that exited non-zero.
 - `specVersion` is `"1.1"`.
 
 ## Testing
