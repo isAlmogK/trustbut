@@ -213,6 +213,51 @@ describe('static checks ignore strings, regex literals and comments (self-receip
     ]);
   });
 
+  it('does not flag a directive mentioned in comment prose, or any in a generic constraint', () => {
+    const lines = [
+      '  // should NOT type-check (use @ts-expect-error to assert this).',
+      "  // we don't add eslint-disable here",
+      '  /* see the istanbul ignore docs */',
+      '  findComponent<T extends (...args: any[]) => VNode>(',
+      'type C<T extends new (...args: any[]) => object> = T;',
+      'function f<A, B extends (...a: any[]) => any>() {}',
+    ];
+    const findings = checkEscapes([file({ path: 'src/a.ts', kind: 'source', added: lines.map((text, i) => ({ line: i + 1, text })) })]);
+    expect(findings).toEqual([]);
+  });
+
+  it('still flags directives right after a comment marker, any outside constraints and justified suppressions', () => {
+    const lines = [
+      '  // @ts-expect-error -- reason',
+      '  /* @ts-ignore */',
+      '  /** @ts-ignore */',
+      '  {/* @ts-expect-error */}',
+      '   * @ts-ignore',
+      '/// @ts-nocheck',
+      'foo(); // eslint-disable-line',
+      '/* c8 ignore next */',
+      '  renderGraphiQL?: (options?: any) => string;',
+      'function f<T>(x: any): T {}',
+    ];
+    const findings = checkEscapes([
+      file({ path: 'src/a.tsx', kind: 'source', added: lines.map((text, i) => ({ line: i + 1, text })) }),
+      file({ path: 'src/b.py', kind: 'source', added: [{ line: 1, text: 'except Exception:  # noqa: BLE001  # a row that fails is passed through' }] }),
+    ]);
+    expect(findings.map((f) => [f.file, f.line, f.title])).toEqual([
+      ['src/a.tsx', 1, 'TypeScript check suppressed'],
+      ['src/a.tsx', 2, 'TypeScript check suppressed'],
+      ['src/a.tsx', 3, 'TypeScript check suppressed'],
+      ['src/a.tsx', 4, 'TypeScript check suppressed'],
+      ['src/a.tsx', 5, 'TypeScript check suppressed'],
+      ['src/a.tsx', 6, 'TypeScript check suppressed'],
+      ['src/a.tsx', 7, 'lint rule disabled'],
+      ['src/a.tsx', 8, 'coverage exclusion'],
+      ['src/a.tsx', 9, 'explicit any'],
+      ['src/a.tsx', 10, 'explicit any'],
+      ['src/b.py', 1, 'lint rule disabled'],
+    ]);
+  });
+
   it('applies TS escapes only to JS/TS files and Python escapes only to .py files', () => {
     const findings = checkEscapes([
       file({ path: 'src/a.go', kind: 'source', added: [{ line: 1, text: 'var x = y // eslint-disable as any' }] }),
