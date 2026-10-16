@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { lstat, mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, sep } from 'node:path';
 import { checkDepsInstalled } from './deps.js';
 import { addWorktree, removeWorktree, showFileBuffer } from './git.js';
 import { goTestHelpers } from './go-helpers.js';
@@ -104,6 +104,7 @@ const PY_MODULE = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$/;
 /**
  * A runner-reported case file as a path relative to `root` that exists as a file there: a relative path,
  * an absolute path under `root`, or a pytest module name (`tests.api.test_x[.TestY]` → `tests/api/test_x.py`).
+ * The result is normalized (`./spec/x_spec.rb` → `spec/x_spec.rb`), so it compares equal to changed-file paths.
  */
 export function resolveCaseFile(file: string, root: string): string | undefined {
   if (!file || file.startsWith('[')) return undefined;
@@ -114,6 +115,7 @@ export function resolveCaseFile(file: string, root: string): string | undefined 
     if (!under) return undefined;
     rel = relative(under, file);
   }
+  rel = posix.normalize(rel.split(sep).join('/'));
   if (rel.split(/[\\/]/).includes('..')) return undefined;
   if (isFileAt(root, rel)) return rel;
   if (!PY_MODULE.test(rel)) return undefined;
@@ -277,14 +279,17 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
       .filter((c) => (c.outcome === 'fail' || c.outcome === 'error') && !isSynthetic(c))
       .map((c) => resolveCaseFile(c.file, headRoot))
       .filter((f): f is string => f !== undefined);
-    const baseFiles = [...new Set([...testFiles, ...failingFiles])];
-    if (!baseFiles.length) return { runner, scope, after, proofs: [], findings };
+    if (!testFiles.length && !failingFiles.length) return { runner, scope, after, proofs: [], findings };
 
     baseDir = await addWorktree(repo, base);
     await linkDeps(repo, baseDir, root);
     const toCopy = new Set([...changes.filter(copiedToBase).map((c) => c.path), ...(await goTestHelpers(changes, headDir))]);
     for (const path of toCopy) await copyFromHead(repo, head, baseDir, path);
-    const before = await runWithSetup(runner, { ...runOptions, cwd: join(baseDir, root), worktree: baseDir, files: baseFiles }, setup);
+    // A failing file missing at base (added at head and not copied, e.g. pytest-django `app/tests.py`) would make the runner error out.
+    const baseRoot = join(baseDir, root);
+    const baseFiles = [...new Set([...testFiles, ...failingFiles.filter((f) => isFileAt(baseRoot, f))])];
+    if (!baseFiles.length) return { runner, scope, after, proofs: [], findings };
+    const before = await runWithSetup(runner, { ...runOptions, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup);
     if (testFiles.length && before.exitCode !== 0 && before.cases.length === 0) {
       const detail = timeoutDetail(before, runOptions.timeoutMs);
       findings.push({
@@ -295,11 +300,12 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
       });
     }
     for (const c of regressedCases(before, after)) {
+      const file = resolveCaseFile(c.file, headRoot) ?? c.file;
       findings.push({
         id: 'test-regressed',
         severity: 'fail',
         title: 'Test passes at base and fails at head',
-        file: `${prefix}${resolveCaseFile(c.file, headRoot) ?? c.file}`,
+        ...(file ? { file: `${prefix}${file}` } : {}),
         detail: c.name,
       });
     }
