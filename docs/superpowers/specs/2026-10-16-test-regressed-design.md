@@ -1,6 +1,6 @@
 # Regressed tests and output tails
 
-**Status:** Draft (2026-10-16)
+**Status:** Implemented (2026-10-16)
 **Feature:** [pilot measurement fixes](https://github.com/isAlmogK/trustbut-index/blob/main/docs/superpowers/specs/2026-10-16-pilot-measurement-fixes-design.md) in trustbut-index. This spec covers the trustbut part only, including the receipt contract the index reads.
 
 ## Problem
@@ -92,3 +92,13 @@ A 1.0 validator (trustbut 0.4.x) accepts a 1.1 receipt with a warning for the un
 - Running the full suite at base.
 - Changing `suite-failing`, `test-failing` or `base-run-failed`.
 - Any study-specific logic; the index decides which findings it counts.
+
+## As built
+
+- The e2e `--output-tail` test asserts the tail contains "JUNIT report written", not a test name. trustbut runs vitest with `--reporter=junit`, so failure text lives in `cases[].message`, not in the run's output.
+- Markdown leaves `test-regressed` findings out of Findings only when the Failing tests list is shown (the head run has `suite-failing`). Without it, they stay in Findings. The spec says "listed once" without that condition.
+- The validator rejects a core id newer than the declared minor (`test-regressed` in a `1.0` receipt) through a `CORE_FINDING_SINCE` table, and treats only minors newer than 1.1 as lenient. The `since` message reads `'test-regressed' is a core id since 1.1 (the receipt declares 1.0)`.
+- With `--quick` and no changed tests, the scope falls back to full, so the failing files are not already changed test files. A red suite then also triggers a base run.
+- The hook summary adds `N passed at base` only when a failing-test count is shown.
+- `--output-tail` is accepted with any output mode; it only changes JSON receipts (stdout with `--json`, and `--receipt-json` files).
+- Docs touched beyond the spec: `spec/agent-receipt-v1.md` (Status v1.1, Extensions, Versioning and Changes wording, `outputTail`), `docs/SPEC.md`, README (flag row, 20 core ids).

@@ -185,6 +185,7 @@ trustbut verify --json > receipt.json
 | `--strict` | Exit with `1` on WARN as well as FAIL | off |
 | `--json` | Print the receipt as JSON: an [agent receipt v1](spec/agent-receipt-v1.md) | off |
 | `--receipt-json <path>` | Also write the JSON receipt to this file (relative to the current directory; parent folders are created) | off |
+| `--output-tail` | JSON receipts: add the end of each failed run's output (last 50 lines, at most 4,000 characters) as `outputTail` under `x-trustbut`. Tests can print secrets | off |
 | `--receipt-md <path>` | Also write the Markdown receipt to this file | off |
 
 ### Verdicts and exit codes
@@ -448,7 +449,7 @@ A ranked list of the files that deserve your attention: auth and permissions, da
 
 ## The agent receipts format
 
-`trustbut verify --json` prints an **agent receipt**: an open, versioned JSON format for evidence about a code change. Any tool can produce one and any tool can read one, and trustbut is just the reference implementation. The [spec](spec/agent-receipt-v1.md) defines a small required core (`specVersion`, `producer`, `subject`, `verdict`, `findings`), optional standard sections (`tests`, `proofs`, `risks`), 19 core finding ids with fixed meanings, namespaced ids like `acme/secret-leak` for everything else, and `x-` keys for tool-specific data.
+`trustbut verify --json` prints an **agent receipt**: an open, versioned JSON format for evidence about a code change. Any tool can produce one and any tool can read one, and trustbut is just the reference implementation. The [spec](spec/agent-receipt-v1.md) defines a small required core (`specVersion`, `producer`, `subject`, `verdict`, `findings`), optional standard sections (`tests`, `proofs`, `risks`), 20 core finding ids with fixed meanings, namespaced ids like `acme/secret-leak` for everything else, and `x-` keys for tool-specific data.
 
 Check any receipt, from trustbut or anything else, against the spec:
 

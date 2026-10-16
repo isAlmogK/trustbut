@@ -1,6 +1,6 @@
 # Agent receipts, spec v1
 
-**Status:** v1.0, stable. **Schema:** [`agent-receipt-v1.schema.json`](agent-receipt-v1.schema.json) (JSON Schema draft 2020-12), `$id` `https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json`. **Reference producer and validator:** [trustbut](../README.md) (`trustbut verify --json`, `trustbut validate`).
+**Status:** v1.1, stable. **Schema:** [`agent-receipt-v1.schema.json`](agent-receipt-v1.schema.json) (JSON Schema draft 2020-12), `$id` `https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json`. **Reference producer and validator:** [trustbut](../README.md) (`trustbut verify --json`, `trustbut validate`).
 
 An **agent receipt** is a small JSON document with deterministic evidence about one code change, usually one made by an AI coding agent: what was compared, what the tests showed, and which facts a reviewer should look at. Any tool can produce receipts and any tool can read them. This document is the contract between them.
 
@@ -105,11 +105,11 @@ Any other finding MUST use a namespaced id `<namespace>/<id>`, both parts matchi
 
 ## Extensions
 
-Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Consumers MUST ignore `x-` keys they don't understand. Any other unknown key makes a `1.0` receipt invalid; in a receipt that declares a newer minor it is a field from that revision (see Versioning).
+Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Consumers MUST ignore `x-` keys they don't understand. Any other unknown key makes a receipt invalid when it declares a minor the validator knows (`1.0` or `1.1`); in a receipt that declares a newer minor it is a field from that revision (see Versioning).
 
 ## Versioning
 
-`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. Receipts that declare `1.0` are validated strictly. A receipt that uses a core id introduced in a later minor than it declares is invalid. Removing or changing the meaning of anything requires `2.0`.
+`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. A receipt that declares a minor the validator knows (`1.0` or `1.1`) is validated strictly; only the unknown fields and core-shaped ids of a newer minor are warnings. A receipt that uses a core id introduced in a later minor than it declares is invalid. Removing or changing the meaning of anything requires `2.0`.
 
 ## Validating
 
@@ -131,5 +131,5 @@ Validation checks the schema first, then the verdict rule. Warnings don't make a
 
 ## Changes
 
-- **1.1** (trustbut 0.5.0): adds the core id `test-regressed`.
+- **1.1** (trustbut 0.5.0): adds the core id `test-regressed`. trustbut also writes an optional `outputTail` string on failed runs under `x-trustbut` with `--output-tail`.
 - **1.0** (trustbut 0.4.0): first version.
