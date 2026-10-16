@@ -141,6 +141,16 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.verdict).toBe('pass');
   });
 
+  it('no escape-added in files .gitattributes marks linguist-generated', async () => {
+    const dir = await scenario({
+      '.gitattributes': 'gen/** linguist-generated=true\n',
+      'gen/client.ts': 'export const c = {} as any;\n',
+      'src/client.ts': 'export const d = {} as any;\n',
+    });
+    const { receipt } = await runVerify({ cwd: dir });
+    expect(receipt.findings.filter((f) => f.id === 'escape-added').map((f) => f.file)).toEqual(['src/client.ts']);
+  });
+
   it('WARN only for the new test when an existing test file gains one test', async () => {
     const dir = await scenario({
       'test/old.test.js': [

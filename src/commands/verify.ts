@@ -4,7 +4,8 @@ import { checkEscapes } from '../checks/escapes.js';
 import { checkTestIntegrity } from '../checks/test-integrity.js';
 import { DEFAULT_SETUP_WAIT_SEC, DEFAULT_TIMEOUT_SEC, loadConfig, normalizeRoot } from '../config.js';
 import { parseChanges } from '../diff.js';
-import { DEFAULT_BASES, diffText, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
+import { DEFAULT_BASES, diffText, generatedPaths, isDirty, mergeBase, objectType, repoRoot, resolveRef, snapshotWorkingTree } from '../git.js';
+import { languageOf } from '../languages/index.js';
 import { withAbort } from '../process.js';
 import { proveTests, type ProofOutput } from '../proof.js';
 import { buildReceipt } from '../receipt.js';
@@ -97,7 +98,9 @@ async function verify(opts: VerifyOptions): Promise<VerifyResult> {
   const changes = parseChanges(await diffText(repo, base, head));
   // Different commits with the same content (an empty commit, or --working with nothing changed): nothing to verify.
   if (changes.length === 0) throw await noChanges();
-  const findings: Finding[] = [...checkTestIntegrity(changes), ...checkEscapes(changes)];
+  // Only source files that could get an escape finding are looked up.
+  const escapable = changes.filter((c) => c.kind === 'source' && c.added.length && languageOf(c.path)?.rules.escapes?.length).map((c) => c.path);
+  const findings: Finding[] = [...checkTestIntegrity(changes), ...checkEscapes(changes, await generatedPaths(repo, head, escapable))];
   if (!opts.working && (await isDirty(repo))) {
     findings.push({ id: 'uncommitted-changes', severity: 'info', title: 'Uncommitted changes are not included in this receipt' });
   }

@@ -2,10 +2,11 @@ import { languageOf } from '../languages/index.js';
 import { splitLine } from '../lex.js';
 import type { ChangedFile, Finding } from '../types.js';
 
-export function checkEscapes(files: ChangedFile[]): Finding[] {
+/** `generated`: paths of generated files (`linguist-generated` at head), which get no findings. */
+export function checkEscapes(files: ChangedFile[], generated: ReadonlySet<string> = new Set()): Finding[] {
   const findings: Finding[] = [];
   for (const f of files) {
-    if (f.kind !== 'source') continue;
+    if (f.kind !== 'source' || generated.has(f.path)) continue;
     const lang = languageOf(f.path);
     const rules = lang?.rules.escapes ?? [];
     if (!lang || !rules.length) continue;

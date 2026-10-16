@@ -258,6 +258,12 @@ describe('static checks ignore strings, regex literals and comments (self-receip
     ]);
   });
 
+  it('skips generated files', () => {
+    const gen = file({ path: 'seed/a.rb', kind: 'source', added: [{ line: 1, text: 'value # rubocop:disable Lint/Void' }] });
+    expect(checkEscapes([gen], new Set(['seed/a.rb']))).toEqual([]);
+    expect(checkEscapes([gen]).map((f) => f.title)).toEqual(['lint rule disabled']);
+  });
+
   it('applies TS escapes only to JS/TS files and Python escapes only to .py files', () => {
     const findings = checkEscapes([
       file({ path: 'src/a.go', kind: 'source', added: [{ line: 1, text: 'var x = y // eslint-disable as any' }] }),
