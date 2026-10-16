@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
+  "specVersion": "1.1",
+  "producer": { "name": "trustbut", "version": "0.5.0" },
+  "subject": { "base": "main", "head": "HEAD" },
+  "verdict": "fail",
+  "tests": { "passed": 3, "failed": 1, "errored": 0, "skipped": 0, "scope": "full" },
+  "findings": [
+    { "id": "suite-failing", "severity": "fail", "title": "Test suite fails at head (clean checkout)", "detail": "exit code 1" },
+    { "id": "test-regressed", "severity": "fail", "title": "Test passes at base and fails at head", "file": "test/sum.test.js", "detail": "adds" }
+  ]
+}

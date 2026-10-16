@@ -40,7 +40,7 @@ describe('toAgentReceipt', () => {
   it('maps the core fields', () => {
     const r = toAgentReceipt(receipt({ headRef: 'working tree' }));
     expect(r.$schema).toBe(SCHEMA_URL);
-    expect(r.specVersion).toBe('1.0');
+    expect(r.specVersion).toBe('1.1');
     expect(r.producer).toEqual({ name: 'trustbut', version: VERSION });
     expect(r.subject).toEqual({ base: 'aaa', head: 'bbb', headRef: 'working tree' });
     expect(r.verdict).toBe('warn');

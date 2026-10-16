@@ -1,5 +1,5 @@
 {
-  "specVersion": "1.1",
+  "specVersion": "1.2",
   "producer": { "name": "trustbut", "version": "0.4.0" },
   "subject": { "base": "main", "head": "HEAD" },
   "verdict": "warn",

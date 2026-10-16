@@ -17,8 +17,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
-  "specVersion": "1.0",
-  "producer": { "name": "trustbut", "version": "0.4.0" },
+  "specVersion": "1.1",
+  "producer": { "name": "trustbut", "version": "0.5.0" },
   "subject": { "base": "3f2a91c0d4b6e8a1f2c3d4e5f6a7b8c9d0e1f2a3", "head": "8be04d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e" },
   "verdict": "warn",
   "tests": { "passed": 41, "failed": 0, "errored": 0, "skipped": 1, "scope": "full" },
@@ -41,7 +41,7 @@ More in [`examples/valid/`](examples/valid/).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `specVersion` | string, `1.<minor>` | The spec version the receipt follows. This document is `1.0`. |
+| `specVersion` | string, `1.<minor>` | The spec version the receipt follows. This document is `1.1`. |
 | `producer` | object | The tool that made the receipt: `name` (required), `version` (required), `url` (optional). |
 | `subject` | object | What was compared: `base` and `head` (required; commit ids or refs), `headRef` (optional human label when the head isn't a plain commit, e.g. `"working tree"`). |
 | `verdict` | `"pass"` \| `"warn"` \| `"fail"` | The overall result, given by the verdict rule below. |
@@ -81,6 +81,7 @@ Core ids have a fixed meaning and match `[a-z0-9][a-z0-9-]*`. Producers SHOULD u
 | `test-focused` | `fail` | A focus marker was added (`.only`, `fit`, …), so the rest of the suite stops running. |
 | `suite-failing` | `fail` | The suite fails at head, or the runner failed before reporting any test. |
 | `test-failing` | `fail` | A new or changed test fails at head. |
+| `test-regressed` | `fail` | A test passes at base and fails at head. |
 | `test-skipped` | `warn` | A skip marker was added. |
 | `tests-removed` | `warn` | Test definitions were removed on net. |
 | `assertions-removed` | `warn` | Assertions were removed on net. |
@@ -108,7 +109,7 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 
 ## Versioning
 
-`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. Receipts that declare `1.0` are validated strictly. Removing or changing the meaning of anything requires `2.0`.
+`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a 1.0 validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. Receipts that declare `1.0` are validated strictly. A receipt that uses a core id introduced in a later minor than it declares is invalid. Removing or changing the meaning of anything requires `2.0`.
 
 ## Validating
 
@@ -116,7 +117,7 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 trustbut validate receipt.json         # or: some-tool --json | trustbut validate
 ```
 
-Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than `1.0`, unknown fields and unknown ids shaped like a core id. A malformed id is an error whatever the version. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
+Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than the validator knows (this document is `1.1`), unknown fields and unknown ids shaped like a core id. A malformed id is an error whatever the version. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
 
 | Example | Expected error |
 |---|---|
@@ -125,8 +126,10 @@ Validation checks the schema first, then the verdict rule. Warnings don't make a
 | `invalid/bad-finding-id-newer-minor.json` | `/findings/0/id`: must be a core finding id or a namespaced id (<namespace>/<id>) |
 | `invalid/unknown-field.json` | `/`: must not have additional property 'durationMs' |
 | `invalid/bad-spec-version.json` | `/specVersion`: must match pattern "^1\.(0\|[1-9][0-9]*)$" |
+| `invalid/regressed-in-1-0.json` | `/findings/0/id`: 'test-regressed' is a core id since 1.1 (the receipt declares 1.0) |
 | `invalid/verdict-mismatch.json` | `/verdict`: must be 'warn' for these findings (got 'pass') |
 
 ## Changes
 
+- **1.1** (trustbut 0.5.0): adds the core id `test-regressed`.
 - **1.0** (trustbut 0.4.0): first version.
