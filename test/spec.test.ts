@@ -134,6 +134,17 @@ describe('validateAgentReceipt', () => {
       ]);
     });
 
+    it('is invalid when it declares exactly 1.1, the newest known minor', () => {
+      expect(validateAgentReceipt(future('1.1'))).toEqual({
+        valid: false,
+        errors: [
+          { path: '/', message: "must not have additional property 'coverage'" },
+          { path: '/findings/0/id', message: ID_MESSAGE },
+        ],
+        warnings: [],
+      });
+    });
+
     it('is invalid for real type errors and malformed namespaced ids', () => {
       expect(validateAgentReceipt({ ...future('1.2'), verdict: 'nope' }).valid).toBe(false);
       const badNs = { ...future('1.2'), findings: [{ id: 'Acme/leak', severity: 'warn', title: 'x' }] };
