@@ -141,6 +141,33 @@ export function regressedCases(before: RunResult, after: RunResult): TestCaseRes
   return worstById(after.cases).filter((c) => !isSynthetic(c) && (c.outcome === 'fail' || c.outcome === 'error') && base.get(c.id) === 'pass');
 }
 
+const isFailure = (outcome: TestCaseResult['outcome'] | undefined): boolean => outcome === 'fail' || outcome === 'error';
+
+export interface RerunResult {
+  c: TestCaseResult;
+  /** Failed or errored again at head and passed again at base. */
+  confirmed: boolean;
+  /** The rerun's outcome at head, or `no result`. */
+  head: string;
+  /** The rerun's outcome at base, `no result`, or `not run` when there was no base rerun. */
+  base: string;
+}
+
+/**
+ * Checks candidate regressions against their reruns, in head order: confirmed when the test fails or errors again at
+ * head and passes again at base. Anything else, including a rerun that reported nothing for the test, is not confirmed.
+ */
+export function confirmRegressions(candidates: TestCaseResult[], headRerun: RunResult, baseRerun: RunResult | undefined): RerunResult[] {
+  const outcomes = (r: RunResult) => new Map(worstById(r.cases).map((c) => [c.id, c.outcome]));
+  const atHead = outcomes(headRerun);
+  const atBase = baseRerun ? outcomes(baseRerun) : undefined;
+  return candidates.map((c) => {
+    const head = atHead.get(c.id);
+    const base = atBase?.get(c.id);
+    return { c, confirmed: isFailure(head) && base === 'pass', head: head ?? 'no result', base: atBase ? (base ?? 'no result') : 'not run' };
+  });
+}
+
 /** Whether the run reported nothing but placeholders for a failed build or start-up. */
 const onlySynthetic = (r: RunResult): boolean => r.cases.length > 0 && r.cases.every(isSynthetic);
 
@@ -299,15 +326,30 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
         ...(detail ? { detail } : {}),
       });
     }
-    for (const c of regressedCases(before, after)) {
-      const file = resolveCaseFile(c.file, headRoot) ?? c.file;
-      findings.push({
-        id: 'test-regressed',
-        severity: 'fail',
-        title: 'Test passes at base and fails at head',
-        ...(file ? { file: `${prefix}${file}` } : {}),
-        detail: c.name,
-      });
+    // A test that failed in the full head run and passed at base is rerun with the base run's files, at head and then
+    // at base, so a failure from full-suite load, shared state or chance doesn't count as a regression.
+    const candidates = regressedCases(before, after);
+    if (candidates.length) {
+      const headRerun = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: baseFiles }, setup);
+      const rerunAtHead = new Map(worstById(headRerun.cases).map((c) => [c.id, c.outcome]));
+      const baseRerun = candidates.some((c) => isFailure(rerunAtHead.get(c.id)))
+        ? await runWithSetup(runner, { ...runOptions, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup)
+        : undefined;
+      for (const { c, confirmed, head: atHead, base: atBase } of confirmRegressions(candidates, headRerun, baseRerun)) {
+        const file = resolveCaseFile(c.file, headRoot) ?? c.file;
+        const where = file ? { file: `${prefix}${file}` } : {};
+        findings.push(
+          confirmed
+            ? { id: 'test-regressed', severity: 'fail', title: 'Test passes at base and fails at head', ...where, detail: c.name }
+            : {
+                id: 'trustbut/regression-not-reproduced',
+                severity: 'info',
+                title: 'Test failed at head and passed at base, but a rerun did not reproduce both results',
+                ...where,
+                detail: `${c.name} (rerun: ${atHead} at head, ${atBase} at base)`,
+              },
+        );
+      }
     }
     if (!testFiles.length) return { runner, scope, after, before, proofs: [], findings };
 
