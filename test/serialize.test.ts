@@ -86,3 +86,28 @@ describe('toAgentReceipt', () => {
     expect(validateAgentReceipt(JSON.parse(JSON.stringify(toAgentReceipt(receipt({ runner: null, after: undefined, before: undefined, findings: [], verdict: 'pass' })))))).toEqual({ valid: true, errors: [], warnings: [] });
   });
 });
+
+describe('toAgentReceipt with outputTail', () => {
+  it('adds the end of a failed run only, without colour codes', () => {
+    const r = toAgentReceipt(receipt(), { outputTail: true });
+    expect(r['x-trustbut']?.after?.outputTail).toBe('SECRET=hunter2 and a very long log');
+    expect(r['x-trustbut']?.before).not.toHaveProperty('outputTail');
+    const colored = toAgentReceipt(receipt({ after: { exitCode: 1, durationMs: 1, cases: [], output: '\u001b[31mred\u001b[39m\n' } }), { outputTail: true });
+    expect(colored['x-trustbut']?.after?.outputTail).toBe('red');
+    expect(validateAgentReceipt(JSON.parse(JSON.stringify(r)))).toEqual({ valid: true, errors: [], warnings: [] });
+  });
+
+  it('keeps the last 50 lines and at most 4,000 characters', () => {
+    const lines = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join('\n');
+    const tail = toAgentReceipt(receipt({ after: { exitCode: 1, durationMs: 1, cases: [], output: lines } }), { outputTail: true })['x-trustbut']?.after?.outputTail;
+    expect(tail?.split('\n')).toEqual(Array.from({ length: 50 }, (_, i) => `line ${i + 11}`));
+    const long = `${'a'.repeat(3000)}${'b'.repeat(3000)}`;
+    const cut = toAgentReceipt(receipt({ after: { exitCode: 1, durationMs: 1, cases: [], output: long } }), { outputTail: true })['x-trustbut']?.after?.outputTail;
+    expect(cut).toHaveLength(4000);
+    expect(cut?.endsWith('b'.repeat(3000))).toBe(true);
+  });
+
+  it('writes no output without the option', () => {
+    expect(JSON.stringify(toAgentReceipt(receipt()))).not.toContain('outputTail');
+  });
+});

@@ -116,12 +116,12 @@ export interface AgentFeedbackOptions {
   maxChars?: number;
 }
 
-/** The last lines (at most 20 and 1,500 characters) of a run's output, without colour codes. */
-export function outputTail(output: string): string {
-  const lines = output.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/).slice(-OUTPUT_LINES);
-  while (lines.length > 1 && lines.join('\n').length > OUTPUT_MAX) lines.shift();
+/** The last lines (default at most 20 and 1,500 characters) of a run's output, without colour codes. */
+export function outputTail(output: string, maxLines = OUTPUT_LINES, maxChars = OUTPUT_MAX): string {
+  const lines = output.replace(ANSI, '').replace(/\s+$/, '').split(/\r?\n/).slice(-maxLines);
+  while (lines.length > 1 && lines.join('\n').length > maxChars) lines.shift();
   const text = lines.join('\n');
-  return text.length > OUTPUT_MAX ? text.slice(-OUTPUT_MAX) : text;
+  return text.length > maxChars ? text.slice(-maxChars) : text;
 }
 
 /** A fenced code block whose fence is longer than any backtick run inside. */

@@ -1,13 +1,24 @@
 import type { Receipt, RunResult, TestOutcome } from '../types.js';
+import { outputTail } from '../render.js';
 import { VERSION } from '../version.js';
 import { SCHEMA_URL, SPEC_VERSION, type AgentReceiptV1, type TrustbutRun } from './types.js';
 
-function run(r: RunResult): TrustbutRun {
-  return { exitCode: r.exitCode, durationMs: r.durationMs, ...(r.timedOut ? { timedOut: true } : {}), cases: r.cases };
+/** Receipt tail with `--output-tail`: the last 50 lines, at most 4,000 characters. */
+const TAIL_LINES = 50;
+const TAIL_MAX = 4000;
+
+export interface AgentReceiptOptions {
+  /** Add the end of each failed run's output under x-trustbut (`--output-tail`). */
+  outputTail?: boolean;
+}
+
+function run(r: RunResult, withTail: boolean): TrustbutRun {
+  const tail = withTail && r.exitCode !== 0 ? outputTail(r.output, TAIL_LINES, TAIL_MAX) : '';
+  return { exitCode: r.exitCode, durationMs: r.durationMs, ...(r.timedOut ? { timedOut: true } : {}), cases: r.cases, ...(tail ? { outputTail: tail } : {}) };
 }
 
 /** trustbut's internal receipt as an agent receipt v1 (what `--json` and `--receipt-json` write). */
-export function toAgentReceipt(receipt: Receipt): AgentReceiptV1 {
+export function toAgentReceipt(receipt: Receipt, opts: AgentReceiptOptions = {}): AgentReceiptV1 {
   const cases = receipt.after?.cases ?? [];
   const count = (outcome: TestOutcome) => cases.filter((c) => c.outcome === outcome).length;
   return {
@@ -33,8 +44,8 @@ export function toAgentReceipt(receipt: Receipt): AgentReceiptV1 {
       runner: receipt.runner,
       languages: receipt.languages,
       root: receipt.root,
-      ...(receipt.after ? { after: run(receipt.after) } : {}),
-      ...(receipt.before ? { before: run(receipt.before) } : {}),
+      ...(receipt.after ? { after: run(receipt.after, opts.outputTail === true) } : {}),
+      ...(receipt.before ? { before: run(receipt.before, opts.outputTail === true) } : {}),
     },
   };
 }

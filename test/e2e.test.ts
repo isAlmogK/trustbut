@@ -239,6 +239,15 @@ describe('trustbut verify (end to end)', () => {
     expect(output).not.toContain('"output"');
   });
 
+  it('--output-tail puts the end of a failed head run in the JSON receipt', async () => {
+    const dir = await scenario({ 'test/old.test.js': "import { it, expect } from 'vitest';\nit('truth', () => expect(1).toBe(2));\n" });
+    const { output } = await runVerify({ cwd: dir, json: true, outputTail: true });
+    const json = JSON.parse(output);
+    expect(json['x-trustbut'].after.outputTail).toContain('JUNIT report written');
+    const plain = JSON.parse((await runVerify({ cwd: dir, json: true })).output);
+    expect(plain['x-trustbut'].after).not.toHaveProperty('outputTail');
+  });
+
   it('registers the verify command', () => {
     expect(buildProgram().commands.map((c) => c.name())).toContain('verify');
   });

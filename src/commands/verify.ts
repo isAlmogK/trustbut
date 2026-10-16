@@ -29,6 +29,8 @@ export interface VerifyOptions {
   quick?: boolean;
   strict?: boolean;
   json?: boolean;
+  /** Put the end of each failed run's output in the JSON receipt (`--output-tail`). */
+  outputTail?: boolean;
   /** Also write the JSON receipt to this file (parent dirs created; relative to cwd). */
   receiptJson?: string;
   /** Also write the Markdown receipt to this file (parent dirs created; relative to cwd). */
@@ -138,7 +140,7 @@ async function verify(opts: VerifyOptions): Promise<VerifyResult> {
     findings: [...findings, ...proof.findings],
     changes,
   });
-  const json = `${JSON.stringify(toAgentReceipt(receipt), null, 2)}\n`;
+  const json = `${JSON.stringify(toAgentReceipt(receipt, { outputTail: opts.outputTail }), null, 2)}\n`;
   const output = opts.json ? json : renderMarkdown(receipt);
   const writeErrors: VerifyResult['writeErrors'] = [];
   const write = async (path: string, text: string) => {

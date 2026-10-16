@@ -39,6 +39,7 @@ export function buildProgram(): Command {
     .option('--strict', 'exit 1 on WARN as well as FAIL')
     .option('--json', 'print the receipt as JSON (agent receipt v1, see spec/agent-receipt-v1.md)')
     .option('--receipt-json <path>', 'also write the JSON receipt to this file (relative to the current directory)')
+    .option('--output-tail', "JSON receipts: include the end of each failed run's output under x-trustbut (off by default: tests can print secrets)")
     .option('--receipt-md <path>', 'also write the Markdown receipt to this file (relative to the current directory)')
     .action(async (opts: VerifyOptions) => {
       try {
