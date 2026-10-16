@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../helpers/verify.js';
 import { detectRunner } from '../../src/runners/registry.js';
@@ -8,7 +9,7 @@ import { parseRspecJson, rspec, rspecArgs } from '../../src/runners/rspec.js';
 import { branch, commitAll, makeRepo, writeFiles } from '../helpers/repo.js';
 import { hasTool, requiredTools } from '../helpers/toolchain.js';
 
-const fx = (name: string) => new URL(`../fixtures/runners/rspec/${name}`, import.meta.url).pathname;
+const fx = (name: string) => fileURLToPath(new URL(`../fixtures/runners/rspec/${name}`, import.meta.url));
 const fixture = fx('rspec.json');
 
 describe('parseRspecJson', () => {

@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from '../helpers/verify.js';
 import { classFilter, declaredClasses, dotnet, dotnetTestArgs, parseTrx } from '../../src/runners/dotnet.js';
@@ -111,7 +112,7 @@ describe('dotnet runner with a fake dotnet on PATH', () => {
     }
   }
   // Writes the sample TRX into the --results-directory the runner passed.
-  const sample = new URL('../fixtures/runners/dotnet/sample.trx', import.meta.url).pathname;
+  const sample = fileURLToPath(new URL('../fixtures/runners/dotnet/sample.trx', import.meta.url));
   const script = (exit: number) =>
     `#!/bin/sh\necho "ARGS: $*" >&2\nwhile [ $# -gt 0 ]; do if [ "$1" = --results-directory ]; then cp '${sample}' "$2/run.trx"; fi; shift; done\nexit ${exit}\n`;
 
