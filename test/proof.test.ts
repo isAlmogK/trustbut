@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { execa } from 'execa';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseChanges } from '../src/diff.js';
 import { diffText } from '../src/git.js';
-import { buildProofs, caseInFile, copiedToBase, proveTests } from '../src/proof.js';
+import { buildProofs, caseInFile, copiedToBase, proveTests, regressedCases, resolveCaseFile } from '../src/proof.js';
 import { vitest } from '../src/runners/vitest.js';
 import type { RunOptions, Runner } from '../src/runners/types.js';
 import type { ChangedFile, RunResult, TestCaseResult } from '../src/types.js';
@@ -31,6 +31,55 @@ describe('caseInFile', () => {
   it('matches a runner path relative to a subdirectory of the repo', () => {
     expect(caseInFile(tc('test/a.test.ts', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(true);
     expect(caseInFile(tc('', 'x', 'pass'), 'packages/web/test/a.test.ts')).toBe(false);
+  });
+});
+
+describe('resolveCaseFile', () => {
+  async function tree() {
+    const root = await mkdtemp(join(tmpdir(), 'resolve-'));
+    await mkdir(join(root, 'test'), { recursive: true });
+    await mkdir(join(root, 'tests', 'api'), { recursive: true });
+    await writeFile(join(root, 'test', 'a.test.js'), '');
+    await writeFile(join(root, 'tests', 'api', 'test_x.py'), '');
+    return root;
+  }
+
+  it('keeps an existing relative path and makes an absolute one under the root relative', async () => {
+    const root = await tree();
+    expect(resolveCaseFile('test/a.test.js', root)).toBe('test/a.test.js');
+    expect(resolveCaseFile(join(root, 'test', 'a.test.js'), root)).toBe('test/a.test.js');
+  });
+
+  it('maps a pytest module name, with or without a class, to its .py file', async () => {
+    const root = await tree();
+    expect(resolveCaseFile('tests.api.test_x', root)).toBe('tests/api/test_x.py');
+    expect(resolveCaseFile('tests.api.test_x.TestY', root)).toBe('tests/api/test_x.py');
+  });
+
+  it('resolves nothing that is empty, synthetic, missing, outside the root or a folder', async () => {
+    const root = await tree();
+    for (const file of ['', '[cargo]', 'test/missing.test.js', '../a.test.js', '/etc/hosts', 'tests.api.nope', 'test']) {
+      expect(resolveCaseFile(file, root), file).toBeUndefined();
+    }
+  });
+});
+
+describe('regressedCases', () => {
+  it('reports head failures and errors that passed at base, once, in head order', () => {
+    const before = run([tc('t/a', 'x', 'pass'), tc('t/a', 'y', 'pass'), tc('t/a', 'z', 'fail'), tc('t/a', 'w', 'skip'), tc('t/a', 'v', 'pass'), tc('t/a', 'v', 'fail')]);
+    const after = run([
+      tc('t/a', 'y', 'error'), tc('t/a', 'x', 'fail'), tc('t/a', 'x', 'fail'),
+      tc('t/a', 'z', 'fail'), tc('t/a', 'w', 'fail'), tc('t/a', 'new', 'fail'), tc('t/a', 'v', 'fail'),
+      tc('t/a', 'u', 'pass'), tc('t/a', 'u', 'fail'),
+    ], 1);
+    expect(regressedCases(before, after).map((c) => [c.name, c.outcome])).toEqual([['y', 'error'], ['x', 'fail']]);
+  });
+
+  it('counts a head id that passes once and fails once as failing, and ignores synthetic cases', () => {
+    const synthetic: TestCaseResult = { id: '[cargo]::[build]', file: '[cargo]', name: '[build or run failed]', outcome: 'error' };
+    const before = run([tc('t/a', 'u', 'pass'), { ...synthetic, outcome: 'pass' }]);
+    const after = run([tc('t/a', 'u', 'pass'), tc('t/a', 'u', 'fail'), synthetic], 1);
+    expect(regressedCases(before, after).map((c) => c.name)).toEqual(['u']);
   });
 });
 
