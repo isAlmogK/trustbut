@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+**Proof first.** The trustbut-index pilot labels found that trustbut's facts were mostly true but rarely worth a reviewer's time; the useful signal was whether anything proves the change.
+
+- New finding `change-not-proven` (warn): code changed, and either no test changed or none of the new or changed tests fails without the change. Comment-only and blank-line changes don't count as code. It replaces `no-tests-changed` and the per-test `test-passes-without-change`, which trustbut no longer emits; tests that pass without the change are still listed in `proofs`.
+- The Markdown receipt opens with a proof line: `Proof: N new/changed tests prove the change ✅` or `Proof: nothing proves this change ⚠`. The hook summary says `change not proven`.
+- Receipt spec **1.2**: adds the core id `change-not-proven`. trustbut writes `specVersion: "1.2"`; `trustbut validate` rejects `change-not-proven` in a receipt that declares 1.1 or older.
+- Moved tests: `tests-removed` and `assertions-removed` no longer count a removed line that another changed test file adds with the same text. A move cancels at most as many removals as were added elsewhere.
+- Merged tests: `tests-removed` is not reported for a file that also adds a test definition and whose assertions did not drop on net (tests merged into one). Plain deletions of tests, and Rust inline tests (which have no assertion count), are still reported.
+- pytest: base runs import workspace members installed in editable mode from the checkout (for example `packages/lib/src`) from the base worktree, so a test no longer passes at base on head's code.
+
 ## 0.6.0
 
 **Less noise from the trustbut-index pilot.** Fixes for findings that were true only by accident, or not at all.

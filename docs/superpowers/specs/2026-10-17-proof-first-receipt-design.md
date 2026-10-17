@@ -1,6 +1,6 @@
 # Proof-first receipt
 
-**Status:** Approved (2026-10-17)
+**Status:** Implemented (2026-10-17)
 
 **Repos:** trustbut (this spec) · [trustbut-index](https://github.com/isAlmogK/trustbut-index) (the study's counted families and success bar, specified there)
 
@@ -78,4 +78,9 @@ Test first, one scenario per behavior:
 
 ## As built
 
-(filled in when finished)
+Differences from the design above:
+
+- **Merge rule (3).** `tests-removed` is suppressed only when the file also adds a test definition and its assertions did not drop on net. Without the added-test condition, plain deletions of tests that have no assertion lines were suppressed. Rust inline tests (no assertion count) are never treated as merged.
+- **Move rule (2).** A removed line counts as moved only by consuming an identical trimmed line added in another changed test file, so a move cancels at most as many removals as were added elsewhere (the spec implied any match).
+- **pytest mapping (4).** The probe is `import sys; print('\0'.join(sys.path))` (not json). Relative and empty `sys.path` entries are ignored before `realpath`. Mapped paths that resolve back into the checkout (for example a symlinked `.venv`'s site-packages) are dropped, and mapped entries already on `PYTHONPATH` (worktree root, `src/`) are not repeated.
+- **Markdown proof line (5).** For one test it reads `**Proof:** 1 new/changed test proves the change ✅`.
