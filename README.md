@@ -417,8 +417,8 @@ This is the core idea. Every new or changed test also runs against the **base** 
 |---|---|
 | Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`, RSpec `focus: true`, Dart `solo: true`) | ✖️ FAIL |
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `t.Skip()`, `#[ignore]`, `@Disabled`, `[Ignore]`, `markTestSkipped`, `XCTSkip`, `skip:` …) | ⚠️ WARN |
-| Tests removed (net count) | ⚠️ WARN |
-| Assertions removed (net count, including `self.assertEqual` style) | ⚠️ WARN |
+| Tests removed (net count; moved or merged tests don't count) | ⚠️ WARN |
+| Assertions removed (net count, including `self.assertEqual` style; moved assertions don't count) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
 | Nothing proves the change (code changed, no test fails without it) | ⚠️ WARN |

@@ -27,6 +27,50 @@ describe('checkTestIntegrity', () => {
     expect(checkTestIntegrity([file({ path: 't.test.ts', added: [{ line: 1, text: line }], removed: [line] })])).toEqual([]);
   });
 
+  it('does not count tests and assertions moved to another test file', () => {
+    const block = ["describe('export', () => {", "  it('writes the file', () => {", '    expect(out).toBe(1);', '  });', '});'];
+    const findings = checkTestIntegrity([
+      file({ path: 'test/export.test.ts', removed: block }),
+      file({ path: 'test/export-ollama.test.ts', status: 'added', added: block.map((text, i) => ({ line: i + 1, text: `  ${text}` })) }),
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it('still counts tests removed when no other file adds them', () => {
+    const findings = checkTestIntegrity([
+      file({ path: 'test/a.test.ts', removed: ["it('one', () => {", '  expect(a).toBe(1);'] }),
+      file({ path: 'test/b.test.ts', added: [{ line: 1, text: "it('other', () => {" }, { line: 2, text: '  expect(b).toBe(2);' }] }),
+    ]);
+    expect(ids(findings)).toEqual(['tests-removed', 'assertions-removed']);
+  });
+
+  it('does not report tests removed when tests were merged and kept their assertions', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'test/badge.test.tsx',
+        removed: ["it('renders 1', () => {", "it('renders 2', () => {", "it('renders 3', () => {"],
+        added: [{ line: 1, text: "it('renders counts', () => {" }],
+      }),
+    ]);
+    expect(findings).toEqual([]);
+  });
+
+  it('reports both when merged tests also lost an assertion', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'test/badge.test.tsx',
+        removed: ["it('renders 1', () => {", '  expect(one).toBe(1);', "it('renders 2', () => {", '  expect(two).toBe(2);'],
+        added: [{ line: 1, text: "it('renders counts', () => {" }, { line: 2, text: '  expect(one).toBe(1);' }],
+      }),
+    ]);
+    expect(ids(findings)).toEqual(['tests-removed', 'assertions-removed']);
+  });
+
+  it('still reports removed Rust inline tests (no assertion count there)', () => {
+    const findings = checkTestIntegrity([file({ path: 'src/lib.rs', kind: 'source', removed: ['    #[test]', '    fn adds() {'] })]);
+    expect(ids(findings)).toEqual(['tests-removed']);
+  });
+
   it('fails on focused tests', () => {
     const findings = checkTestIntegrity([file({ path: 'a.test.ts', added: [{ line: 2, text: "it.only('x', () => {" }] })]);
     expect(findings[0]).toMatchObject({ id: 'test-focused', severity: 'fail' });

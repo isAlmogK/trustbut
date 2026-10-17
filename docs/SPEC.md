@@ -92,8 +92,8 @@ Review these first
 |---|---|---|
 | Test focused (`it.only`, `fdescribe`) | FAIL | Silently disables every other test |
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `pytest.skip()`) | WARN | |
-| Test definitions removed (net) | WARN | Could be a legitimate refactor, so a human should look |
-| Assertions removed (net) | WARN | |
+| Test definitions removed (net; lines another changed test file adds count as moved; not reported when the file's assertions did not drop, i.e. tests were merged) | WARN | Could be a legitimate refactor, so a human should look |
+| Assertions removed (net; lines another changed test file adds count as moved) | WARN | |
 | Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
 | Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores; per language e.g. `//nolint`, `#[allow(…)]`, `unsafe`, `@SuppressWarnings`, `@Suppress`, `#pragma warning disable`, `rubocop:disable`, `@phpstan-ignore`, `// ignore:`, `swiftlint:disable`, `@unchecked Sendable`) | WARN | Rust `.unwrap()`, Kotlin `!!`, C# `x!` and Swift `as!`/`try!` are not escapes. JS directives (`@ts-…`, `eslint-disable`, `istanbul`/`c8`/`v8 ignore`) count only right after a comment marker (`//`, `///`, `/*`, `/**`, a `*` continuation), where the tools read them, not when a comment mentions them in prose. `: any` in a generic constraint (`T extends (...args: any[]) => R`, after `<Name extends` or `, Name extends` on the line) is not counted; `any` elsewhere, in a type signature too, is. Suppressions with a rule code or a written reason (`# noqa: BLE001  # reason`) still count. Files that the head commit's `.gitattributes` marks `linguist-generated` (set or `true`; read through a temporary index, so nested `.gitattributes` apply) get none |
@@ -180,8 +180,8 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   |---|---|
   | `test-focused` | The diff adds a focus marker (§3: `.only`, `fit`, `solo: true`, …). |
   | `test-skipped` | The diff adds a skip marker (§3). |
-  | `tests-removed` | A file loses test definitions on net; one finding per file. |
-  | `assertions-removed` | A file loses assertions on net; one finding per file. |
+  | `tests-removed` | A file loses test definitions on net; one finding per file. Lines another changed test file adds count as moved, and it is not reported when the file's assertions did not drop (tests merged). |
+  | `assertions-removed` | A file loses assertions on net; one finding per file. Lines another changed test file adds count as moved. |
   | `snapshot-changed` | A snapshot file is changed or deleted. |
   | `test-config-changed` | A test or coverage config file changes, `.trustbut.json` included. |
   | `escape-added` | An added line carries a type, lint, coverage, warning or safety escape (§3). |
