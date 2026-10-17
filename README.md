@@ -417,8 +417,8 @@ This is the core idea. Every new or changed test also runs against the **base** 
 |---|---|
 | Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`, RSpec `focus: true`, Dart `solo: true`) | ✖️ FAIL |
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `t.Skip()`, `#[ignore]`, `@Disabled`, `[Ignore]`, `markTestSkipped`, `XCTSkip`, `skip:` …) | ⚠️ WARN |
-| Tests removed (net count; moved or merged tests don't count) | ⚠️ WARN |
-| Assertions removed (net count, including `self.assertEqual` style; moved assertions don't count) | ⚠️ WARN |
+| Tests removed (net count; lines added in another changed test file count as moved, cancelling at most as many removals as were added there; not reported when the same file also adds a test definition and its assertions did not drop on net, i.e. tests merged; Rust inline tests are never treated as merged) | ⚠️ WARN |
+| Assertions removed (net count, including `self.assertEqual` style; lines added in another changed test file count as moved, cancelling at most as many removals as were added there) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
 | Nothing proves the change (code changed, no test fails without it) | ⚠️ WARN |
