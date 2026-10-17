@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
+  "specVersion": "1.2",
+  "producer": { "name": "trustbut", "version": "0.7.0" },
+  "subject": { "base": "main", "head": "HEAD" },
+  "verdict": "warn",
+  "tests": { "passed": 12, "failed": 0, "errored": 0, "skipped": 0, "scope": "full" },
+  "findings": [{ "id": "change-not-proven", "severity": "warn", "title": "Nothing proves the change", "detail": "2 new or changed tests, none fails without the change" }]
+}

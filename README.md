@@ -34,10 +34,10 @@ $ npx trustbut verify
 `3f2a91c` → `8be04d1` · runner: vitest
 
 **Tests (clean checkout):** 41 passed · 0 failed · 1 skipped
+**Proof:** 1 new/changed test proves the change ✅
 **New/changed tests:** 1 prove the change · 1 pass without it
 
 ### Findings
-- ⚠ **Test passes without the change** · `test/auth.test.ts`: rejects expired token
 - ⚠ **Test skipped** · `test/auth.test.ts:88`: it.skip('handles clock skew', () => {
 - ⚠ **cast to any** · `src/auth/session.ts:41`: const claims = decoded as any;
 
@@ -193,7 +193,7 @@ trustbut verify --json > receipt.json
 | Verdict | Meaning | Exit code |
 |---|---|---|
 | ✅ **PASS** | Tests are green from a clean checkout, the new tests prove the change, and nothing suspicious was found | `0` |
-| ⚠️ **WARN** | Something deserves a human look: a test that passes without the change, a skipped test, a silenced check | `0` (`1` with `--strict`) |
+| ⚠️ **WARN** | Something deserves a human look: a change no test proves, a skipped test, a silenced check | `0` (`1` with `--strict`) |
 | ✖️ **FAIL** | Tests fail from a clean checkout, a changed test fails, or a test was focused (`.only`) | `1` |
 | — | Usage or runtime error, e.g. an unknown ref or option, or a `--receipt-json` / `--receipt-md` file that couldn't be written | `2` |
 
@@ -406,7 +406,7 @@ This is the core idea. Every new or changed test also runs against the **base** 
 | Before the change | After the change | Result |
 |---|---|---|
 | fails | passes | ✅ **Proves the change** |
-| passes | passes | ⚠️ **Passes without the change**: the test doesn't check the new behaviour |
+| passes | passes | **Passes without the change**: the test doesn't check the new behaviour. Listed in the receipt; the receipt warns only when no new or changed test proves the change |
 | — | fails | ✖️ **Fails at head** |
 | — | skipped | ⚠️ **Skipped** |
 | couldn't run (e.g. imports code that didn't exist yet) | passes | ✅ Counted, but marked as *couldn't run at base* |
@@ -417,11 +417,11 @@ This is the core idea. Every new or changed test also runs against the **base** 
 |---|---|
 | Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`, RSpec `focus: true`, Dart `solo: true`) | ✖️ FAIL |
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `t.Skip()`, `#[ignore]`, `@Disabled`, `[Ignore]`, `markTestSkipped`, `XCTSkip`, `skip:` …) | ⚠️ WARN |
-| Tests removed (net count) | ⚠️ WARN |
-| Assertions removed (net count, including `self.assertEqual` style) | ⚠️ WARN |
+| Tests removed (net count; lines added in another changed test file count as moved, cancelling at most as many removals as were added there; not reported when the same file also adds a test definition and its assertions did not drop on net, i.e. tests merged; Rust inline tests are never treated as merged) | ⚠️ WARN |
+| Assertions removed (net count, including `self.assertEqual` style; lines added in another changed test file count as moved, cancelling at most as many removals as were added there) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
-| Source changed but no tests were added or changed | ⚠️ WARN |
+| Nothing proves the change (code changed, and no test changed, no new or changed test that ran was found in the changed test files, or none fails without the change) | ⚠️ WARN |
 
 ### 4. Escapes
 
@@ -449,7 +449,7 @@ A ranked list of the files that deserve your attention: auth and permissions, da
 
 ## The agent receipts format
 
-`trustbut verify --json` prints an **agent receipt**: an open, versioned JSON format for evidence about a code change. Any tool can produce one and any tool can read one, and trustbut is just the reference implementation. The [spec](spec/agent-receipt-v1.md) defines a small required core (`specVersion`, `producer`, `subject`, `verdict`, `findings`), optional standard sections (`tests`, `proofs`, `risks`), 20 core finding ids with fixed meanings, namespaced ids like `acme/secret-leak` for everything else, and `x-` keys for tool-specific data.
+`trustbut verify --json` prints an **agent receipt**: an open, versioned JSON format for evidence about a code change. Any tool can produce one and any tool can read one, and trustbut is just the reference implementation. The [spec](spec/agent-receipt-v1.md) defines a small required core (`specVersion`, `producer`, `subject`, `verdict`, `findings`), optional standard sections (`tests`, `proofs`, `risks`), 21 core finding ids with fixed meanings, namespaced ids like `acme/secret-leak` for everything else, and `x-` keys for tool-specific data.
 
 Check any receipt, from trustbut or anything else, against the spec:
 

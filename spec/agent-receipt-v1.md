@@ -1,6 +1,6 @@
 # Agent receipts, spec v1
 
-**Status:** v1.1, stable. **Schema:** [`agent-receipt-v1.schema.json`](agent-receipt-v1.schema.json) (JSON Schema draft 2020-12), `$id` `https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json`. **Reference producer and validator:** [trustbut](../README.md) (`trustbut verify --json`, `trustbut validate`).
+**Status:** v1.2, stable. **Schema:** [`agent-receipt-v1.schema.json`](agent-receipt-v1.schema.json) (JSON Schema draft 2020-12), `$id` `https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json`. **Reference producer and validator:** [trustbut](../README.md) (`trustbut verify --json`, `trustbut validate`).
 
 An **agent receipt** is a small JSON document with deterministic evidence about one code change, usually one made by an AI coding agent: what was compared, what the tests showed, and which facts a reviewer should look at. Any tool can produce receipts and any tool can read them. This document is the contract between them.
 
@@ -17,8 +17,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json",
-  "specVersion": "1.1",
-  "producer": { "name": "trustbut", "version": "0.5.0" },
+  "specVersion": "1.2",
+  "producer": { "name": "trustbut", "version": "0.7.0" },
   "subject": { "base": "3f2a91c0d4b6e8a1f2c3d4e5f6a7b8c9d0e1f2a3", "head": "8be04d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e" },
   "verdict": "warn",
   "tests": { "passed": 41, "failed": 0, "errored": 0, "skipped": 1, "scope": "full" },
@@ -26,9 +26,9 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
     { "file": "test/auth.test.ts", "name": "rejects expired token", "before": "pass", "after": "pass", "verdict": "does-not-constrain" }
   ],
   "findings": [
-    { "id": "test-passes-without-change", "severity": "warn", "title": "Test passes without the change", "file": "test/auth.test.ts", "detail": "rejects expired token" }
+    { "id": "change-not-proven", "severity": "warn", "title": "Nothing proves the change", "detail": "1 new or changed test, none fails without the change" }
   ],
-  "risks": [{ "file": "src/auth/session.ts", "score": 5, "reasons": ["auth/permissions", "has findings"] }],
+  "risks": [{ "file": "src/auth/session.ts", "score": 3, "reasons": ["auth/permissions"] }],
   "x-trustbut": { "runner": "vitest" }
 }
 ```
@@ -41,7 +41,7 @@ More in [`examples/valid/`](examples/valid/).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `specVersion` | string, `1.<minor>` | The spec version the receipt follows. This document is `1.1`. |
+| `specVersion` | string, `1.<minor>` | The spec version the receipt follows. This document is `1.2`. |
 | `producer` | object | The tool that made the receipt: `name` (required), `version` (required), `url` (optional). |
 | `subject` | object | What was compared: `base` and `head` (required; commit ids or refs), `headRef` (optional human label when the head isn't a plain commit, e.g. `"working tree"`). |
 | `verdict` | `"pass"` \| `"warn"` \| `"fail"` | The overall result, given by the verdict rule below. |
@@ -89,6 +89,7 @@ Core ids have a fixed meaning and match `[a-z0-9][a-z0-9-]*`. Producers SHOULD u
 | `test-config-changed` | `warn` | Test or coverage configuration changed. |
 | `escape-added` | `warn` | A type, lint, coverage, warning or safety escape was added (`as any`, `@ts-ignore`, `//nolint`, …). |
 | `no-tests-changed` | `warn` | Source changed but no tests were added or changed. |
+| `change-not-proven` | `warn` | The change's code is not proven by any new or changed test: no test changed, no new or changed test that ran was found in the changed test files, or none of the new or changed tests fails without the change. |
 | `no-test-results` | `warn` | The head run exited 0 but reported no test results. |
 | `test-passes-without-change` | `warn` | A new or changed test also passes at base, so it doesn't prove the change. |
 | `no-runner` | `warn` | No test runner was detected; tests were not rerun. |
@@ -105,11 +106,11 @@ Any other finding MUST use a namespaced id `<namespace>/<id>`, both parts matchi
 
 ## Extensions
 
-Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Consumers MUST ignore `x-` keys they don't understand. Any other unknown key makes a receipt invalid when it declares a minor the validator knows (`1.0` or `1.1`); in a receipt that declares a newer minor it is a field from that revision (see Versioning).
+Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventionally `x-<producer name>`. That's where timing, raw runner detail and tool-specific data go. Consumers MUST ignore `x-` keys they don't understand. Any other unknown key makes a receipt invalid when it declares a minor the validator knows (`1.0`, `1.1` or `1.2`); in a receipt that declares a newer minor it is a field from that revision (see Versioning).
 
 ## Versioning
 
-`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. A receipt that declares a minor the validator knows (`1.0` or `1.1`) is validated strictly; only the unknown fields and core-shaped ids of a newer minor are warnings. A receipt that uses a core id introduced in a later minor than it declares is invalid. Removing or changing the meaning of anything requires `2.0`.
+`1.x` revisions only add optional fields or core ids. A consumer of v1 MUST accept any `specVersion` matching `1.<minor>`. When a receipt's minor is newer than the consumer knows, the consumer MUST ignore fields it doesn't know and MUST handle unknown core ids by their `severity`; a validator reports those as warnings, not errors. An id that is neither shaped like a core id nor a valid namespaced id is invalid in every version. A receipt that declares a minor the validator knows (`1.0`, `1.1` or `1.2`) is validated strictly; only the unknown fields and core-shaped ids of a newer minor are warnings. A receipt that uses a core id introduced in a later minor than it declares is invalid. Removing or changing the meaning of anything requires `2.0`.
 
 ## Validating
 
@@ -117,7 +118,7 @@ Every object MAY carry extra keys that match `^x-[a-z0-9][a-z0-9-]*$`, conventio
 trustbut validate receipt.json         # or: some-tool --json | trustbut validate
 ```
 
-Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than the validator knows (this document is `1.1`), unknown fields and unknown ids shaped like a core id. A malformed id is an error whatever the version. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
+Validation checks the schema first, then the verdict rule. Warnings don't make a receipt invalid: a core id with a non-default severity, and, in a receipt that declares a minor newer than the validator knows (this document is `1.2`), unknown fields and unknown ids shaped like a core id. A malformed id is an error whatever the version. Exit code: 0 valid (warnings allowed), 1 invalid, 2 unreadable input.
 
 | Example | Expected error |
 |---|---|
@@ -127,9 +128,11 @@ Validation checks the schema first, then the verdict rule. Warnings don't make a
 | `invalid/unknown-field.json` | `/`: must not have additional property 'durationMs' |
 | `invalid/bad-spec-version.json` | `/specVersion`: must match pattern "^1\.(0\|[1-9][0-9]*)$" |
 | `invalid/regressed-in-1-0.json` | `/findings/0/id`: 'test-regressed' is a core id since 1.1 (the receipt declares 1.0) |
+| `invalid/not-proven-in-1-1.json` | `/findings/0/id`: 'change-not-proven' is a core id since 1.2 (the receipt declares 1.1) |
 | `invalid/verdict-mismatch.json` | `/verdict`: must be 'warn' for these findings (got 'pass') |
 
 ## Changes
 
+- **1.2** (trustbut 0.7.0): adds the core id `change-not-proven`.
 - **1.1** (trustbut 0.5.0): adds the core id `test-regressed`. trustbut also writes an optional `outputTail` string on failed runs under `x-trustbut` with `--output-tail`.
 - **1.0** (trustbut 0.4.0): first version.

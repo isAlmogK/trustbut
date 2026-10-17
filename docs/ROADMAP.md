@@ -35,7 +35,7 @@ trustbut is built with AI coding agents and **verified by itself**:
 The product is only as good as its scenarios: tiny git repos that each reproduce one real agent behavior.
 
 - honest fix with a test that fails before and passes after → PASS
-- new test that passes without the change → WARN
+- change with no test that fails without it (for example no test changed, or every new test passes without the change) → WARN
 - skipped test (`it.skip`, `t.Skip`, `#[ignore]`, `@Disabled`, …) → WARN
 - focused test (`it.only`, `fit`, `fdescribe`) → FAIL
 - test deleted to make the suite green → WARN

@@ -111,7 +111,7 @@ describe.concurrent('trustbut hook: protocol golden outputs', () => {
 
     it('WARN: lists the finding titles and the receipt path', async () => {
       const f = await fixture('warn');
-      expect(await f.hook(agent)).toEqual({ exitCode: 0, stdout: msg(`trustbut WARN: Test passes without the change — receipt: ${f.receipt}`), stderr: '' });
+      expect(await f.hook(agent)).toEqual({ exitCode: 0, stdout: msg(`trustbut WARN: Nothing proves the change — receipt: ${f.receipt}`), stderr: '' });
     });
 
     it("error: says it couldn't verify and never blocks", async () => {

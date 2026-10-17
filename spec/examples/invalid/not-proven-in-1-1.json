@@ -1,0 +1,7 @@
+{
+  "specVersion": "1.1",
+  "producer": { "name": "trustbut", "version": "0.6.0" },
+  "subject": { "base": "main", "head": "HEAD" },
+  "verdict": "warn",
+  "findings": [{ "id": "change-not-proven", "severity": "warn", "title": "Nothing proves the change" }]
+}

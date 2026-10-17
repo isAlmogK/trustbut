@@ -298,7 +298,7 @@ describe.skipIf(!runCargo)('trustbut verify with cargo (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   }, 300_000);
 
   it('shows an #[ignore] test as a skipped proof', async () => {

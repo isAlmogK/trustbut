@@ -5,6 +5,8 @@ export interface RunOptions {
   cwd: string;
   /** Top of the worktree that contains `cwd` (= `cwd` when the package root is the repo root). */
   worktree?: string;
+  /** Top of the checkout trustbut was started in. Editable installs may point into it; runners map such paths onto `worktree`. */
+  checkout?: string;
   /** Test files relative to `cwd`; undefined = full suite. */
   files?: string[];
   /** Extra args from config, appended to the runner's command (before the files). */

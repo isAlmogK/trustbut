@@ -12,6 +12,27 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function checkTestIntegrity(files: ChangedFile[]): Finding[] {
   const findings: Finding[] = [];
+  // A removed line that another changed test file adds (same trimmed text) moved; it was not removed.
+  // Each added line cancels at most one removal, consumed in file order.
+  const addedBy = new Map<string, Map<string, number>>();
+  for (const f of files) {
+    if (f.kind !== 'test') continue;
+    for (const a of f.added) {
+      const t = a.text.trim();
+      if (!t) continue;
+      const byPath = addedBy.get(t) ?? new Map<string, number>();
+      byPath.set(f.path, (byPath.get(f.path) ?? 0) + 1);
+      addedBy.set(t, byPath);
+    }
+  }
+  const movedOut = (f: ChangedFile, line: string) => {
+    for (const [path, n] of addedBy.get(line.trim()) ?? []) {
+      if (path === f.path || n <= 0) continue;
+      addedBy.get(line.trim())!.set(path, n - 1);
+      return true;
+    }
+    return false;
+  };
   for (const f of files) {
     if (f.kind === 'snapshot' && f.status !== 'added') {
       const title = f.status === 'deleted' ? 'Snapshot deleted' : 'Snapshot changed';
@@ -41,12 +62,16 @@ export function checkTestIntegrity(files: ChangedFile[]): Finding[] {
     }
 
     const addedParts = f.added.map((a) => split(a.text));
-    const removedParts = f.removed.map(split);
-    const removedTests = count(removedParts, testDef) - count(addedParts, testDef);
-    if (removedTests > 0) {
+    const removedParts = f.removed.filter((l) => !movedOut(f, l)).map(split);
+    const addedTests = count(addedParts, testDef);
+    const removedTests = count(removedParts, testDef) - addedTests;
+    const removedAsserts = count(removedParts, assert) - count(addedParts, assert);
+    // Tests merged into fewer blocks (some still added) keep their assertions: no check was lost.
+    // Needs an assertion count to judge; a plain deletion adds no test back.
+    const merged = !!assert?.length && addedTests > 0 && removedAsserts <= 0;
+    if (removedTests > 0 && !merged) {
       findings.push({ id: 'tests-removed', severity: 'warn', title: `${plural(removedTests, 'test')} removed`, file: f.path });
     }
-    const removedAsserts = count(removedParts, assert) - count(addedParts, assert);
     if (removedAsserts > 0) {
       findings.push({ id: 'assertions-removed', severity: 'warn', title: `${plural(removedAsserts, 'assertion')} removed`, file: f.path });
     }

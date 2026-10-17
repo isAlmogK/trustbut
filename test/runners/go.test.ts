@@ -176,7 +176,7 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   }, 180_000);
 
   it('shows a t.Skip test as a skipped proof', async () => {
@@ -202,7 +202,7 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     expect(receipt.findings.map((f) => f.id)).toEqual(expect.arrayContaining(['no-test-results', 'proofs-unmatched']));
   }, 180_000);
 
-  it('WARN: a golden file under testdata/ is copied to base, so a test that passes without the change is caught', async () => {
+  it('a golden file under testdata/ is copied to base, so a test that passes without the change is caught (comment-only source change: PASS)', async () => {
     const dir = await scenario({
       'sum.go': 'package fx\n\n// Sum subtracts (comment-only change).\nfunc Sum(a, b int) int { return a - b }\n',
       'testdata/want.txt': '1\n',
@@ -212,7 +212,7 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.name, p.before, p.verdict, p.weak])).toEqual([['TestGolden', 'pass', 'does-not-constrain', false]]);
-    expect(receipt.verdict).toBe('warn');
+    expect(receipt.verdict).toBe('pass');
   }, 180_000);
 
   const helperUser = (imports: string[], body: string) =>
@@ -239,7 +239,7 @@ describe.skipIf(!runGo)('trustbut verify with go (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['TestDouble', 'proves-change']]);
-    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).not.toContain('does-not-constrain');
   }, 180_000);
 
   it('does not copy a package under internal/testutil/ whose own tests changed', async () => {

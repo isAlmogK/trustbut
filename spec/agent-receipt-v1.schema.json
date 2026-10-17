@@ -77,7 +77,7 @@
           "enum": [
             "test-focused", "suite-failing", "test-failing", "test-regressed",
             "test-skipped", "tests-removed", "assertions-removed", "snapshot-changed", "test-config-changed",
-            "escape-added", "no-tests-changed", "no-test-results", "test-passes-without-change", "no-runner",
+            "escape-added", "no-tests-changed", "change-not-proven", "no-test-results", "test-passes-without-change", "no-runner",
             "base-run-failed", "proofs-unmatched", "deps-not-installed",
             "deps-changed", "tests-outside-root", "uncommitted-changes"
           ]

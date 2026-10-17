@@ -367,7 +367,7 @@ for (const [tool, build] of [
       });
       const { receipt } = await runVerify({ cwd: dir });
       expect(receipt.verdict).toBe('warn');
-      expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+      expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
     }, 900_000);
 
     it('a test that does not compile is an error, not a proof', async () => {

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildReceipt, coverageFindings, decideVerdict, proofFindings } from '../src/receipt.js';
+import { buildReceipt, changeProofFindings, codeChanged, decideVerdict, proofFindings } from '../src/receipt.js';
 import { renderMarkdown } from '../src/render.js';
 import { rankRisks } from '../src/risk.js';
 import type { ChangedFile, TestProof } from '../src/types.js';
 
 const file = (path: string, kind: ChangedFile['kind'], size = 1): ChangedFile => ({
   path, status: 'modified', kind, added: Array.from({ length: size }, (_, i) => ({ line: i + 1, text: 'x' })), removed: [],
+});
+
+const src = (path: string, added: string[], removed: string[] = [], status: ChangedFile['status'] = 'modified'): ChangedFile => ({
+  path, status, kind: 'source', added: added.map((text, i) => ({ line: i + 1, text })), removed,
 });
 
 const proof = (name: string, verdict: TestProof['verdict'], weak = false): TestProof => ({
@@ -47,16 +51,98 @@ describe('rankRisks: verification config and dependency manifests', () => {
 });
 
 describe('derived findings and verdict', () => {
-  it('turns proofs into findings', () => {
+  it('turns failing proofs into findings and nothing else', () => {
     expect(proofFindings([proof('a', 'proves-change'), proof('b', 'does-not-constrain'), proof('c', 'failing')]).map((f) => [f.id, f.severity])).toEqual([
-      ['test-passes-without-change', 'warn'],
       ['test-failing', 'fail'],
     ]);
   });
 
-  it('warns when source changes without tests', () => {
-    expect(coverageFindings([file('src/a.ts', 'source')]).map((f) => f.id)).toEqual(['no-tests-changed']);
-    expect(coverageFindings([file('src/a.ts', 'source'), file('test/a.test.ts', 'test')])).toEqual([]);
+  describe('codeChanged', () => {
+    it('counts a changed code line', () => expect(codeChanged([src('src/a.ts', ['return a + b;'], ['return a - b;'])])).toBe(true));
+    it('ignores comment-only and blank-line changes', () => {
+      expect(codeChanged([src('src/a.ts', ['// adds two numbers', ''], ['// adds numbers'])])).toBe(false);
+      expect(codeChanged([src('src/a.py', ['# note'], [])])).toBe(false);
+    });
+    it('counts string edits', () => expect(codeChanged([src('src/a.ts', ["const x = 'b';"], ["const x = 'a';"])])).toBe(true));
+    it('ignores deleted files and non-source files', () => {
+      expect(codeChanged([src('src/a.ts', [], ['return 1;'], 'deleted')])).toBe(false);
+      expect(codeChanged([{ ...src('README.md', ['text']), kind: 'other' }])).toBe(false);
+    });
+    it('counts any line of a source file in a language outside the registry', () => {
+      expect(codeChanged([src('src/App.vue', ['<!-- note -->'])])).toBe(true);
+    });
+  });
+
+  describe('changeProofFindings', () => {
+    const NOT_PROVEN = { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change' };
+    const NO_TEST_FOUND = { ...NOT_PROVEN, detail: 'test files changed, but no new or changed test that ran was found in them' };
+    const test = file('test/a.test.ts', 'test');
+    const code = src('src/a.ts', ['x();']);
+    it('fires when code changed and no test changed', () => {
+      expect(changeProofFindings([code], [], [])).toEqual([{ ...NOT_PROVEN, detail: 'no test added or changed' }]);
+    });
+    it('fires when tests changed and none proves the change', () => {
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'does-not-constrain')], [])).toEqual([
+        { ...NOT_PROVEN, detail: '2 new or changed tests, none fails without the change' },
+      ]);
+      expect(changeProofFindings([code, test], [proof('a', 'skipped')], [])).toEqual([
+        { ...NOT_PROVEN, detail: '1 new or changed test, none fails without the change' },
+      ]);
+    });
+    it('does not fire when a test proves the change, weakly or not', () => {
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'proves-change')], [])).toEqual([]);
+      expect(changeProofFindings([code, test], [proof('a', 'proves-change', true)], [])).toEqual([]);
+    });
+    it('does not fire while a new or changed test fails at head (test-failing already says so)', () => {
+      expect(changeProofFindings([code, test], [proof('a', 'failing')], [])).toEqual([]);
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'failing')], [])).toEqual([]);
+    });
+    it('fires when only a test helper changed', () => {
+      expect(changeProofFindings([code, file('test/helpers.ts', 'test')], [], [])).toEqual([NO_TEST_FOUND]);
+    });
+    it('fires when a changed test file yields no proofs', () => {
+      expect(changeProofFindings([code, test], [], [])).toEqual([NO_TEST_FOUND]);
+    });
+    it.each(['no-runner', 'base-run-failed', 'proofs-unmatched', 'tests-outside-root', 'suite-failing', 'no-test-results'])(
+      'does not fire when tests changed, there are no proofs and the receipt has %s',
+      (id) => {
+        expect(changeProofFindings([code, test], [], [{ id, severity: 'warn', title: id }])).toEqual([]);
+      },
+    );
+    it('does not fire when only comments changed', () => {
+      expect(changeProofFindings([src('src/a.ts', ['// doc'])], [], [])).toEqual([]);
+      expect(changeProofFindings([src('src/a.ts', ['// doc']), test], [], [])).toEqual([]);
+    });
+  });
+
+  it('buildReceipt emits change-not-proven, never test-passes-without-change or no-tests-changed', () => {
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings: [],
+      changes: [src('src/a.ts', ['x();']), file('test/a.test.ts', 'test')],
+      proofs: [proof('a', 'does-not-constrain')],
+    });
+    expect(r.findings.map((f) => f.id)).toEqual(['change-not-proven']);
+    expect(r.verdict).toBe('warn');
+  });
+
+  it('buildReceipt lists change-not-proven first, before the other findings', () => {
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest',
+      findings: [{ id: 'escape-added', severity: 'warn', title: 'Cast to any', file: 'src/a.ts' }],
+      changes: [src('src/a.ts', ['x();'])],
+      proofs: [],
+    });
+    expect(r.findings.map((f) => f.id)).toEqual(['change-not-proven', 'escape-added']);
+  });
+
+  it('buildReceipt passes its findings to change-not-proven', () => {
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: null,
+      findings: [{ id: 'no-runner', severity: 'warn', title: 'No supported test runner detected' }],
+      changes: [src('src/a.ts', ['x();']), file('test/a.test.ts', 'test')],
+      proofs: [],
+    });
+    expect(r.findings.map((f) => f.id)).toEqual(['no-runner']);
   });
 
   it('decides the verdict from the worst finding', () => {
@@ -68,6 +154,21 @@ describe('derived findings and verdict', () => {
 });
 
 describe('renderMarkdown', () => {
+  it('leads with the proof line', () => {
+    const mk = (changes: ChangedFile[], proofs: TestProof[]) =>
+      renderMarkdown(buildReceipt({
+        base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings: [],
+        after: { exitCode: 0, durationMs: 1, output: '', cases: [] }, changes, proofs,
+      }));
+    const code = [src('src/a.ts', ['x();']), file('test/a.test.ts', 'test')];
+    expect(mk(code, [proof('a', 'proves-change'), proof('b', 'proves-change'), proof('c', 'does-not-constrain')]))
+      .toContain('**Tests (clean checkout):** 0 passed · 0 failed · 0 skipped\n**Proof:** 2 new/changed tests prove the change ✅\n');
+    expect(mk(code, [proof('a', 'proves-change')])).toContain('**Proof:** 1 new/changed test proves the change ✅\n');
+    const unproven = mk([src('src/a.ts', ['x();'])], []);
+    expect(unproven).toContain('**Proof:** nothing proves this change ⚠\n');
+    expect(unproven).toContain('⚠ **Nothing proves the change**');
+    expect(mk([], [])).not.toContain('**Proof:**');
+  });
   it('marks failing tests that passed at base and lists them once', () => {
     const c = (name: string, outcome: 'pass' | 'fail') => ({ id: `t.test.js::${name}`, file: 't.test.js', name, outcome });
     const r = buildReceipt({
@@ -127,7 +228,7 @@ describe('renderMarkdown', () => {
     expect(md).toContain('**Tests (clean checkout):** 2 passed · 0 failed · 1 skipped');
     expect(md).toContain('**New/changed tests:** 1 prove the change · 1 pass without it');
     expect(md).toContain('- ⚠ **cast to any** · `src/auth/session.ts:41`');
-    expect(md).toContain('- ⚠ **Test passes without the change** · `t.test.ts`: b');
+    expect(md).not.toContain('Test passes without the change');
     expect(md).toContain('1. `src/auth/session.ts`: auth/permissions, has findings');
   });
 });
@@ -193,8 +294,8 @@ describe('markdown escaping', () => {
       base: 'a'.repeat(40),
       head: 'b'.repeat(40),
       runner: null,
-      proofs: [{ ...proof('x', 'does-not-constrain'), name: 'a | b *c* @team\nnext' }],
-      findings: [],
+      proofs: [],
+      findings: [{ id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change', file: 't.test.ts', detail: 'a | b *c* @team\nnext' }],
       changes: [],
     });
     const md = renderMarkdown(receipt);

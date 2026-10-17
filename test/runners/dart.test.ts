@@ -194,7 +194,7 @@ describe.skipIf(!(hasTool('dart') || requiredTools().has('dart')))('trustbut ver
     const dir = await scenario({ 'lib/calc.dart': CALC('+'), 'test/zero_test.dart': suite('calc', false, 'zero', 'sum(0, 0), 0') });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   }, 240_000);
 });
 
@@ -213,6 +213,6 @@ describe.skipIf(!(hasTool('flutter') || requiredTools().has('flutter')))('trustb
     const dir = await scenario({ 'lib/calc.dart': CALC('+'), 'test/zero_test.dart': suite('calc', true, 'zero', 'sum(0, 0), 0') });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   }, 300_000);
 });

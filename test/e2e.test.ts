@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from './helpers/verify.js';
 import { buildProgram } from '../src/program.js';
+import { renderMarkdown } from '../src/render.js';
 import { toAgentReceipt } from '../src/spec/serialize.js';
 import { VERSION } from '../src/version.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
@@ -52,7 +53,11 @@ describe('trustbut verify (end to end)', () => {
     const { receipt, exitCode } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
     expect(exitCode).toBe(0);
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
+    expect(receipt.findings.filter((f) => f.id === 'change-not-proven')).toEqual([
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: '1 new or changed test, none fails without the change' },
+    ]);
+    expect(renderMarkdown(receipt)).toContain('**Proof:** nothing proves this change ⚠');
   });
 
   it('WARN: existing test skipped; exit 1 with --strict', async () => {
@@ -137,8 +142,13 @@ describe('trustbut verify (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     const ids = receipt.findings.map((f) => f.id);
-    for (const id of ['no-tests-changed', 'escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
-    expect(receipt.verdict).toBe('pass');
+    for (const id of ['escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
+    // The type test is a changed test file, so the detail is not "no test added or changed"; no runner runs it, so it proves nothing.
+    expect(receipt.proofs).toEqual([]);
+    expect(receipt.findings).toEqual([
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: 'test files changed, but no new or changed test that ran was found in them' },
+    ]);
+    expect(receipt.verdict).toBe('warn');
   });
 
   it('no escape-added in files .gitattributes marks linguist-generated', async () => {
@@ -161,8 +171,8 @@ describe('trustbut verify (end to end)', () => {
       ].join('\n'),
     });
     const { receipt } = await runVerify({ cwd: dir });
-    const loose = receipt.findings.filter((f) => f.id === 'test-passes-without-change');
-    expect(loose.map((f) => [f.file, f.detail])).toEqual([['test/old.test.js', 'also true']]);
+    const loose = receipt.proofs.filter((p) => p.verdict === 'does-not-constrain');
+    expect(loose.map((p) => [p.file, p.name])).toEqual([['test/old.test.js', 'also true']]);
     expect(receipt.proofs.map((p) => p.name)).not.toContain('truth');
   });
 
@@ -216,7 +226,7 @@ describe('trustbut verify (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['doubles', 'proves-change']]);
-    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).not.toContain('does-not-constrain');
   });
 
   it('still copies changed code fixtures under fixtures/ into the base checkout', async () => {
@@ -281,7 +291,7 @@ describe('trustbut verify (end to end)', () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
     const { output } = await runVerify({ cwd: dir, json: true });
     const json = JSON.parse(output);
-    expect(json).toMatchObject({ specVersion: '1.1', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
+    expect(json).toMatchObject({ specVersion: '1.2', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
     expect(json).not.toHaveProperty('version');
     expect(output).not.toContain('"output"');
   });
@@ -354,6 +364,37 @@ describe.skipIf(!hasPytest)('trustbut verify with pytest (end to end)', () => {
       ['tests/test_add.py', 'test_add', 'fail', 'proves-change'],
     ]);
     expect(receipt.verdict).toBe('pass');
+  }, 120_000);
+
+  it('PASS: a workspace member installed editable from the checkout is imported from the base worktree at base', async () => {
+    const { dir } = await makeRepo({
+      'pyproject.toml': '[tool.pytest.ini_options]\n',
+      'packages/lib/src/wslib/__init__.py': 'def double(x):\n    return x + x + 1\n',
+      'tests/test_old.py': 'def test_truth():\n    assert True\n',
+    });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'packages/lib/src/wslib/__init__.py': 'def double(x):\n    return x + x\n',
+      'tests/test_double.py': 'from wslib import double\n\ndef test_double():\n    assert double(2) == 4\n',
+    });
+    await commitAll(dir, 'fix double');
+    // An editable install of the workspace member from the user's checkout, as uv/pip -e would write it.
+    const venv = await mkdtemp(join(tmpdir(), 'trustbut-venv-'));
+    await execa('python3', ['-m', 'venv', '--system-site-packages', venv]);
+    const { stdout: site } = await execa(join(venv, 'bin', 'python'), ['-c', 'import sysconfig; print(sysconfig.get_paths()["purelib"])']);
+    await writeFile(join(site.trim(), '_wslib.pth'), `${join(dir, 'packages/lib/src')}\n`);
+    const prev = process.env.TRUSTBUT_PYTHON;
+    process.env.TRUSTBUT_PYTHON = join(venv, 'bin', 'python');
+    try {
+      const { receipt } = await runVerify({ cwd: dir });
+      expect(receipt.proofs.map((p) => [p.file, p.name, p.before, p.verdict])).toEqual([
+        ['tests/test_double.py', 'test_double', 'fail', 'proves-change'],
+      ]);
+    } finally {
+      if (prev === undefined) delete process.env.TRUSTBUT_PYTHON;
+      else process.env.TRUSTBUT_PYTHON = prev;
+      await rm(venv, { recursive: true, force: true });
+    }
   }, 120_000);
 });
 
@@ -496,7 +537,7 @@ describe('trustbut verify with the generic command runner', () => {
     expect(pids.filter(alive)).toEqual([]);
   }, 120_000);
 
-  it('WARN: absolute JUnit file paths still pair base and head results (a test passing at base is caught)', async () => {
+  it('PASS: absolute JUnit file paths still pair base and head results (the new test is recorded as passing at base; no code changed)', async () => {
     const script = 'echo "<testsuite name=\\"s\\"><testcase name=\\"v\\" file=\\"$PWD/tests/test_v.py\\"/></testsuite>"';
     const { dir } = await makeRepo({ 'src/value.txt': 'old\n', 'tests/test_old.py': '# old\n', '.trustbut.json': JSON.stringify({ command: script }) });
     await branch(dir, 'agent-change');
@@ -504,7 +545,7 @@ describe('trustbut verify with the generic command runner', () => {
     await commitAll(dir, 'change value');
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.file, p.before, p.verdict, p.weak])).toEqual([['tests/test_v.py', 'pass', 'does-not-constrain', false]]);
-    expect(receipt.verdict).toBe('warn');
+    expect(receipt.verdict).toBe('pass');
   });
 
   it('WARN: the command exits 0 without writing results (no-test-results), even though tests changed', async () => {
