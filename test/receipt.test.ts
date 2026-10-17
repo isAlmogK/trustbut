@@ -8,6 +8,10 @@ const file = (path: string, kind: ChangedFile['kind'], size = 1): ChangedFile =>
   path, status: 'modified', kind, added: Array.from({ length: size }, (_, i) => ({ line: i + 1, text: 'x' })), removed: [],
 });
 
+const src = (path: string, added: string[], removed: string[] = [], status: ChangedFile['status'] = 'modified'): ChangedFile => ({
+  path, status, kind: 'source', added: added.map((text, i) => ({ line: i + 1, text })), removed,
+});
+
 const proof = (name: string, verdict: TestProof['verdict'], weak = false): TestProof => ({
   id: `t.test.ts::${name}`, file: 't.test.ts', name, before: 'fail', after: 'pass', verdict, weak,
 });
@@ -47,10 +51,6 @@ describe('rankRisks: verification config and dependency manifests', () => {
 });
 
 describe('derived findings and verdict', () => {
-  const src = (path: string, added: string[], removed: string[] = [], status: ChangedFile['status'] = 'modified'): ChangedFile => ({
-    path, status, kind: 'source', added: added.map((text, i) => ({ line: i + 1, text })), removed,
-  });
-
   it('turns failing proofs into findings and nothing else', () => {
     expect(proofFindings([proof('a', 'proves-change'), proof('b', 'does-not-constrain'), proof('c', 'failing')]).map((f) => [f.id, f.severity])).toEqual([
       ['test-failing', 'fail'],
@@ -118,6 +118,21 @@ describe('derived findings and verdict', () => {
 });
 
 describe('renderMarkdown', () => {
+  it('leads with the proof line', () => {
+    const mk = (changes: ChangedFile[], proofs: TestProof[]) =>
+      renderMarkdown(buildReceipt({
+        base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest', findings: [],
+        after: { exitCode: 0, durationMs: 1, output: '', cases: [] }, changes, proofs,
+      }));
+    const code = [src('src/a.ts', ['x();']), file('test/a.test.ts', 'test')];
+    expect(mk(code, [proof('a', 'proves-change'), proof('b', 'proves-change'), proof('c', 'does-not-constrain')]))
+      .toContain('**Tests (clean checkout):** 0 passed · 0 failed · 0 skipped\n**Proof:** 2 new/changed tests prove the change ✅\n');
+    expect(mk(code, [proof('a', 'proves-change')])).toContain('**Proof:** 1 new/changed test proves the change ✅\n');
+    const unproven = mk([src('src/a.ts', ['x();'])], []);
+    expect(unproven).toContain('**Proof:** nothing proves this change ⚠\n');
+    expect(unproven).toContain('⚠ **Nothing proves the change**');
+    expect(mk([], [])).not.toContain('**Proof:**');
+  });
   it('marks failing tests that passed at base and lists them once', () => {
     const c = (name: string, outcome: 'pass' | 'fail') => ({ id: `t.test.js::${name}`, file: 't.test.js', name, outcome });
     const r = buildReceipt({

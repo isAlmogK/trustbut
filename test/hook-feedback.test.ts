@@ -17,7 +17,7 @@ const failReceipt = () =>
       { id: 'suite-failing', severity: 'fail', title: 'Test suite fails at head (clean checkout)', detail: 'exit code 1' },
       { id: 'test-failing', severity: 'fail', title: 'Test fails at head', file: 'test/lib.test.js', detail: 'lib > works' },
       { id: 'test-focused', severity: 'fail', title: 'Test focused (other tests will not run)', file: 'test/a.test.js', line: 3, detail: "it.only('x', () => {})" },
-      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change', file: 'test/b.test.js', detail: 'b' },
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: '1 new or changed test, none fails without the change' },
       { id: 'uncommitted-changes', severity: 'info', title: 'ignored info' },
     ],
     run([tc('lib > works', 'fail'), tc('lib > other', 'error'), tc('ok', 'pass')]),
@@ -41,7 +41,7 @@ describe('renderForAgent', () => {
         '- `test/lib.test.js` › lib > other',
         '',
         '### Warnings',
-        '- Test passes without the change · `test/b.test.js`: b',
+        '- Nothing proves the change: 1 new or changed test, none fails without the change',
         '',
         'Fix these and finish again; run `trustbut verify --working` to check.',
         'Full receipt: `/repo/.git/trustbut/last-receipt.md`',
@@ -110,19 +110,18 @@ describe('renderForAgent', () => {
 });
 
 describe('summarize (one line for systemMessage)', () => {
-  it('FAIL: counts failing tests, focus markers and tests that pass without the change', () => {
-    expect(summarize(failReceipt())).toBe('2 failing tests, 1 focused test, 1 test passes without the change');
+  it('FAIL: counts failing tests, focus markers and a change nothing proves', () => {
+    expect(summarize(failReceipt())).toBe('2 failing tests, 1 focused test, change not proven');
   });
 
   it('FAIL: a runner that reported nothing, other FAIL findings and other warnings', () => {
     const r = receipt([
       { id: 'suite-failing', severity: 'fail', title: 'Test runner failed without reporting any test results' },
       { id: 'something-new', severity: 'fail', title: 'Something new' },
-      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change' },
-      { id: 'test-passes-without-change', severity: 'warn', title: 'Test passes without the change' },
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change' },
       { id: 'escape-added', severity: 'warn', title: 'x' },
     ], run([], 1));
-    expect(summarize(r)).toBe('test runner failed without reporting any test results, something new, 2 tests pass without the change, 1 other warning');
+    expect(summarize(r)).toBe('test runner failed without reporting any test results, something new, change not proven, 1 other warning');
   });
 
   it('WARN: finding titles, grouped, at most 3', () => {

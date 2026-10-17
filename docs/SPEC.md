@@ -32,10 +32,10 @@ $ npx trustbut verify
 🧾 Receipt: WARN    main@3f2a91c → HEAD@8be04d1
 
 Tests (clean checkout)   41 passed · 0 failed · 1 skipped
+Proof                    2 new/changed tests prove the change ✅
 New/changed tests        2 prove the change · 1 passes without it
 
 Findings
-  ⚠ test passes without the change   test/sum.test.ts › handles negatives
   ⚠ test skipped                     test/auth.test.ts:88  it.skip("rejects expired token")
   ⚠ cast to any                      src/auth/session.ts:41
 
@@ -97,13 +97,13 @@ Review these first
 | Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
 | Type or lint escape added in source (`as any`, `@ts-ignore`, `eslint-disable`, `# type: ignore`, `# noqa`, coverage ignores; per language e.g. `//nolint`, `#[allow(…)]`, `unsafe`, `@SuppressWarnings`, `@Suppress`, `#pragma warning disable`, `rubocop:disable`, `@phpstan-ignore`, `// ignore:`, `swiftlint:disable`, `@unchecked Sendable`) | WARN | Rust `.unwrap()`, Kotlin `!!`, C# `x!` and Swift `as!`/`try!` are not escapes. JS directives (`@ts-…`, `eslint-disable`, `istanbul`/`c8`/`v8 ignore`) count only right after a comment marker (`//`, `///`, `/*`, `/**`, a `*` continuation), where the tools read them, not when a comment mentions them in prose. `: any` in a generic constraint (`T extends (...args: any[]) => R`, after `<Name extends` or `, Name extends` on the line) is not counted; `any` elsewhere, in a type signature too, is. Suppressions with a rule code or a written reason (`# noqa: BLE001  # reason`) still count. Files that the head commit's `.gitattributes` marks `linguist-generated` (set or `true`; read through a temporary index, so nested `.gitattributes` apply) get none |
-| Source changed, no tests changed | WARN | |
+| Nothing proves the change (code changed, and no test changed or no new/changed test fails without it; comment-only and blank-line changes don't count) | WARN | |
 
 ### 4. Proof engine (reruns)
 - **Clean rerun:** run the suite in a fresh worktree at `head`. This replaces trusting the agent's own run. A nonzero exit is FAIL; an exit 0 without any test result is WARN (`no-test-results`). A test tool that can't be started at all (not on `PATH`, not executable) is a runtime error, `Couldn't start <tool>: …` (exit 2).
 - **Fail-before / pass-after:** copy the head version of every new or changed test file into a worktree at `base` and run those files, plus the files of tests failing at head that exist at base (below), in one run. Then, for each test case:
   - fails at base, passes at head → **proves the change** ✅
-  - passes at base and at head → **passes without the change** ⚠ (the test doesn't constrain the new behavior)
+  - passes at base and at head → **passes without the change** (reported in proofs; the receipt warns only when no test proves the change)
   - fails at head → **failing** ❌
   - skipped at head → **skipped** ⚠
   - couldn't load at base (imports code that didn't exist yet) → counts as proof, but marked *weak*
@@ -173,6 +173,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
 ### 6. Receipt
 - **Format:** the JSON receipt is an **agent receipt v1**: [`spec/agent-receipt-v1.md`](../spec/agent-receipt-v1.md), with the schema in `spec/agent-receipt-v1.schema.json`. The spec is the source of truth for the fields, the 21 core finding ids and their severities, the verdict rule, `x-` extensions and versioning. trustbut's own detail goes under `x-trustbut`: `runner`, `languages`, `root`, and `after`/`before` runs (`exitCode`, `durationMs`, `timedOut?`, `cases`). A test case in those runs may carry `leaf`, the test's own short name used to tell new tests from untouched ones, and a failing case may carry `message`, the runner's failure message (one line, up to 300 characters). The raw runner output is not written to JSON by default; `--output-tail` adds `outputTail` (the last 50 lines, at most 4,000 characters) to each failed run under `x-trustbut` in JSON receipts. It is off by default, since tests can print secrets. Internally (Markdown, hooks), trustbut keeps the richer `Receipt` type; `toAgentReceipt()` in `src/spec/serialize.ts` maps it.
 - **Markdown header:** reads `runner: X`, plus ` · root: Y` when `root` is not `.`.
+- **Proof line:** under the tests line, `**Proof:** N new/changed tests prove the change ✅` when any test proves it, `**Proof:** nothing proves this change ⚠` with `change-not-proven`, otherwise none.
 - **When trustbut emits each id** (meanings and severities: the spec's [finding catalog](../spec/agent-receipt-v1.md#finding-catalog)):
 
   | Id | trustbut emits it when |
@@ -184,12 +185,11 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `snapshot-changed` | A snapshot file is changed or deleted. |
   | `test-config-changed` | A test or coverage config file changes, `.trustbut.json` included. |
   | `escape-added` | An added line carries a type, lint, coverage, warning or safety escape (§3). |
-  | `no-tests-changed` | Source changed and no test file was added or changed. |
   | `suite-failing` | The head run exits nonzero. When the runner reported no test (a build or start-up failure), the detail is the last output line, or `timed out after N s`; otherwise `exit code N`. |
   | `no-test-results` | The head run exits 0 with no results, e.g. args that filter out every test, a `junit` path the command never writes, a test task whose reports trustbut doesn't read. |
   | `test-failing` | A new or changed test fails at head. |
   | `test-regressed` | A test that fails or errors at head passes at base, and a rerun of the base run's files reproduces both results (§4). The base run gets the changed test files plus the files of tests failing at head (pytest module names map to their `.py` file); one finding per test, with the repo path and the test name. |
-  | `test-passes-without-change` | A new or changed test also passes at base (§4). |
+  | `change-not-proven` | Source code changed (a non-deleted source file has an added or removed line with code, not only comments or blanks; any line for a language outside the registry) and either no test file changed (detail `no test added or changed`) or test files changed, the proof run produced proofs and none is `proves-change` (detail `N new or changed tests, none fails without the change`). Not emitted when test files changed but there are no proofs. |
   | `no-runner` | No runner is detected; the title lists the supported runners. |
   | `base-run-failed` | The base run of the changed tests reports nothing and exits nonzero. |
   | `proofs-unmatched` | The suite ran (or exited 0 with no results) but no result matched the changed test files. Not emitted when the head run only reports a build or start-up failure. |
@@ -197,6 +197,8 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   | `deps-changed` | A lockfile or requirements file changes (`package-lock.json`, `yarn.lock`, `go.sum`, `requirements*.txt`, …); both runs use the installed dependencies. |
   | `tests-outside-root` | Changed test files outside the package root were not run; gives the count and the first 3 paths. |
   | `uncommitted-changes` | The working tree has uncommitted work. Not emitted with `--working`. |
+
+trustbut no longer emits `no-tests-changed` or `test-passes-without-change` (0.7.0); both stay in the spec catalog.
 
   trustbut also emits one namespaced id (severity `info`, so it never changes the verdict):
 
@@ -227,7 +229,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
 - **Unchanged trees:** the working tree is snapshotted first (cheap; no worktree). If its `tree` equals the last verified one: a PASS/WARN is not rerun (the stop is allowed silently); a FAIL is never rerun or sent back twice. At the start of a chain (`attempts` 0, e.g. the user only asked a question) the user sees `trustbut FAIL (unchanged since last check) — receipt: <path>`; within a chain (`attempts` > 0: the agent stopped again without changing anything) the stop is allowed with `trustbut FAIL (no changes since the receipt was sent back) — receipt: <path>`. Both reset `attempts` to 0. A tree that changed is verified again and the normal retry logic applies.
 - **Full receipt:** the Markdown receipt is written to `<git dir>/trustbut/last-receipt.md` (`git rev-parse --git-dir`: `.git/trustbut/…` in a normal checkout, `.git/worktrees/<name>/trustbut/…` in a linked worktree), inside `.git` so it is never committed.
 - **Feedback to the agent (FAIL):** plain Markdown of at most 6,000 characters (Codex and Gemini cut hook output at about 2,500 tokens): the verdict, the tests line, each FAIL finding with `file:line` (a failing changed test is listed once, under failing tests), failing tests (up to 10) with the runner's failure message when it reports one (`TestCaseResult.message`, up to 300 characters: JUnit `<failure>`/`<error>` `message`, else the first line of its text; Jest's first `failureMessages` entry), on `suite-failing` the last 20 lines (at most 1,500 characters) of the head run's output in a fenced block, warnings (up to 10, one line each), "Fix these and finish again; run `<recheck>` to check." and the receipt path. `<recheck>` matches the hook: `trustbut verify --working`, plus `--quick` in quick mode and `--base <ref>` when the hook's base isn't the one `verify` would pick. Lines are flattened and clipped at 400 characters; when the whole text is still too long, items are dropped from the end (the output block as a whole) with "… N more lines not shown; see the full receipt", keeping the instruction and the path.
-- **Message to the user (`systemMessage`):** one line. FAIL: counts, e.g. `trustbut FAIL: 2 failing tests, 1 test passes without the change — sent back to the agent (attempt 1/3)`. WARN: up to 3 finding titles and the receipt path. PASS: tests passed and how many new/changed tests prove the change. Errors: `trustbut couldn't verify: <first line of the error>`.
+- **Message to the user (`systemMessage`):** one line. FAIL: counts, e.g. `trustbut FAIL: 2 failing tests, change not proven — sent back to the agent (attempt 1/3)`. WARN: up to 3 finding titles and the receipt path. PASS: tests passed and how many new/changed tests prove the change. Errors: `trustbut couldn't verify: <first line of the error>`.
 
 | Outcome | `claude` (Stop) | `codex` (Stop) | `gemini` (AfterAgent) | `opencode` (plugin) |
 |---|---|---|---|---|

@@ -6,6 +6,7 @@ import { execa } from 'execa';
 import { describe, expect, it } from 'vitest';
 import { runVerify } from './helpers/verify.js';
 import { buildProgram } from '../src/program.js';
+import { renderMarkdown } from '../src/render.js';
 import { toAgentReceipt } from '../src/spec/serialize.js';
 import { VERSION } from '../src/version.js';
 import { branch, commitAll, linkNodeModules, makeRepo, writeFiles } from './helpers/repo.js';
@@ -53,6 +54,10 @@ describe('trustbut verify (end to end)', () => {
     expect(receipt.verdict).toBe('warn');
     expect(exitCode).toBe(0);
     expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
+    expect(receipt.findings.filter((f) => f.id === 'change-not-proven')).toEqual([
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: '1 new or changed test, none fails without the change' },
+    ]);
+    expect(renderMarkdown(receipt)).toContain('**Proof:** nothing proves this change ⚠');
   });
 
   it('WARN: existing test skipped; exit 1 with --strict', async () => {

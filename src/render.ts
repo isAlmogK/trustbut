@@ -65,6 +65,9 @@ export function renderMarkdown(r: Receipt): string {
   } else {
     lines.push('**Tests:** not run');
   }
+  const proving = r.proofs.filter((p) => p.verdict === 'proves-change').length;
+  if (proving) lines.push(`**Proof:** ${proving} new/changed test${proving === 1 ? ' proves' : 's prove'} the change ✅`);
+  else if (r.findings.some((f) => f.id === 'change-not-proven')) lines.push('**Proof:** nothing proves this change ⚠');
   if (r.proofs.length) {
     const proves = r.proofs.filter((p) => p.verdict === 'proves-change');
     const weak = proves.filter((p) => p.weak).length;

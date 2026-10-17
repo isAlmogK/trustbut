@@ -22,9 +22,9 @@ function failParts(r: Receipt): string[] {
   const known = new Set(['suite-failing', 'test-failing', 'test-regressed', 'test-focused']);
   for (const title of new Set(fails.filter((f) => !known.has(f.id)).map((f) => f.title))) parts.push(lowerFirst(title));
   const warns = r.findings.filter((f) => f.severity === 'warn');
-  const loose = warns.filter((f) => f.id === 'test-passes-without-change').length;
-  if (loose) parts.push(loose === 1 ? '1 test passes without the change' : `${loose} tests pass without the change`);
-  const other = warns.length - loose;
+  const notProven = warns.some((f) => f.id === 'change-not-proven');
+  if (notProven) parts.push('change not proven');
+  const other = warns.length - (notProven ? 1 : 0);
   if (other) parts.push(count(other, 'other warning'));
   return parts;
 }

@@ -106,7 +106,7 @@ describe('cli: trustbut hook', () => {
     const out = JSON.parse(r.stdout) as { decision: string; reason: string; systemMessage: string };
     expect(out.decision).toBe('block');
     expect(out.reason).toContain('trustbut verdict: FAIL');
-    expect(out.systemMessage).toMatch(/^trustbut FAIL: 1 failing test, 1 other warning — sent back to the agent \(attempt 1\/3\)$/);
+    expect(out.systemMessage).toMatch(/^trustbut FAIL: 1 failing test, change not proven — sent back to the agent \(attempt 1\/3\)$/);
   }, 60_000);
 
   it('documents the hook in --help', async () => {

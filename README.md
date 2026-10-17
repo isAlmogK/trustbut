@@ -34,10 +34,10 @@ $ npx trustbut verify
 `3f2a91c` → `8be04d1` · runner: vitest
 
 **Tests (clean checkout):** 41 passed · 0 failed · 1 skipped
+**Proof:** 1 new/changed test proves the change ✅
 **New/changed tests:** 1 prove the change · 1 pass without it
 
 ### Findings
-- ⚠ **Test passes without the change** · `test/auth.test.ts`: rejects expired token
 - ⚠ **Test skipped** · `test/auth.test.ts:88`: it.skip('handles clock skew', () => {
 - ⚠ **cast to any** · `src/auth/session.ts:41`: const claims = decoded as any;
 
@@ -193,7 +193,7 @@ trustbut verify --json > receipt.json
 | Verdict | Meaning | Exit code |
 |---|---|---|
 | ✅ **PASS** | Tests are green from a clean checkout, the new tests prove the change, and nothing suspicious was found | `0` |
-| ⚠️ **WARN** | Something deserves a human look: a test that passes without the change, a skipped test, a silenced check | `0` (`1` with `--strict`) |
+| ⚠️ **WARN** | Something deserves a human look: a change no test proves, a skipped test, a silenced check | `0` (`1` with `--strict`) |
 | ✖️ **FAIL** | Tests fail from a clean checkout, a changed test fails, or a test was focused (`.only`) | `1` |
 | — | Usage or runtime error, e.g. an unknown ref or option, or a `--receipt-json` / `--receipt-md` file that couldn't be written | `2` |
 
@@ -421,7 +421,7 @@ This is the core idea. Every new or changed test also runs against the **base** 
 | Assertions removed (net count, including `self.assertEqual` style) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
-| Source changed but no tests were added or changed | ⚠️ WARN |
+| Nothing proves the change (code changed, no test fails without it) | ⚠️ WARN |
 
 ### 4. Escapes
 
