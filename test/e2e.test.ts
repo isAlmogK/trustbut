@@ -281,7 +281,7 @@ describe('trustbut verify (end to end)', () => {
     const dir = await scenario({ 'README.md': '# hi\n' });
     const { output } = await runVerify({ cwd: dir, json: true });
     const json = JSON.parse(output);
-    expect(json).toMatchObject({ specVersion: '1.1', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
+    expect(json).toMatchObject({ specVersion: '1.2', producer: { name: 'trustbut', version: VERSION }, verdict: 'pass' });
     expect(json).not.toHaveProperty('version');
     expect(output).not.toContain('"output"');
   });

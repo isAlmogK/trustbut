@@ -1,7 +1,7 @@
 import type { ProofVerdict, RunScope, Severity, TestCaseResult, TestOutcome, Verdict } from '../types.js';
 
 export const SCHEMA_URL = 'https://raw.githubusercontent.com/isAlmogK/trustbut/main/spec/agent-receipt-v1.schema.json';
-export const SPEC_VERSION = '1.1';
+export const SPEC_VERSION = '1.2';
 
 /** One test run as trustbut reports it under x-trustbut (raw output only as an opt-in tail). */
 export interface TrustbutRun {

@@ -17,6 +17,7 @@ const INVALID: Record<string, { path: string; message: string }> = {
   'bad-finding-id-newer-minor.json': { path: '/findings/0/id', message: ID_MESSAGE },
   'unknown-field.json': { path: '/', message: "must not have additional property 'durationMs'" },
   'bad-spec-version.json': { path: '/specVersion', message: 'must match pattern "^1\\.(0|[1-9][0-9]*)$"' },
+  'not-proven-in-1-1.json': { path: '/findings/0/id', message: "'change-not-proven' is a core id since 1.2 (the receipt declares 1.1)" },
   'regressed-in-1-0.json': { path: '/findings/0/id', message: "'test-regressed' is a core id since 1.1 (the receipt declares 1.0)" },
   'verdict-mismatch.json': { path: '/verdict', message: "must be 'warn' for these findings (got 'pass')" },
 };
@@ -110,18 +111,18 @@ describe('validateAgentReceipt', () => {
     });
 
     it('is valid, with unknown fields and unknown core ids as warnings', () => {
-      expect(validateAgentReceipt(future('1.2'))).toEqual({
+      expect(validateAgentReceipt(future('1.3'))).toEqual({
         valid: true,
         errors: [],
         warnings: [
-          { path: '/', message: "unknown in spec 1.1: 'coverage' (allowed for a newer 1.x receipt)" },
-          { path: '/findings/0/id', message: "'mutation-survived' is not a 1.1 core id (allowed for a newer 1.x receipt)" },
+          { path: '/', message: "unknown in spec 1.2: 'coverage' (allowed for a newer 1.x receipt)" },
+          { path: '/findings/0/id', message: "'mutation-survived' is not a 1.2 core id (allowed for a newer 1.x receipt)" },
         ],
       });
     });
 
     it('still applies the verdict rule to unknown ids by their severity', () => {
-      const r = { ...future('1.2'), verdict: 'pass' };
+      const r = { ...future('1.3'), verdict: 'pass' };
       expect(validateAgentReceipt(r).errors).toEqual([{ path: '/verdict', message: "must be 'warn' for these findings (got 'pass')" }]);
     });
 
@@ -134,8 +135,8 @@ describe('validateAgentReceipt', () => {
       ]);
     });
 
-    it('is invalid when it declares exactly 1.1, the newest known minor', () => {
-      expect(validateAgentReceipt(future('1.1'))).toEqual({
+    it('is invalid when it declares exactly 1.2, the newest known minor', () => {
+      expect(validateAgentReceipt(future('1.2'))).toEqual({
         valid: false,
         errors: [
           { path: '/', message: "must not have additional property 'coverage'" },
@@ -146,14 +147,14 @@ describe('validateAgentReceipt', () => {
     });
 
     it('is invalid for real type errors and malformed namespaced ids', () => {
-      expect(validateAgentReceipt({ ...future('1.2'), verdict: 'nope' }).valid).toBe(false);
-      const badNs = { ...future('1.2'), findings: [{ id: 'Acme/leak', severity: 'warn', title: 'x' }] };
+      expect(validateAgentReceipt({ ...future('1.3'), verdict: 'nope' }).valid).toBe(false);
+      const badNs = { ...future('1.3'), findings: [{ id: 'Acme/leak', severity: 'warn', title: 'x' }] };
       expect(validateAgentReceipt(badNs).errors).toEqual([{ path: '/findings/0/id', message: ID_MESSAGE }]);
     });
 
     it('is invalid for a malformed id that is neither core-id shaped nor namespaced', () => {
       for (const id of ['Not_Valid', 'Mutation-Survived', '-leading', 'has space', '']) {
-        const bad = { ...future('1.2'), findings: [{ id, severity: 'warn', title: 'x' }] };
+        const bad = { ...future('1.3'), findings: [{ id, severity: 'warn', title: 'x' }] };
         const result = validateAgentReceipt(bad);
         expect(result.valid, id).toBe(false);
         expect(result.errors, id).toEqual([{ path: '/findings/0/id', message: ID_MESSAGE }]);
@@ -174,8 +175,8 @@ describe('core finding catalog', () => {
     expect([...enumIds].sort()).toEqual(Object.keys(CORE_FINDINGS).sort());
   });
 
-  it('has 20 ids with their default severities', () => {
-    expect(Object.keys(CORE_FINDINGS)).toHaveLength(20);
+  it('has 21 ids with their default severities', () => {
+    expect(Object.keys(CORE_FINDINGS)).toHaveLength(21);
     expect(Object.entries(CORE_FINDINGS).filter(([, s]) => s === 'fail').map(([id]) => id).sort()).toEqual(['suite-failing', 'test-failing', 'test-focused', 'test-regressed']);
     expect(Object.entries(CORE_FINDINGS).filter(([, s]) => s === 'info').map(([id]) => id).sort()).toEqual(['deps-changed', 'tests-outside-root', 'uncommitted-changes']);
   });
@@ -208,6 +209,30 @@ describe('test-regressed (spec 1.1)', () => {
     expect(validateAgentReceipt(regressed('1.0'))).toEqual({
       valid: false,
       errors: [{ path: '/findings/0/id', message: "'test-regressed' is a core id since 1.1 (the receipt declares 1.0)" }],
+      warnings: [],
+    });
+  });
+});
+
+describe('change-not-proven (spec 1.2)', () => {
+  const notProven = (specVersion: string) => ({
+    specVersion,
+    producer: { name: 't', version: '1' },
+    subject: { base: 'main', head: 'HEAD' },
+    verdict: 'warn',
+    findings: [{ id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: 'no test added or changed' }],
+  });
+  it('is a warn core id', () => {
+    expect(isCoreFindingId('change-not-proven')).toBe(true);
+    expect(CORE_FINDINGS['change-not-proven']).toBe('warn');
+  });
+  it('is valid in a 1.2 receipt', () => {
+    expect(validateAgentReceipt(notProven('1.2'))).toEqual({ valid: true, errors: [], warnings: [] });
+  });
+  it('is invalid in a 1.1 receipt', () => {
+    expect(validateAgentReceipt(notProven('1.1'))).toEqual({
+      valid: false,
+      errors: [{ path: '/findings/0/id', message: "'change-not-proven' is a core id since 1.2 (the receipt declares 1.1)" }],
       warnings: [],
     });
   });

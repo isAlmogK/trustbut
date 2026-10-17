@@ -13,6 +13,7 @@ export const CORE_FINDINGS = {
   'test-config-changed': 'warn',
   'escape-added': 'warn',
   'no-tests-changed': 'warn',
+  'change-not-proven': 'warn',
   'no-test-results': 'warn',
   'test-passes-without-change': 'warn',
   'no-runner': 'warn',
@@ -27,7 +28,7 @@ export const CORE_FINDINGS = {
 export type CoreFindingId = keyof typeof CORE_FINDINGS;
 
 /** The spec minor that introduced a core id; ids not listed are from 1.0. */
-export const CORE_FINDING_SINCE: Partial<Record<CoreFindingId, number>> = { 'test-regressed': 1 };
+export const CORE_FINDING_SINCE: Partial<Record<CoreFindingId, number>> = { 'test-regressed': 1, 'change-not-proven': 2 };
 
 export function isCoreFindingId(id: string): id is CoreFindingId {
   return Object.hasOwn(CORE_FINDINGS, id);

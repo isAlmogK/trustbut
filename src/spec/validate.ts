@@ -56,7 +56,7 @@ function schemaProblems(errors: ErrorObject[]): SchemaProblem[] {
 }
 
 const MINOR = /^1\.(\d+)$/;
-/** The newest spec minor this validator knows (`1.1` → 1). */
+/** The newest spec minor this validator knows (`1.2` → 2). */
 const KNOWN_MINOR = Number(SPEC_VERSION.split('.')[1]);
 /** The shape of a core id (`test-focused`): a newer minor's core ids have it too; anything else is malformed. */
 const CORE_ID_SHAPE = /^[a-z0-9][a-z0-9-]*$/;
