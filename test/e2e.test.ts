@@ -52,7 +52,7 @@ describe('trustbut verify (end to end)', () => {
     const { receipt, exitCode } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
     expect(exitCode).toBe(0);
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   });
 
   it('WARN: existing test skipped; exit 1 with --strict', async () => {
@@ -161,8 +161,8 @@ describe('trustbut verify (end to end)', () => {
       ].join('\n'),
     });
     const { receipt } = await runVerify({ cwd: dir });
-    const loose = receipt.findings.filter((f) => f.id === 'test-passes-without-change');
-    expect(loose.map((f) => [f.file, f.detail])).toEqual([['test/old.test.js', 'also true']]);
+    const loose = receipt.proofs.filter((p) => p.verdict === 'does-not-constrain');
+    expect(loose.map((p) => [p.file, p.name])).toEqual([['test/old.test.js', 'also true']]);
     expect(receipt.proofs.map((p) => p.name)).not.toContain('truth');
   });
 
@@ -216,7 +216,7 @@ describe('trustbut verify (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.name, p.verdict])).toEqual([['doubles', 'proves-change']]);
-    expect(receipt.findings.map((f) => f.id)).not.toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).not.toContain('does-not-constrain');
   });
 
   it('still copies changed code fixtures under fixtures/ into the base checkout', async () => {
@@ -504,7 +504,7 @@ describe('trustbut verify with the generic command runner', () => {
     await commitAll(dir, 'change value');
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.proofs.map((p) => [p.file, p.before, p.verdict, p.weak])).toEqual([['tests/test_v.py', 'pass', 'does-not-constrain', false]]);
-    expect(receipt.verdict).toBe('warn');
+    expect(receipt.verdict).toBe('pass');
   });
 
   it('WARN: the command exits 0 without writing results (no-test-results), even though tests changed', async () => {

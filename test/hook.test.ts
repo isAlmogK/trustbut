@@ -62,6 +62,9 @@ const FAIL_FEEDBACK = (receipt: string) =>
     '<?xml version="1.0"?><testsuite name="s"><testcase classname="lib" name="works" file="test/lib.test.js"><failure message="expected good"/></testcase></testsuite>',
     '```',
     '',
+    '### Warnings',
+    '- Nothing proves the change: 1 new or changed test, none fails without the change',
+    '',
     'Fix these and finish again; run `trustbut verify --working --quick` to check.',
     `Full receipt: \`${receipt}\``,
     '',
@@ -74,7 +77,7 @@ describe.concurrent('trustbut hook: protocol golden outputs', () => {
     it('FAIL: sends the feedback back to the agent', async () => {
       const f = await fixture('fail');
       const r = await f.hook(agent);
-      const summary = 'trustbut FAIL: 1 failing test — sent back to the agent (attempt 1/3)';
+      const summary = 'trustbut FAIL: 1 failing test, 1 other warning — sent back to the agent (attempt 1/3)';
       if (agent === 'claude') {
         expect(r).toMatchObject({ exitCode: 0, stderr: '' });
         expect(JSON.parse(r.stdout)).toEqual({ decision: 'block', reason: FAIL_FEEDBACK(f.receipt), systemMessage: summary });
@@ -91,7 +94,7 @@ describe.concurrent('trustbut hook: protocol golden outputs', () => {
       // The agent edits but the test still fails (an unchanged tree is never sent back twice).
       await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 2';\n" });
       const second = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
-      if (agent === 'claude') expect(JSON.parse(second.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test — sent back to the agent (attempt 2/2)');
+      if (agent === 'claude') expect(JSON.parse(second.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test, 1 other warning — sent back to the agent (attempt 2/2)');
       else expect(second.exitCode).toBe(2);
       await writeFiles(f.dir, { 'src/lib.js': "export const v = 'bad 3';\n" });
       const third = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
@@ -111,7 +114,7 @@ describe.concurrent('trustbut hook: protocol golden outputs', () => {
 
     it('WARN: lists the finding titles and the receipt path', async () => {
       const f = await fixture('warn');
-      expect(await f.hook(agent)).toEqual({ exitCode: 0, stdout: msg(`trustbut WARN: Test passes without the change — receipt: ${f.receipt}`), stderr: '' });
+      expect(await f.hook(agent)).toEqual({ exitCode: 0, stdout: msg(`trustbut WARN: Nothing proves the change — receipt: ${f.receipt}`), stderr: '' });
     });
 
     it("error: says it couldn't verify and never blocks", async () => {
@@ -212,7 +215,7 @@ describe.concurrent('trustbut hook: settings', () => {
     const f = await fixture('fail', { hook: { maxRetries: 0 } });
     expect(await f.hook('codex')).toEqual({
       exitCode: 0,
-      stdout: msg(`trustbut FAIL: 1 failing test — not sent back to the agent (hook.maxRetries is 0); receipt: ${f.receipt}`),
+      stdout: msg(`trustbut FAIL: 1 failing test, 1 other warning — not sent back to the agent (hook.maxRetries is 0); receipt: ${f.receipt}`),
       stderr: '',
     });
   });
@@ -261,7 +264,7 @@ describe.concurrent('trustbut hook: settings', () => {
     expect((await f.hook('codex', { session_id: 's', cwd: f.dir, stop_hook_active: false }, opts)).exitCode).toBe(2);
     const r = await f.hook('codex', { session_id: 's', cwd: f.dir, stop_hook_active: true }, opts);
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test — not sent back again: couldn't read the retry counter/);
+    expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test, 1 other warning — not sent back again: couldn't read the retry counter/);
   });
 });
 
@@ -347,7 +350,7 @@ describe.concurrent('trustbut hook: stop_hook_active and the counter', () => {
     const f = await fixture('fail');
     await writeAttempts(stateFile(f.stateDir, 'sess-1', f.dir), 3);
     const r = await f.hook('claude', { session_id: 'sess-1', cwd: f.dir, stop_hook_active: false });
-    expect(JSON.parse(r.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test — sent back to the agent (attempt 1/3)');
+    expect(JSON.parse(r.stdout).systemMessage).toBe('trustbut FAIL: 1 failing test, 1 other warning — sent back to the agent (attempt 1/3)');
   });
 
   it('a missing stop_hook_active keeps counting', async () => {
@@ -365,7 +368,7 @@ describe.concurrent('trustbut hook: stop_hook_active and the counter', () => {
       await writeFiles(f.stateDir, { [file.split('/').pop()!]: '{ corrupt' });
       const r = await f.hook(agent, { session_id: 'sess-1', cwd: f.dir, stop_hook_active: true });
       expect(r.exitCode).toBe(0);
-      expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test — not sent back again: couldn't read the retry counter \(corrupt state file /);
+      expect(JSON.parse(r.stdout).systemMessage).toMatch(/^trustbut FAIL: 1 failing test, 1 other warning — not sent back again: couldn't read the retry counter \(corrupt state file /);
     }
   });
 });

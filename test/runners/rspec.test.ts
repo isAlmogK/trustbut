@@ -159,7 +159,7 @@ describe.skipIf(!run)('trustbut verify with rspec (end to end)', () => {
     const dir = await scenario({ 'lib/calc.rb': CALC('+'), 'spec/zero_spec.rb': spec('zero', 'expect(Calc.sum(0, 0)).to eq(0)') });
     const { receipt } = await runVerify({ cwd: dir });
     expect(receipt.verdict).toBe('warn');
-    expect(receipt.findings.map((f) => f.id)).toContain('test-passes-without-change');
+    expect(receipt.proofs.map((p) => p.verdict)).toContain('does-not-constrain');
   }, 120_000);
 
   it('a spec file that fails to load is an error, not a proof', async () => {
