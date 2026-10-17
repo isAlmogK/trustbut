@@ -13,17 +13,26 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function checkTestIntegrity(files: ChangedFile[]): Finding[] {
   const findings: Finding[] = [];
   // A removed line that another changed test file adds (same trimmed text) moved; it was not removed.
-  const addedBy = new Map<string, Set<string>>();
+  // Each added line cancels at most one removal, consumed in file order.
+  const addedBy = new Map<string, Map<string, number>>();
   for (const f of files) {
     if (f.kind !== 'test') continue;
     for (const a of f.added) {
       const t = a.text.trim();
       if (!t) continue;
-      if (!addedBy.has(t)) addedBy.set(t, new Set());
-      addedBy.get(t)!.add(f.path);
+      const byPath = addedBy.get(t) ?? new Map<string, number>();
+      byPath.set(f.path, (byPath.get(f.path) ?? 0) + 1);
+      addedBy.set(t, byPath);
     }
   }
-  const movedOut = (f: ChangedFile, line: string) => [...(addedBy.get(line.trim()) ?? [])].some((p) => p !== f.path);
+  const movedOut = (f: ChangedFile, line: string) => {
+    for (const [path, n] of addedBy.get(line.trim()) ?? []) {
+      if (path === f.path || n <= 0) continue;
+      addedBy.get(line.trim())!.set(path, n - 1);
+      return true;
+    }
+    return false;
+  };
   for (const f of files) {
     if (f.kind === 'snapshot' && f.status !== 'added') {
       const title = f.status === 'deleted' ? 'Snapshot deleted' : 'Snapshot changed';

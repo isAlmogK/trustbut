@@ -71,6 +71,32 @@ describe('checkTestIntegrity', () => {
     expect(ids(findings)).toEqual(['tests-removed']);
   });
 
+  it('a moved line cancels at most as many removals as were added elsewhere', () => {
+    const line = '    expect(x).toBe(true);';
+    const findings = checkTestIntegrity([
+      file({ path: 'test/a.test.ts', removed: [line, line, line] }),
+      file({ path: 'test/b.test.ts', added: [{ line: 1, text: line }] }),
+    ]);
+    expect(findings).toMatchObject([{ id: 'assertions-removed', title: '2 assertions removed', file: 'test/a.test.ts' }]);
+  });
+
+  it('reports removed Rust inline tests even when one test is added back', () => {
+    const findings = checkTestIntegrity([
+      file({
+        path: 'src/lib.rs',
+        kind: 'source',
+        removed: ['    #[test]', '    fn a() {', '    #[test]', '    fn b() {', '    #[test]', '    fn c() {'],
+        added: [{ line: 1, text: '    #[test]' }, { line: 2, text: '    fn d() {' }],
+      }),
+    ]);
+    expect(ids(findings)).toEqual(['tests-removed']);
+  });
+
+  it('reports tests deleted outright with no assertion lines', () => {
+    const findings = checkTestIntegrity([file({ path: 'test/a.test.ts', removed: ["it('one', () => {", "it('two', () => {"] })]);
+    expect(ids(findings)).toEqual(['tests-removed']);
+  });
+
   it('fails on focused tests', () => {
     const findings = checkTestIntegrity([file({ path: 'a.test.ts', added: [{ line: 2, text: "it.only('x', () => {" }] })]);
     expect(findings[0]).toMatchObject({ id: 'test-focused', severity: 'fail' });

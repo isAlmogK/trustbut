@@ -92,7 +92,7 @@ Review these first
 |---|---|---|
 | Test focused (`it.only`, `fdescribe`) | FAIL | Silently disables every other test |
 | Test skipped (`it.skip`, `xit`, `@pytest.mark.skip`, `pytest.skip()`) | WARN | |
-| Test definitions removed (net; lines another changed test file adds count as moved; not reported when the file's assertions did not drop, i.e. tests were merged) | WARN | Could be a legitimate refactor, so a human should look |
+| Test definitions removed (net; lines another changed test file adds count as moved; not reported when the same file also adds a test definition and its assertions did not drop on net (tests merged into fewer blocks); Rust inline tests have no assertion count and are never treated as merged) | WARN | Could be a legitimate refactor, so a human should look |
 | Assertions removed (net; lines another changed test file adds count as moved) | WARN | |
 | Snapshot changed or deleted | WARN | |
 | Test or coverage config changed | WARN | Thresholds, includes, timeouts |
@@ -180,7 +180,7 @@ Path rules add weight for: auth or permissions, migrations, CI pipelines, verifi
   |---|---|
   | `test-focused` | The diff adds a focus marker (§3: `.only`, `fit`, `solo: true`, …). |
   | `test-skipped` | The diff adds a skip marker (§3). |
-  | `tests-removed` | A file loses test definitions on net; one finding per file. Lines another changed test file adds count as moved, and it is not reported when the file's assertions did not drop (tests merged). |
+  | `tests-removed` | A file loses test definitions on net; one finding per file. Lines another changed test file adds count as moved, and it is not reported when the same file also adds a test definition and its assertions did not drop on net (tests merged into fewer blocks); Rust inline tests have no assertion count and are never treated as merged. |
   | `assertions-removed` | A file loses assertions on net; one finding per file. Lines another changed test file adds count as moved. |
   | `snapshot-changed` | A snapshot file is changed or deleted. |
   | `test-config-changed` | A test or coverage config file changes, `.trustbut.json` included. |
