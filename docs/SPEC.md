@@ -82,6 +82,7 @@ Review these first
 ### 1. Git layer
 - Resolves `base` (default: merge-base of `HEAD` with `origin/main`, `main`, `origin/master` or `master`) and `head` (default `HEAD`).
 - Creates **throwaway `git worktree`s**, so the user's checkout is never touched. Dependencies (`node_modules`, `.venv`, `venv`) are symlinked from the main checkout instead of reinstalled, both at the repo root and inside the package root (see Configuration).
+- **Python editable installs:** the pytest runner puts the worktree root and its `src/` first on `PYTHONPATH`, then every entry of the interpreter's `sys.path` that points into the checkout trustbut was started in (an editable install of a workspace member such as `packages/lib/src`), mapped to the same path in the worktree when it exists there. So a base run imports the base's code. Import-hook editable installs (setuptools `__editable___*_finder.py`) are not mapped, and a JS package whose tests import its own build output (`dist/`) runs that build at base.
 
 ### 2. Diff parser
 - Parses the unified diff into `ChangedFile { path, status, kind, added[{line,text}], removed[] }`.

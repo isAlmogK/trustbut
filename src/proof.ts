@@ -296,7 +296,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     if (notInstalled) findings.push(notInstalled);
     await linkDeps(repo, headDir, root);
     const scope: RunScope = quick && testFiles.length ? 'changed' : 'full';
-    const after = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
+    const after = await runWithSetup(runner, { ...runOptions, checkout: repo, cwd: headRoot, worktree: headDir, files: scope === 'changed' ? testFiles : undefined }, setup);
     const headFinding = headRunFinding(after, runOptions.timeoutMs);
     if (headFinding) findings.push(headFinding);
     if (after.exitCode === 0 && after.cases.length === 0) {
@@ -317,7 +317,7 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     const baseRoot = join(baseDir, root);
     const baseFiles = [...new Set([...testFiles, ...failingFiles.filter((f) => isFileAt(baseRoot, f))])];
     if (!baseFiles.length) return { runner, scope, after, proofs: [], findings };
-    const before = await runWithSetup(runner, { ...runOptions, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup);
+    const before = await runWithSetup(runner, { ...runOptions, checkout: repo, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup);
     if (testFiles.length && before.exitCode !== 0 && before.cases.length === 0) {
       const detail = timeoutDetail(before, runOptions.timeoutMs);
       findings.push({
@@ -331,10 +331,10 @@ export async function proveTests(input: ProofInput): Promise<ProofOutput> {
     // at base, so a failure from full-suite load, shared state or chance doesn't count as a regression.
     const candidates = regressedCases(before, after);
     if (candidates.length) {
-      const headRerun = await runWithSetup(runner, { ...runOptions, cwd: headRoot, worktree: headDir, files: baseFiles }, setup);
+      const headRerun = await runWithSetup(runner, { ...runOptions, checkout: repo, cwd: headRoot, worktree: headDir, files: baseFiles }, setup);
       const rerunAtHead = new Map(worstById(headRerun.cases).map((c) => [c.id, c.outcome]));
       const baseRerun = candidates.some((c) => isFailure(rerunAtHead.get(c.id)))
-        ? await runWithSetup(runner, { ...runOptions, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup)
+        ? await runWithSetup(runner, { ...runOptions, checkout: repo, cwd: baseRoot, worktree: baseDir, files: baseFiles }, setup)
         : undefined;
       for (const { c, confirmed, head: atHead, base: atBase } of confirmRegressions(candidates, headRerun, baseRerun)) {
         const file = resolveCaseFile(c.file, headRoot) ?? c.file;

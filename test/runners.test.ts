@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RUNNERS, detectRunner, getRunner } from '../src/runners/registry.js';
 import { parseJUnit } from '../src/runners/junit.js';
-import { pytest } from '../src/runners/pytest.js';
+import { mapCheckoutPaths, pytest } from '../src/runners/pytest.js';
 import { vitest } from '../src/runners/vitest.js';
 import { linkNodeModules, makeRepo } from './helpers/repo.js';
 import { hasTool, requiredTools } from './helpers/toolchain.js';
@@ -127,6 +127,21 @@ describe('vitest runner', () => {
   });
 });
 
+describe('mapCheckoutPaths', () => {
+  it('maps sys.path entries inside the checkout onto the worktree, keeping order, dropping missing ones', () => {
+    const exists = (p: string) => p !== '/tmp/wt/packages/gone/src';
+    expect(
+      mapCheckoutPaths(
+        ['', '/usr/lib/python3.12', '/repo/packages/lib/src', '/repo/packages/gone/src', '/tmp/wt/src', '/repo', '/repo2/x'],
+        '/repo', '/tmp/wt', exists,
+      ),
+    ).toEqual(['/tmp/wt/packages/lib/src', '/tmp/wt']);
+  });
+  it('maps nothing when the worktree is the checkout', () => {
+    expect(mapCheckoutPaths(['/repo/src'], '/repo', '/repo', () => true)).toEqual([]);
+  });
+});
+
 describe.skipIf(!hasPytest)('pytest runner', () => {
   it('runs selected files and reports per-test outcomes', async () => {
     const { dir } = await makeRepo({
@@ -183,6 +198,26 @@ describe('pytest adapter without pytest installed', () => {
     expect(args).toEqual(expect.arrayContaining(['--rootdir', cwd, 'tests/test_a.py']));
     expect(args[args.indexOf('--rootdir') + 1]).toBe(cwd);
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
+  });
+
+  it('puts sys.path entries that point into the checkout, mapped onto the worktree, after the worktree entries', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const checkout = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const worktree = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    for (const top of [checkout, worktree]) await mkdir(join(top, 'packages/lib/src'), { recursive: true });
+    // The worktree's .venv is a symlink to the checkout's, so its site-packages already is the checkout's.
+    await mkdir(join(checkout, '.venv/lib/site-packages'), { recursive: true });
+    await symlink(join(checkout, '.venv'), join(worktree, '.venv'), 'dir');
+    const fake = join(tools, 'fake-python');
+    // Answers the sys.path probe with an editable install of a workspace member in the checkout.
+    const sysPath = JSON.stringify(['/usr/lib/python3.12', join(checkout, '.venv/lib/site-packages'), join(checkout, 'packages/lib/src')]);
+    await writeFile(fake, `#!/bin/sh\nif [ "$1" = "-c" ]; then echo '${sysPath}'; exit 0; fi\nprintf '%s' "$PYTHONPATH" > "${tools}/pythonpath"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    process.env.TRUSTBUT_PYTHON = fake;
+    process.env.PYTHONPATH = '/user/site';
+    await pytest.run({ cwd: worktree, worktree, checkout, files: ['tests/test_a.py'] });
+    const mapped = await realpath(join(worktree, 'packages/lib/src'));
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([worktree, mapped, '/user/site'].join(delimiter));
   });
 
   it('appends config args before the files and passes config env', async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -359,6 +359,37 @@ describe.skipIf(!hasPytest)('trustbut verify with pytest (end to end)', () => {
       ['tests/test_add.py', 'test_add', 'fail', 'proves-change'],
     ]);
     expect(receipt.verdict).toBe('pass');
+  }, 120_000);
+
+  it('PASS: a workspace member installed editable from the checkout is imported from the base worktree at base', async () => {
+    const { dir } = await makeRepo({
+      'pyproject.toml': '[tool.pytest.ini_options]\n',
+      'packages/lib/src/wslib/__init__.py': 'def double(x):\n    return x + x + 1\n',
+      'tests/test_old.py': 'def test_truth():\n    assert True\n',
+    });
+    await branch(dir, 'agent-change');
+    await writeFiles(dir, {
+      'packages/lib/src/wslib/__init__.py': 'def double(x):\n    return x + x\n',
+      'tests/test_double.py': 'from wslib import double\n\ndef test_double():\n    assert double(2) == 4\n',
+    });
+    await commitAll(dir, 'fix double');
+    // An editable install of the workspace member from the user's checkout, as uv/pip -e would write it.
+    const venv = await mkdtemp(join(tmpdir(), 'trustbut-venv-'));
+    await execa('python3', ['-m', 'venv', '--system-site-packages', venv]);
+    const { stdout: site } = await execa(join(venv, 'bin', 'python'), ['-c', 'import sysconfig; print(sysconfig.get_paths()["purelib"])']);
+    await writeFile(join(site.trim(), '_wslib.pth'), `${join(dir, 'packages/lib/src')}\n`);
+    const prev = process.env.TRUSTBUT_PYTHON;
+    process.env.TRUSTBUT_PYTHON = join(venv, 'bin', 'python');
+    try {
+      const { receipt } = await runVerify({ cwd: dir });
+      expect(receipt.proofs.map((p) => [p.file, p.name, p.before, p.verdict])).toEqual([
+        ['tests/test_double.py', 'test_double', 'fail', 'proves-change'],
+      ]);
+    } finally {
+      if (prev === undefined) delete process.env.TRUSTBUT_PYTHON;
+      else process.env.TRUSTBUT_PYTHON = prev;
+      await rm(venv, { recursive: true, force: true });
+    }
   }, 120_000);
 });
 
