@@ -26,9 +26,9 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
     { "file": "test/auth.test.ts", "name": "rejects expired token", "before": "pass", "after": "pass", "verdict": "does-not-constrain" }
   ],
   "findings": [
-    { "id": "test-passes-without-change", "severity": "warn", "title": "Test passes without the change", "file": "test/auth.test.ts", "detail": "rejects expired token" }
+    { "id": "change-not-proven", "severity": "warn", "title": "Nothing proves the change", "detail": "1 new or changed test, none fails without the change" }
   ],
-  "risks": [{ "file": "src/auth/session.ts", "score": 5, "reasons": ["auth/permissions", "has findings"] }],
+  "risks": [{ "file": "src/auth/session.ts", "score": 3, "reasons": ["auth/permissions"] }],
   "x-trustbut": { "runner": "vitest" }
 }
 ```
@@ -89,7 +89,7 @@ Core ids have a fixed meaning and match `[a-z0-9][a-z0-9-]*`. Producers SHOULD u
 | `test-config-changed` | `warn` | Test or coverage configuration changed. |
 | `escape-added` | `warn` | A type, lint, coverage, warning or safety escape was added (`as any`, `@ts-ignore`, `//nolint`, …). |
 | `no-tests-changed` | `warn` | Source changed but no tests were added or changed. |
-| `change-not-proven` | `warn` | The change's code is not proven by any new or changed test: no test changed, or none of the new or changed tests fails without the change. |
+| `change-not-proven` | `warn` | The change's code is not proven by any new or changed test: no test changed, no new or changed test was found in the changed test files, or none of the new or changed tests fails without the change. |
 | `no-test-results` | `warn` | The head run exited 0 but reported no test results. |
 | `test-passes-without-change` | `warn` | A new or changed test also passes at base, so it doesn't prove the change. |
 | `no-runner` | `warn` | No test runner was detected; tests were not rerun. |

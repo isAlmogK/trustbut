@@ -406,7 +406,7 @@ This is the core idea. Every new or changed test also runs against the **base** 
 | Before the change | After the change | Result |
 |---|---|---|
 | fails | passes | ✅ **Proves the change** |
-| passes | passes | ⚠️ **Passes without the change**: the test doesn't check the new behaviour |
+| passes | passes | **Passes without the change**: the test doesn't check the new behaviour. Listed in the receipt; the receipt warns only when no new or changed test proves the change |
 | — | fails | ✖️ **Fails at head** |
 | — | skipped | ⚠️ **Skipped** |
 | couldn't run (e.g. imports code that didn't exist yet) | passes | ✅ Counted, but marked as *couldn't run at base* |
@@ -421,7 +421,7 @@ This is the core idea. Every new or changed test also runs against the **base** 
 | Assertions removed (net count, including `self.assertEqual` style; lines added in another changed test file count as moved, cancelling at most as many removals as were added there) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
-| Nothing proves the change (code changed, no test fails without it) | ⚠️ WARN |
+| Nothing proves the change (code changed, and no test changed, no new or changed test was found in the changed test files, or none fails without the change) | ⚠️ WARN |
 
 ### 4. Escapes
 

@@ -23,14 +23,17 @@ A new core finding id, severity `warn`, added to agent receipts as spec version 
 
 Meaning: *the change's code is not proven by any new or changed test.*
 
-trustbut emits it (at most once per receipt, no `file`) when the code changed and:
+trustbut emits it (at most once per receipt, no `file`, first in the receipt's findings) when the code changed and:
 
 - **no test file was added, changed or deleted.** Detail: `no test added or changed`. Or
-- **test files changed, the proof run produced at least one proof, and no proof is `proves-change`** (a weak proof, a test that could not load at base, counts as proving). Detail: `N new or changed tests, none fails without the change` (`1 new or changed test, …` for one).
+- **test files changed but the proof run produced no proofs**, and the receipt has none of `no-runner`, `base-run-failed`, `proofs-unmatched`, `tests-outside-root`, `suite-failing`, `no-test-results` (those already say there is no evidence either way). This covers a change to a test helper only (kind `test`, not a named test file), a type-test-only change, and an existing test file edited without a test-definition line (`buildProofs` keeps no proof for it). Detail: `test files changed, but no new or changed test was found in them`. Or
+- **test files changed, the proof run produced at least one proof, no proof is `proves-change` and none is `failing`** (a weak proof, a test that could not load at base, counts as proving). Detail: `N new or changed tests, none fails without the change` (`1 new or changed test, …` for one).
 
-It is not emitted when test files changed but there are no proofs: the existing findings (`no-runner`, `base-run-failed`, `proofs-unmatched`, `tests-outside-root`, type-test-only changes) already say there is no evidence either way.
+It is not emitted while a new or changed test fails at head: `test-failing` (fail) already reports it, and whether the test proves the change is undecided until it passes.
 
-**The code changed** means: at least one file of kind `source` that is not deleted has an added or removed line whose lexed code part (`splitLine(line, lang).code`, comments and string contents removed) is not blank. A source file in a language outside the registry counts as changed when it has any added or removed line. So comment-only, blank-line-only and pure-rename changes do not count. String edits still count, because the lexer keeps string delimiters in the code part (`x = ''` is not blank).
+It is listed first among the findings, so it is never the item cut from the WARN `systemMessage` (3 titles), the agent feedback's warnings (`AGENT_MAX_WARN`) or length-trimmed feedback.
+
+**The code changed** means: at least one file of kind `source` that is not deleted has an added or removed line whose lexed code part (`splitLine(line, lang).code`, comments and string contents removed) is not blank. The lexer reads one line at a time, so a line inside a Python docstring (a string) counts as code. A source file in a language outside the registry counts as changed when it has any added or removed line. So comment-only, blank-line-only and pure-rename changes do not count. String edits still count, because the lexer keeps string delimiters in the code part (`x = ''` is not blank).
 
 trustbut **stops emitting** `test-passes-without-change` and `no-tests-changed`. Both stay in the catalog, the schema and the validator (other producers and older receipts remain valid). The per-test facts stay in `proofs` (`verdict: does-not-constrain`), and the Markdown line `New/changed tests` keeps counting them.
 
@@ -84,3 +87,15 @@ Differences from the design above:
 - **Move rule (2).** A removed line counts as moved only by consuming an identical trimmed line added in another changed test file, so a move cancels at most as many removals as were added elsewhere (the spec implied any match).
 - **pytest mapping (4).** The probe is `import sys; print('\0'.join(sys.path))` (not json). Relative and empty `sys.path` entries are ignored before `realpath`. Mapped paths that resolve back into the checkout (for example a symlinked `.venv`'s site-packages) are dropped, and mapped entries already on `PYTHONPATH` (worktree root, `src/`) are not repeated.
 - **Markdown proof line (5).** For one test it reads `**Proof:** 1 new/changed test proves the change ✅`.
+- **`change-not-proven` with a failing test (1).** The first build fired it when a new test failed at head (a `failing` proof is not `proves-change`), with the untrue detail `… none fails without the change`. It is now not emitted when any proof is `failing`.
+- **`change-not-proven` with no proofs (1).** The design left it out whenever test files changed and there were no proofs, on the assumption that another finding always says so. A helper-only, type-test-only or test-definition-free test change had no such finding, so the receipt passed silently. It now fires (detail `test files changed, but no new or changed test was found in them`) unless one of `no-runner`, `base-run-failed`, `proofs-unmatched`, `tests-outside-root`, `suite-failing`, `no-test-results` is present. `changeProofFindings` takes the receipt's other findings as a third argument.
+- **Order (1).** `change-not-proven` is the first finding in the receipt, before the static and proof-engine findings and `test-failing`.
+- **Docstrings.** `codeChanged` counts Python docstring edits as code (the per-line lexer sees them as strings). Stated in docs/SPEC.md and the changelog.
+
+## Needs
+
+[trustbut-index](https://github.com/isAlmogK/trustbut-index) counts receipts by family in `src/aggregate/families.ts`. Its `FAMILY_OF` maps only `test-passes-without-change` (proof gap) and `no-tests-changed` (untested change), so a 0.7.0 receipt counts 0 in both. Its own spec, written in that repo, must cover:
+
+- **Map `change-not-proven`.** With detail `no test added or changed` → untested change; otherwise → proof gap. Or merge both into one family.
+- **Version gate.** A family group never mixes 0.6 receipts (per-test `test-passes-without-change`, `no-tests-changed`) with 0.7 receipts (one `change-not-proven` per receipt): counts are per receipt in 0.7 and per test in 0.6.
+- **Preregistration.** Record the mapping and the gate in `PREREGISTRATION.md` as a deviation.
