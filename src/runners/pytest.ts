@@ -30,11 +30,21 @@ function pythonFor(cwd: string, top: string | undefined): string {
   return process.env.TRUSTBUT_PYTHON ?? 'python3';
 }
 
+const real = (p: string) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
 // The checkout's own code must win over an editable install of the user's checkout in a
 // symlinked .venv, so put the worktree (and its src/ layout dir) first on PYTHONPATH, then
-// `extra` (checkout paths mapped onto the worktree), then the inherited entries.
+// `extra` (checkout paths mapped onto the worktree, minus those already first), then the inherited entries.
 function pythonPath(cwd: string, inherited: string | undefined, extra: string[] = []): string {
-  return [existsSync(join(cwd, 'src')) ? join(cwd, 'src') : '', cwd, ...extra, inherited ?? ''].filter(Boolean).join(delimiter);
+  const lead = [existsSync(join(cwd, 'src')) ? join(cwd, 'src') : '', cwd].filter(Boolean);
+  const leadReal = lead.map(real);
+  return [...lead, ...extra.filter((p) => !leadReal.includes(real(p))), inherited ?? ''].filter(Boolean).join(delimiter);
 }
 
 const inside = (path: string, dir: string) => path === dir || path.startsWith(dir + sep);
@@ -51,20 +61,12 @@ export function mapCheckoutPaths(sysPath: string[], checkout: string, worktree: 
   return out;
 }
 
-const real = (p: string) => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-};
-
 /** The interpreter's sys.path (with this env), or [] when it can't be read. */
 async function sysPathOf(python: string, cwd: string, env: Record<string, string>): Promise<string[]> {
   try {
-    const { stdout } = await execa(python, ['-c', 'import json,sys; print(json.dumps(sys.path))'], { cwd, env, extendEnv: false, timeout: 30_000, stdin: 'ignore' });
-    const parsed: unknown = JSON.parse(stdout.trim().split('\n').pop() ?? '[]');
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    // Only the built-in `sys`: with the worktree first on PYTHONPATH, a repo's own `json.py` would shadow `json`.
+    const { stdout } = await execa(python, ['-c', "import sys; print('\\0'.join(sys.path))"], { cwd, env, extendEnv: false, timeout: 30_000, stdin: 'ignore' });
+    return (stdout.split('\n').pop() ?? '').split('\0');
   } catch {
     return [];
   }
@@ -75,9 +77,12 @@ async function sysPathOf(python: string, cwd: string, env: Record<string, string
 async function checkoutPathsFor(python: string, cwd: string, env: Record<string, string>, worktree?: string, checkout?: string): Promise<string[]> {
   if (!worktree || !checkout) return [];
   const top = real(checkout);
+  // Only absolute entries: '' (and any relative one) is the probe's working directory, and realpathing it here
+  // would resolve it against trustbut's own working directory, often inside the checkout.
+  const entries = (await sysPathOf(python, cwd, env)).filter((p) => p && isAbsolute(p)).map(real);
   // A mapped path that resolves back into the checkout (the symlinked .venv's site-packages) changes nothing,
   // and on PYTHONPATH it would sit ahead of the standard library.
-  return mapCheckoutPaths((await sysPathOf(python, cwd, env)).map(real), top, real(worktree)).filter((p) => !inside(real(p), top));
+  return mapCheckoutPaths(entries, top, real(worktree)).filter((p) => !inside(real(p), top));
 }
 
 export const pytest: Runner = {

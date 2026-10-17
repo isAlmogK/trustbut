@@ -200,24 +200,59 @@ describe('pytest adapter without pytest installed', () => {
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(cwd, 'src'), cwd, '/user/site'].join(delimiter));
   });
 
-  it('puts sys.path entries that point into the checkout, mapped onto the worktree, after the worktree entries', async () => {
-    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+  /** A fake python that answers the sys.path probe with `sysPath` (NUL-separated) and records PYTHONPATH for the run, then exits 5. */
+  async function probingPython(dir: string, sysPath: string[]): Promise<string> {
+    const fake = join(dir, 'fake-python');
+    await writeFile(fake, `#!/bin/sh\nif [ "$1" = "-c" ]; then printf '${sysPath.join('\\000')}\\n'; exit 0; fi\nprintf '%s' "$PYTHONPATH" > "${dir}/pythonpath"\nexit 5\n`);
+    await chmod(fake, 0o755);
+    return fake;
+  }
+
+  async function checkoutAndWorktree(...dirs: string[]) {
     const checkout = await mkdtemp(join(tmpdir(), 'ar-py-'));
     const worktree = await mkdtemp(join(tmpdir(), 'ar-py-'));
-    for (const top of [checkout, worktree]) await mkdir(join(top, 'packages/lib/src'), { recursive: true });
+    for (const top of [checkout, worktree]) for (const d of dirs) await mkdir(join(top, d), { recursive: true });
+    return { checkout, worktree };
+  }
+
+  it('puts sys.path entries that point into the checkout, mapped onto the worktree, after the worktree entries', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const { checkout, worktree } = await checkoutAndWorktree('packages/lib/src');
     // The worktree's .venv is a symlink to the checkout's, so its site-packages already is the checkout's.
     await mkdir(join(checkout, '.venv/lib/site-packages'), { recursive: true });
     await symlink(join(checkout, '.venv'), join(worktree, '.venv'), 'dir');
-    const fake = join(tools, 'fake-python');
-    // Answers the sys.path probe with an editable install of a workspace member in the checkout.
-    const sysPath = JSON.stringify(['/usr/lib/python3.12', join(checkout, '.venv/lib/site-packages'), join(checkout, 'packages/lib/src')]);
-    await writeFile(fake, `#!/bin/sh\nif [ "$1" = "-c" ]; then echo '${sysPath}'; exit 0; fi\nprintf '%s' "$PYTHONPATH" > "${tools}/pythonpath"\nexit 5\n`);
-    await chmod(fake, 0o755);
-    process.env.TRUSTBUT_PYTHON = fake;
+    // An editable install of a workspace member in the checkout.
+    process.env.TRUSTBUT_PYTHON = await probingPython(tools, ['/usr/lib/python3.12', join(checkout, '.venv/lib/site-packages'), join(checkout, 'packages/lib/src')]);
     process.env.PYTHONPATH = '/user/site';
     await pytest.run({ cwd: worktree, worktree, checkout, files: ['tests/test_a.py'] });
     const mapped = await realpath(join(worktree, 'packages/lib/src'));
     expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([worktree, mapped, '/user/site'].join(delimiter));
+  });
+
+  it("ignores the probe's relative sys.path entries, wherever trustbut was started", async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const { checkout, worktree } = await checkoutAndWorktree('packages/lib/src', 'sub');
+    // `python -c` puts '' (its working directory) first on sys.path.
+    process.env.TRUSTBUT_PYTHON = await probingPython(tools, ['', 'rel/dir', join(checkout, 'packages/lib/src')]);
+    process.env.PYTHONPATH = '/user/site';
+    const prevCwd = process.cwd();
+    process.chdir(join(checkout, 'sub'));
+    try {
+      await pytest.run({ cwd: worktree, worktree, checkout, files: ['tests/test_a.py'] });
+    } finally {
+      process.chdir(prevCwd);
+    }
+    const mapped = await realpath(join(worktree, 'packages/lib/src'));
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([worktree, mapped, '/user/site'].join(delimiter));
+  });
+
+  it('does not repeat the worktree src/ for a src-layout editable install', async () => {
+    const tools = await mkdtemp(join(tmpdir(), 'ar-py-'));
+    const { checkout, worktree } = await checkoutAndWorktree('src');
+    process.env.TRUSTBUT_PYTHON = await probingPython(tools, [join(checkout, 'src')]);
+    process.env.PYTHONPATH = '/user/site';
+    await pytest.run({ cwd: worktree, worktree, checkout, files: ['tests/test_a.py'] });
+    expect(await readFile(join(tools, 'pythonpath'), 'utf8')).toBe([join(worktree, 'src'), worktree, '/user/site'].join(delimiter));
   });
 
   it('appends config args before the files and passes config env', async () => {
