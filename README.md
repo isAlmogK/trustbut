@@ -421,7 +421,7 @@ This is the core idea. Every new or changed test also runs against the **base** 
 | Assertions removed (net count, including `self.assertEqual` style; lines added in another changed test file count as moved, cancelling at most as many removals as were added there) | ⚠️ WARN |
 | Snapshot changed or deleted | ⚠️ WARN |
 | Test or coverage config changed | ⚠️ WARN |
-| Nothing proves the change (code changed, and no test changed, no new or changed test was found in the changed test files, or none fails without the change) | ⚠️ WARN |
+| Nothing proves the change (code changed, and no test changed, no new or changed test that ran was found in the changed test files, or none fails without the change) | ⚠️ WARN |
 
 ### 4. Escapes
 

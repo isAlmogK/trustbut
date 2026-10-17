@@ -146,7 +146,7 @@ describe('trustbut verify (end to end)', () => {
     // The type test is a changed test file, so the detail is not "no test added or changed"; no runner runs it, so it proves nothing.
     expect(receipt.proofs).toEqual([]);
     expect(receipt.findings).toEqual([
-      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: 'test files changed, but no new or changed test was found in them' },
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: 'test files changed, but no new or changed test that ran was found in them' },
     ]);
     expect(receipt.verdict).toBe('warn');
   });

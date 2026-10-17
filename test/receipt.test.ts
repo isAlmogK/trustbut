@@ -75,7 +75,7 @@ describe('derived findings and verdict', () => {
 
   describe('changeProofFindings', () => {
     const NOT_PROVEN = { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change' };
-    const NO_TEST_FOUND = { ...NOT_PROVEN, detail: 'test files changed, but no new or changed test was found in them' };
+    const NO_TEST_FOUND = { ...NOT_PROVEN, detail: 'test files changed, but no new or changed test that ran was found in them' };
     const test = file('test/a.test.ts', 'test');
     const code = src('src/a.ts', ['x();']);
     it('fires when code changed and no test changed', () => {

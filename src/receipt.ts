@@ -41,8 +41,8 @@ const plural = (n: number) => `${n} new or changed test${n === 1 ? '' : 's'}`;
 const NO_EVIDENCE = new Set(['no-runner', 'base-run-failed', 'proofs-unmatched', 'tests-outside-root', 'suite-failing', 'no-test-results']);
 
 /**
- * `change-not-proven`: code changed, and no test changed, or test files changed but no new or changed test was found
- * in them, or none of the new or changed tests fails without the change. `others` are the receipt's other findings.
+ * `change-not-proven`: code changed, and no test changed, or test files changed but no new or changed test that ran
+ * was found in them, or none of the new or changed tests fails without the change. `others` are the receipt's other findings.
  */
 export function changeProofFindings(changes: ChangedFile[], proofs: TestProof[], others: Finding[]): Finding[] {
   if (!codeChanged(changes)) return [];
@@ -50,7 +50,7 @@ export function changeProofFindings(changes: ChangedFile[], proofs: TestProof[],
   if (!changes.some((c) => c.kind === 'test')) return finding('no test added or changed');
   if (!proofs.length) {
     if (others.some((f) => NO_EVIDENCE.has(f.id))) return [];
-    return finding('test files changed, but no new or changed test was found in them');
+    return finding('test files changed, but no new or changed test that ran was found in them');
   }
   // A test failing at head is reported by `test-failing`; whether it proves the change is undecided until it passes.
   if (proofs.some((p) => p.verdict === 'proves-change' || p.verdict === 'failing')) return [];
