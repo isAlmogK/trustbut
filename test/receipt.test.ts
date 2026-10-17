@@ -75,27 +75,43 @@ describe('derived findings and verdict', () => {
 
   describe('changeProofFindings', () => {
     const NOT_PROVEN = { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change' };
+    const NO_TEST_FOUND = { ...NOT_PROVEN, detail: 'test files changed, but no new or changed test was found in them' };
     const test = file('test/a.test.ts', 'test');
+    const code = src('src/a.ts', ['x();']);
     it('fires when code changed and no test changed', () => {
-      expect(changeProofFindings([src('src/a.ts', ['x();'])], [])).toEqual([{ ...NOT_PROVEN, detail: 'no test added or changed' }]);
+      expect(changeProofFindings([code], [], [])).toEqual([{ ...NOT_PROVEN, detail: 'no test added or changed' }]);
     });
     it('fires when tests changed and none proves the change', () => {
-      expect(changeProofFindings([src('src/a.ts', ['x();']), test], [proof('a', 'does-not-constrain'), proof('b', 'does-not-constrain')])).toEqual([
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'does-not-constrain')], [])).toEqual([
         { ...NOT_PROVEN, detail: '2 new or changed tests, none fails without the change' },
       ]);
-      expect(changeProofFindings([src('src/a.ts', ['x();']), test], [proof('a', 'skipped')])).toEqual([
+      expect(changeProofFindings([code, test], [proof('a', 'skipped')], [])).toEqual([
         { ...NOT_PROVEN, detail: '1 new or changed test, none fails without the change' },
       ]);
     });
     it('does not fire when a test proves the change, weakly or not', () => {
-      expect(changeProofFindings([src('src/a.ts', ['x();']), test], [proof('a', 'does-not-constrain'), proof('b', 'proves-change')])).toEqual([]);
-      expect(changeProofFindings([src('src/a.ts', ['x();']), test], [proof('a', 'proves-change', true)])).toEqual([]);
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'proves-change')], [])).toEqual([]);
+      expect(changeProofFindings([code, test], [proof('a', 'proves-change', true)], [])).toEqual([]);
     });
-    it('does not fire when tests changed but there are no proofs', () => {
-      expect(changeProofFindings([src('src/a.ts', ['x();']), test], [])).toEqual([]);
+    it('does not fire while a new or changed test fails at head (test-failing already says so)', () => {
+      expect(changeProofFindings([code, test], [proof('a', 'failing')], [])).toEqual([]);
+      expect(changeProofFindings([code, test], [proof('a', 'does-not-constrain'), proof('b', 'failing')], [])).toEqual([]);
     });
+    it('fires when only a test helper changed', () => {
+      expect(changeProofFindings([code, file('test/helpers.ts', 'test')], [], [])).toEqual([NO_TEST_FOUND]);
+    });
+    it('fires when a changed test file yields no proofs', () => {
+      expect(changeProofFindings([code, test], [], [])).toEqual([NO_TEST_FOUND]);
+    });
+    it.each(['no-runner', 'base-run-failed', 'proofs-unmatched', 'tests-outside-root', 'suite-failing', 'no-test-results'])(
+      'does not fire when tests changed, there are no proofs and the receipt has %s',
+      (id) => {
+        expect(changeProofFindings([code, test], [], [{ id, severity: 'warn', title: id }])).toEqual([]);
+      },
+    );
     it('does not fire when only comments changed', () => {
-      expect(changeProofFindings([src('src/a.ts', ['// doc'])], [])).toEqual([]);
+      expect(changeProofFindings([src('src/a.ts', ['// doc'])], [], [])).toEqual([]);
+      expect(changeProofFindings([src('src/a.ts', ['// doc']), test], [], [])).toEqual([]);
     });
   });
 
@@ -107,6 +123,26 @@ describe('derived findings and verdict', () => {
     });
     expect(r.findings.map((f) => f.id)).toEqual(['change-not-proven']);
     expect(r.verdict).toBe('warn');
+  });
+
+  it('buildReceipt lists change-not-proven first, before the other findings', () => {
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'vitest',
+      findings: [{ id: 'escape-added', severity: 'warn', title: 'Cast to any', file: 'src/a.ts' }],
+      changes: [src('src/a.ts', ['x();'])],
+      proofs: [],
+    });
+    expect(r.findings.map((f) => f.id)).toEqual(['change-not-proven', 'escape-added']);
+  });
+
+  it('buildReceipt passes its findings to change-not-proven', () => {
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: null,
+      findings: [{ id: 'no-runner', severity: 'warn', title: 'No supported test runner detected' }],
+      changes: [src('src/a.ts', ['x();']), file('test/a.test.ts', 'test')],
+      proofs: [],
+    });
+    expect(r.findings.map((f) => f.id)).toEqual(['no-runner']);
   });
 
   it('decides the verdict from the worst finding', () => {

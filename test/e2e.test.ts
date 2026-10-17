@@ -142,8 +142,13 @@ describe('trustbut verify (end to end)', () => {
     });
     const { receipt } = await runVerify({ cwd: dir });
     const ids = receipt.findings.map((f) => f.id);
-    for (const id of ['no-tests-changed', 'escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
-    expect(receipt.verdict).toBe('pass');
+    for (const id of ['escape-added', 'base-run-failed', 'proofs-unmatched']) expect(ids, id).not.toContain(id);
+    // The type test is a changed test file, so the detail is not "no test added or changed"; no runner runs it, so it proves nothing.
+    expect(receipt.proofs).toEqual([]);
+    expect(receipt.findings).toEqual([
+      { id: 'change-not-proven', severity: 'warn', title: 'Nothing proves the change', detail: 'test files changed, but no new or changed test was found in them' },
+    ]);
+    expect(receipt.verdict).toBe('warn');
   });
 
   it('no escape-added in files .gitattributes marks linguist-generated', async () => {
@@ -532,7 +537,7 @@ describe('trustbut verify with the generic command runner', () => {
     expect(pids.filter(alive)).toEqual([]);
   }, 120_000);
 
-  it('WARN: absolute JUnit file paths still pair base and head results (a test passing at base is caught)', async () => {
+  it('PASS: absolute JUnit file paths still pair base and head results (the new test is recorded as passing at base; no code changed)', async () => {
     const script = 'echo "<testsuite name=\\"s\\"><testcase name=\\"v\\" file=\\"$PWD/tests/test_v.py\\"/></testsuite>"';
     const { dir } = await makeRepo({ 'src/value.txt': 'old\n', 'tests/test_old.py': '# old\n', '.trustbut.json': JSON.stringify({ command: script }) });
     await branch(dir, 'agent-change');

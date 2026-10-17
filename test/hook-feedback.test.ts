@@ -130,6 +130,15 @@ describe('summarize (one line for systemMessage)', () => {
     expect(summarize(receipt([w('A'), w('B'), w('C'), w('D'), w('E')]))).toBe('A; B; C; and 2 more');
   });
 
+  it('WARN: a change nothing proves is never the title cut', () => {
+    const w = (title: string): Finding => ({ id: 'w', severity: 'warn', title });
+    const r = buildReceipt({
+      base: 'a'.repeat(40), head: 'b'.repeat(40), runner: 'command', proofs: [], findings: [w('A'), w('B'), w('C')],
+      changes: [{ path: 'src/a.ts', status: 'modified', kind: 'source', added: [{ line: 1, text: 'x();' }], removed: [] }],
+    });
+    expect(summarize(r)).toBe('Nothing proves the change; A; B; and 1 more');
+  });
+
   it('PASS: what ran and what the new tests prove', () => {
     const r = buildReceipt({
       base: 'a', head: 'b', runner: 'command', after: run([tc('a', 'pass'), tc('b', 'pass')]), changes: [], findings: [],
