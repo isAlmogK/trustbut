@@ -111,7 +111,7 @@ What this says so far:
 
 - **Agents didn't break suites or fake their tests in these PRs.** Their new tests were at least as likely as people's to test the change. Merged PRs have already been through CI and review, though, so this says little about what an agent does before it says "done". That's where the [agent hook](#use-it-with-your-agent) works, and it isn't measured yet.
 - **Most findings are true but don't need action.** In the 0.6.0 pilot, 71 findings were labeled: 5 were worth a reviewer acting on (7%), 57 were true but harmless, and 9 were wrong. All 5 useful ones said that nothing proved the change. 0.7.0 fixed the causes of the 9 wrong findings and made that one its headline, `change-not-proven`. The labels are drafts by Claude that no person has confirmed yet, and the labeler could see the code, so they weren't fully blind.
-- **trustbut ran on about half of the PRs.** Of the 92 it couldn't run, 78 failed to install the project's dependencies or toolchain in the study's runner 13 had no supported test runner, and 1 result is missing.
+- **trustbut ran on about half of the PRs.** Of the 92 it couldn't run, 78 failed to install the project's dependencies or toolchain in the study's runner, 13 had no supported test runner, and 1 result is missing.
 
 **Not measured yet:** whether `change-not-proven` findings are worth acting on, and whether the agent hook leads to better agent work.
 
