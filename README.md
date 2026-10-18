@@ -4,7 +4,7 @@
 
 ### Trust, but verify, for AI coding agents.
 
-**Your agent said it's done and the tests pass. trustbut shows you what's actually true.**
+**Your agent says it's done and the tests pass. Does anything actually prove the change?**
 
 [![npm](https://img.shields.io/npm/v/trustbut.svg)](https://www.npmjs.com/package/trustbut)
 [![CI](https://github.com/isAlmogK/trustbut/actions/workflows/ci.yml/badge.svg)](https://github.com/isAlmogK/trustbut/actions/workflows/ci.yml)
@@ -16,15 +16,15 @@
 
 🧾 *Verified by trustbut: pull requests to this repo carry its own trustbut receipt.*
 
-[Languages](#supported-languages) · [Why](#why-im-building-this) · [Field results](#field-results) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [Receipt format](#the-agent-receipts-format) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md) · [Sponsor](#sponsor) · [About me](#about-me)
+[Languages](#supported-languages) · [Why](#why-im-building-this) · [What we've measured](#what-weve-measured) · [Install](#install) · [Usage](#usage) · [Use it with your agent](#use-it-with-your-agent) · [Config](#configuration-trustbutjson) · [What it checks](#what-it-checks) · [Receipt format](#the-agent-receipts-format) · [CI](#use-it-in-ci) · [How it works](#how-it-works) · [FAQ](#faq) · [Roadmap](docs/ROADMAP.md) · [Sponsor](#sponsor) · [About me](#about-me)
 
 </div>
 
 ---
 
-trustbut is a local command-line tool that produces a **receipt** for any change an AI coding agent makes. It reruns your tests from scratch, checks whether the agent's new tests actually prove anything, and flags skipped tests, deleted assertions and silenced type checks. Then it gives you a **PASS / WARN / FAIL** verdict you can read in 30 seconds. Wired into your agent, it can also stop the agent from finishing while the receipt is FAIL, so it keeps fixing until the evidence holds up ([details](#use-it-with-your-agent)).
+trustbut is a local command-line tool that produces a **receipt** for a code change, whether an AI agent or a person wrote it. It reruns your tests in a clean checkout, runs every new or changed test against the code from before the change to see whether it fails there (if it passes either way, it doesn't test the change), and flags skipped tests, removed assertions and silenced type checks. Then it gives you a **PASS / WARN / FAIL** verdict. Wired into your agent, it can also stop the agent from finishing while the receipt is FAIL, so it keeps fixing until the evidence holds up ([details](#use-it-with-your-agent)).
 
-It works with **any agent** (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) and **every major language** (JavaScript/TypeScript, Python, Go, Rust, Java, Kotlin, C#, Ruby, PHP, Dart/Flutter and Swift) because it only needs git and your test runner. No LLM, no server, no account. Your code never leaves your machine.
+It works with **any agent** (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot) and **11 languages** (JavaScript/TypeScript, Python, Go, Rust, Java, Kotlin, C#, Ruby, PHP, Dart/Flutter and Swift) because it only needs git and your test runner. No LLM, no server, no account. Your code never leaves your machine.
 
 ```console
 $ npx trustbut verify
@@ -73,7 +73,7 @@ trustbut detects the right runner automatically, including in monorepo subfolder
 
 AI agents now write a large share of the code I ship. Writing it is no longer the slow part. **Checking it is.**
 
-Agents are good, and they are also confidently *almost right*. An agent reports "all tests pass" while the suite is red. It adds a test that would pass with or without its change. It skips the one test that was failing, or casts to `any` to make a type error go away. None of this is malicious; it's what happens when a system is optimised to finish the task. But it means every "done" needs checking, and reading the diff alone won't show what actually ran.
+When an agent says "done, all tests pass", that's the agent reporting on its own work. Reading the diff doesn't show what actually ran, or whether the new tests would fail if the change were wrong. I wanted a check from outside the agent that answers those two questions with evidence, not with another model's opinion.
 
 The data says I'm not alone:
 
@@ -81,29 +81,43 @@ The data says I'm not alone:
 - In 2025, **66%** of developers named "almost right, but not quite" as their top frustration with AI tools ([InfoWorld on the 2025 survey](https://infoworld.com/article/4031673/ai-use-among-software-developers-grows-but-trust-remains-an-issue-stack-overflow-survey.html)).
 - Armin Ronacher put it well in [The Final Bottleneck](https://lucumr.pocoo.org/2026/2/13/the-final-bottleneck/): generating code is now cheaper than reviewing it, and the human stays accountable.
 
-The labs see the same thing in their own models:
+The labs have also reported their models gaming tests in agentic coding:
 
 - Anthropic's [Claude 3.7 Sonnet system card](https://www.anthropic.com/claude-3-7-sonnet-system-card) reports the model special-casing tests, and sometimes modifying them, to make them pass in agentic coding environments like Claude Code. The [Claude 4 system card](https://www.anthropic.com/claude-4-system-card) reports this much reduced, but still present.
-- OpenAI's [research on monitoring reasoning models](https://arxiv.org/abs/2503.11926) caught a model exiting early or skipping unit tests to look green. When the training pushed hard against this, the model learned to "hide their intent while continuing to misbehave."
-- [METR](https://metr.org/blog/2025-06-05-recent-reward-hacking/) found frontier models patching the grading and scoring code of their evaluations, and [ImpossibleBench](https://arxiv.org/abs/2510.20270) now measures how often models exploit tests on tasks that can't be solved honestly.
+- OpenAI's [research on monitoring reasoning models](https://arxiv.org/abs/2503.11926) caught a model exiting early or skipping unit tests to look green.
+- [METR](https://metr.org/blog/2025-06-05-recent-reward-hacking/) found frontier models patching the grading and scoring code of their evaluations, and [ImpossibleBench](https://arxiv.org/abs/2510.20270) measures how often models exploit tests on tasks that can't be solved honestly.
 
-These shortcuts get rarer as models improve, but they don't go away, and they get harder to spot by reading the agent's own account of what it did. That makes a deterministic check from outside the agent more useful, not less.
+That's why trustbut also flags skipped tests, removed assertions and silenced checks. But in my own measurement of 201 real pull requests, merged agent work rarely showed these behaviours (see [What we've measured](#what-weve-measured)). The question that holds up is the plainer one: does anything prove this change?
 
-The existing tools don't close the gap. AI code reviewers read the diff and comment, but they never rerun anything. Agent vendors are adding their own checks, but a vendor grading its own agent is a weak audit, and most teams use more than one agent anyway. Even a perfect agent is still the one reporting on its own work: compilers almost never miscompile, and we still run CI.
+AI code reviewers read the diff and comment, but they don't rerun anything. A vendor checking its own agent is a weak audit, and most teams use more than one agent. So trustbut is **independent, deterministic and local**: it doesn't ask an AI whether the code looks right. It runs things and reports what it found.
 
-So I want something **independent, deterministic and local**: evidence, not opinions. trustbut doesn't ask an AI whether the code looks right. It runs things and reports what is true.
+## What we've measured
 
-## Field results
+I'm measuring whether trustbut is useful, in the open, in [trustbut-index](https://github.com/isAlmogK/trustbut-index). It runs trustbut on real merged pull requests from established open-source projects: PRs written by agents (Copilot, Codex, Claude Code, Cursor, Devin, Jules) and, as a control, PRs written by people in the same projects. These are pilot results, not the final study.
 
-Before releasing, I ran trustbut on the repos of [DogBase](https://www.dogbase.co), my own app. Nothing dramatic turned up, and that's the point: these are the quiet gaps a diff review doesn't show.
+**trustbut 0.7.0 on 201 pull requests:**
 
-| Repo | Verdict | What the receipt showed |
+| | Agent PRs | Human PRs |
 |---|---|---|
-| Mobile app (Expo, Jest, 543 tests) | WARN | 299 of the branch's 306 new or changed tests failed before the change and passed after it. **7 passed with or without the change**, so they prove nothing about this branch. They may be fine regression tests, or padding that makes the change look better tested than it is. You can't tell from the diff; you can from the receipt. |
-| Firebase Cloud Functions (Vitest, 320 tests) | WARN | Two new `eslint-disable-next-line` comments silencing a lint rule. |
-| Web app (SvelteKit, Vitest, 3,168 tests) | FAIL | A fix commit with no test, and 5 failing tests caused by a dependency declared in `package.json` but missing from the local install. That second finding became the `deps-not-installed` warning. |
+| trustbut could run the tests | 53 of 103 | 56 of 98 |
+| A test that passed before the change fails after it¹ | 0 of 53 | 0 of 56 |
+| New or changed tests that fail without the change, so they test it | 275 of 283 (97%) | 294 of 333 (88%) |
+| PRs with any finding | 12 of 53 | 15 of 56 |
+| PRs where nothing proves the change (`change-not-proven`) | 6 of 53 | 7 of 56 |
 
-Every finding was real, and two of them changed the product. Have a run of your own? [Open an issue](https://github.com/isAlmogK/trustbut/issues) with what the receipt found, or missed.
+¹ 18 of the 109 runs had a failing test with no result from before the change, so this count is a lower bound.
+
+What this says so far:
+
+- **Agents didn't break suites or fake their tests in these PRs.** Their new tests were at least as likely as people's to test the change. Merged PRs have already been through CI and review, though, so this says little about what an agent does before it says "done". That's where the [agent hook](#use-it-with-your-agent) works, and it isn't measured yet.
+- **Most findings are true but don't need action.** In the 0.6.0 pilot, 71 findings were labeled: 5 were worth a reviewer acting on (7%), 57 were true but harmless, and 9 were wrong. All 5 useful ones said that nothing proved the change. 0.7.0 fixed the causes of the 9 wrong findings and made that one its headline, `change-not-proven`. The labels are drafts by Claude that no person has confirmed yet, and the labeler could see the code, so they weren't fully blind.
+- **trustbut ran on about half of the PRs.** Of the 92 it couldn't run, 78 failed to install the project's dependencies or toolchain in the study's runner 13 had no supported test runner, and 1 result is missing.
+
+**Not measured yet:** whether `change-not-proven` findings are worth acting on, and whether the agent hook leads to better agent work.
+
+On my own repos ([DogBase](https://www.dogbase.co)), receipts found a fix commit with no test, 7 new tests that passed with or without their change, two new `eslint-disable` lines, and a dependency missing from the local install, which became the `deps-not-installed` warning.
+
+Have a run of your own? [Open an issue](https://github.com/isAlmogK/trustbut/issues) with what the receipt found, or missed.
 
 ## Install
 
@@ -114,9 +128,6 @@ Every finding was real, and two of them changed the product. Have a run of your 
 ```bash
 npx trustbut verify
 ```
-
-> [!NOTE]
-> trustbut 0.3.0 is being published to npm. Until 0.3.0 is on npm, run it straight from GitHub instead (the build happens automatically): `npx github:isAlmogK/trustbut verify`.
 
 **Install globally:**
 
@@ -205,7 +216,7 @@ trustbut verify --json > receipt.json
 trustbut can run itself at the end of every agent turn, so a FAIL receipt never reaches you as "done".
 
 > [!NOTE]
-> The commands below assume `trustbut` is installed globally (`npm i -g trustbut`). Until 0.3.0 is on npm, the plugin and the `init` hooks need `trustbut` on your PATH: install it with `npm i -g github:isAlmogK/trustbut`, or run `npx github:isAlmogK/trustbut init <agent>` instead of `trustbut init <agent>`.
+> The commands below assume `trustbut` is installed globally (`npm i -g trustbut`).
 
 **What happens**
 
@@ -413,6 +424,8 @@ This is the core idea. Every new or changed test also runs against the **base** 
 
 ### 3. Test integrity
 
+These findings and the escapes below are things to scan, not verdicts: in the [pilot](#what-weve-measured), most of them were true but harmless.
+
 | Finding | Severity |
 |---|---|
 | Test focused (`it.only`, `describe.only`, `fit`, `fdescribe`, RSpec `focus: true`, Dart `solo: true`) | ✖️ FAIL |
@@ -463,9 +476,6 @@ The schema is [`spec/agent-receipt-v1.schema.json`](spec/agent-receipt-v1.schema
 ## Use it in CI
 
 The trustbut GitHub Action adds a receipt to your pull requests: a sticky comment (updated in place on each push), the receipt in the job summary, and a failed job on FAIL.
-
-> [!NOTE]
-> `@v0` resolves after the first release (until 0.3.0 is on npm and the `v0.3.0` Release exists). Until then pin `isAlmogK/trustbut@v0.3.0` (once that tag exists). Before anything is published, `isAlmogK/trustbut@main` works only with `version: local`, which builds the action's own checkout.
 
 ```yaml
 # .github/workflows/trustbut.yml
@@ -549,7 +559,13 @@ All of them. trustbut verifies the *result* (your git history and your tests), s
 <details>
 <summary><b>Is it a replacement for code review?</b></summary>
 
-No. It's the evidence you want *before* a review: did the tests really run, do the new tests prove anything, and what got silenced. It points your attention at the right files so a human review takes minutes, not an hour.
+No. It's evidence to have *before* a review: did the tests really run, does any new or changed test prove the change, and what got silenced. The "Review these first" list points at the files that deserve attention. It doesn't judge whether the change is correct or well designed.
+</details>
+
+<details>
+<summary><b>Do agents actually cheat on tests?</b></summary>
+
+Rarely, in merged pull requests. On 201 real PRs, no agent PR made a passing test fail, and 97% of agents' new or changed tests failed without the change, against 88% for people's (see [What we've measured](#what-weve-measured)). Lab reports show models do game tests during agentic work, which is what the hook checks before the agent says "done"; how often that catches something isn't measured yet.
 </details>
 
 <details>
@@ -577,7 +593,8 @@ From "trust, but verify." Agents are genuinely useful, so keep trusting them, bu
 - **v0.2 (done):** every language, a runner registry and `.trustbut.json`, `--working`
 - **v0.3 (done, released as 0.3.x on npm):** the GitHub Action with a sticky PR comment, hooks that stop an agent from saying "done" on a red receipt (Claude Code, Codex, Gemini CLI, OpenCode), and the npm release
 - **v0.4 (done):** the receipt format as an open spec ([agent receipts v1](spec/agent-receipt-v1.md)) with stable finding ids, and `trustbut validate`
-- **v0.5:** an agent test-honesty index, measured on real agent pull requests
+- **0.5 to 0.7 (released):** `test-regressed` confirmed by a rerun, less noise from the pilot, and `change-not-proven` as the headline finding
+- **Agent test-honesty index (study in progress):** measuring trustbut on real agent and human pull requests in [trustbut-index](https://github.com/isAlmogK/trustbut-index); first results are in [What we've measured](#what-weve-measured)
 - **Later:** transcripts and claim checks, mutation testing on changed lines, `trustbut compare`, a local web UI
 
 See the full [roadmap](docs/ROADMAP.md) and the [design spec](docs/SPEC.md).
